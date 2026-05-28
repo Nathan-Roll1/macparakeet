@@ -2,9 +2,12 @@
 
 > Status: ACTIVE PLAN
 > Date: 2026-05-27
-> Scope: speaker diarization accuracy, speaker-to-word attribution, correction
-> UX, and local diagnostics. This is separate from the meeting echo-suppression
-> plan, which targets audio bleed into the microphone path.
+> Review: revised after ChatGPT Pro review to reduce overengineering and avoid
+> brittle heuristics.
+> Scope: speaker diarization accuracy, speaker-to-word attribution, local
+> diagnostics, and minimal speaker-label provenance. This is separate from the
+> meeting echo-suppression plan, which targets audio bleed into the microphone
+> path.
 
 ## Problem
 
@@ -15,18 +18,18 @@ The remaining quality gap is narrower:
 
 - remote speakers inside `Others` can be collapsed, over-split, swapped, or
   attached to the wrong words
-- the app has no local diagnostic artifact that explains whether a bad result
-  came from diarizer clustering, timestamp reconciliation, or UI labeling
 - known speaker counts are not passed into FluidAudio even though the pinned
   offline pipeline supports them
 - word-to-speaker reconciliation is strict-overlap only, so small ASR/diarizer
-  timestamp drift can leave words unlabeled or assigned too coarsely
-- speaker rename is label-only; it does not preserve assignment provenance,
-  raw provider identity, or a reversible participant/person mapping
+  timestamp drift can leave system words source-only
+- the app has no content-free report for a fresh diarization run
+- speaker rename is label-only; it does not record whether a label came from
+  the model default or a user correction
 
 The goal is not to replace the local diarizer by default. The goal is to make
-MacParakeet use the best available local-first diarization path and wrap it in
-better constraints, reconciliation, diagnostics, and correction primitives.
+MacParakeet use the best available local-first diarization path by adding
+constraints, conservative reconciliation, and honest diagnostics around the
+current FluidAudio offline pipeline.
 
 ## Verified Current State
 
@@ -40,17 +43,19 @@ better constraints, reconciliation, diagnostics, and correction primitives.
   - `numSpeakers`
   - `minSpeakers`
   - `maxSpeakers`
-- FluidAudio applies those constraints inside the offline VBx clustering path
-  before reconstruction.
+- FluidAudio resolves those constraints inside the offline VBx clustering path,
+  and may clamp them to the available embedding count. A requested hint is not
+  proof that the result is correct.
 - `TranscriptionService.transcribeMeetingAudio` diarizes only the system WAV
   and maps results into source-prefixed IDs such as `system:S1`.
 - `MeetingTranscriptFinalizer` keeps microphone words as `microphone` / `Me`
   and only refines system words when system diarization exists.
 - `SpeakerMerger.mergeWordTimestampsWithSpeakers` assigns speaker IDs by max
-  direct overlap only. No overlap means no speaker assignment.
+  direct overlap only. No overlap leaves the original word speaker/source
+  unchanged.
 - `SpeakerInfo` currently stores only `{ id, label }`. Renaming a speaker
   updates the `speakers` JSON but does not store whether the label came from
-  the model default, the user, a participant hint, or some future provider.
+  the model default or the user.
 
 ## Non-Goals
 
@@ -62,8 +67,13 @@ better constraints, reconciliation, diagnostics, and correction primitives.
   `2026-05-meeting-neural-echo-suppression.md`.
 - Do not replace the current `Me` / `Others` source model. Improve it by
   splitting and labeling `Others` better.
-- Do not make speaker identity biometric or cross-meeting by default in this
-  pass.
+- Do not make speaker identity biometric or cross-meeting by default.
+- Do not add user-facing quality profiles until local evidence shows which
+  FluidAudio knobs are worth exposing.
+- Do not ship a stored-meeting `diarization-report` command until raw diarizer
+  output and assignment summaries are persisted. Current stored
+  `diarizationSegments` are word-derived display segments, not raw provider
+  output.
 
 ## Design Principles
 
@@ -72,107 +82,53 @@ better constraints, reconciliation, diagnostics, and correction primitives.
    Diarization refines the remote channel; it does not decide who is `Me`.
 
 2. Treat diarization output as evidence, not final truth.
-   Raw model speaker IDs, user-facing labels, and user/participant assignments
-   should be separable.
+   Raw model speaker IDs, source IDs, user-facing labels, and assignment
+   methods must not be collapsed into one ambiguous concept.
 
-3. Make quality observable locally.
-   A bad result should produce a content-free report showing whether the failure
-   is likely speaker count, clustering, timestamp reconciliation, or missing
-   speech coverage.
+3. Prefer no speaker assignment over a confident wrong assignment.
+   The reconciliation fallback must be conservative and ambiguity-aware.
 
-4. Use known speaker counts when available.
-   Exact speaker count is a real clustering constraint. Participant counts are
-   useful hints but must remain overrideable and non-authoritative.
+4. Make fresh-run quality observable without pretending to know ground truth.
+   Reports should expose requested hints, detected counts, assignment method
+   counts, and coverage symptoms. They should not claim to diagnose clustering
+   vs timestamp drift unless raw state proves that distinction.
 
 5. Keep corrections reversible.
-   User speaker assignments should not rewrite words or destroy raw diarizer
-   IDs.
+   User labels should not rewrite words or destroy raw diarizer IDs.
 
-## Phase 0: Diarization Quality Report
+## Phase 0: Tighten Speaker Identity Helpers
 
-Add a local diagnostic artifact before changing behavior. This gives every
-later change a measurable before/after.
+Before adding options or reports, centralize the source-prefixed ID behavior so
+future code does not rely on scattered string prefix checks.
 
-### Core Types
-
-Add a lightweight report model in Core:
+Add a small Core helper:
 
 ```swift
-public struct DiarizationQualityReport: Codable, Sendable, Equatable {
-    public var source: Transcription.SourceType
-    public var audioDurationMs: Int?
-    public var diarizer: DiarizerRunSummary?
-    public var wordAssignment: WordSpeakerAssignmentSummary
-    public var speakers: [SpeakerQualitySummary]
-    public var warnings: [DiarizationQualityWarning]
+enum SpeakerID {
+    static func systemSpeaker(_ stableID: String) -> String
+    static func source(for speakerID: String?) -> AudioSource?
+    static func isSourceOnly(_ speakerID: String?) -> Bool
 }
 ```
 
-The report must not include transcript text, audio paths, URLs, speaker names,
-or raw word content.
+Rules:
 
-### Metrics
+- `"microphone"` maps to `.microphone`
+- `"system"` maps to `.system`
+- `"system:<stable-id>"` maps to `.system`
+- plain `"S1"` is valid for non-meeting file/URL diarization but has no
+  meeting source unless explicitly wrapped by the meeting path
 
-Capture at least:
-
-- diarizer model/config summary:
-  - FluidAudio version if discoverable
-  - clustering threshold
-  - `numSpeakers` / `minSpeakers` / `maxSpeakers`
-  - `exclusiveSegments`
-- detected speaker count
-- diarization segment count
-- segment count per speaker
-- speaking time per speaker
-- median and minimum segment duration
-- speaker switches per minute
-- total words
-- words with speaker ID
-- words assigned by direct overlap
-- words assigned by fallback
-- words left unassigned
-- longest unassigned gap
-- system words that remained `system` after system diarization
-- meeting-only source coverage:
-  - mic word count
-  - system word count
-  - system diarized word coverage
-
-### Warnings
-
-Emit deterministic warnings such as:
-
-- `expectedMultipleSpeakersButDetectedOne`
-- `detectedSpeakerCountOutsideHint`
-- `highUnassignedWordRate`
-- `highFallbackAssignmentRate`
-- `excessiveShortSegments`
-- `excessiveSpeakerSwitchRate`
-- `systemDiarizationLowCoverage`
-
-### Surfaces
-
-Start with local developer/user-requested surfaces:
-
-1. `macparakeet-cli meetings diarization-report <id> --json`
-   - computes from stored transcript metadata
-   - does not re-run STT or diarization
-2. `macparakeet-cli transcribe ... --diarization-report <path>`
-   - writes the report for a fresh file/URL transcription
-3. Debug log line after meeting finalization:
-   - warning names only
-   - counts only
-   - no transcript content
+This keeps the current storage shape but makes the source-vs-speaker convention
+searchable and testable.
 
 ### Tests
 
-- Report builder unit tests over synthetic words/segments.
-- Meeting report tests for:
-  - no diarization
-  - clean two-speaker system diarization
-  - one detected remote speaker when hint says two
-  - words left as raw `system`
-  - high short-segment churn
+- microphone source ID
+- system source-only ID
+- system diarized ID
+- plain file speaker ID
+- nil ID
 
 ## Phase 1: Speaker Count Hints
 
@@ -180,12 +136,17 @@ Wire speaker-count constraints into the local offline pipeline.
 
 ### Public Core API
 
-Add an explicit options object:
+Add only the option we need now:
 
 ```swift
 public struct DiarizationOptions: Sendable, Equatable {
     public var speakerCountHint: SpeakerCountHint?
-    public var qualityProfile: DiarizationQualityProfile
+
+    public static let `default` = Self()
+
+    public init(speakerCountHint: SpeakerCountHint? = nil) {
+        self.speakerCountHint = speakerCountHint
+    }
 }
 
 public struct SpeakerCountHint: Sendable, Codable, Equatable {
@@ -195,49 +156,66 @@ public struct SpeakerCountHint: Sendable, Codable, Equatable {
 }
 ```
 
-Validation rules:
+Do not add `qualityProfile` yet. That would create API surface before the
+evaluation harness proves which profile knobs matter.
+
+### Validation
 
 - all values must be positive
-- `exact` overrides `minimum` / `maximum`
-- if `minimum > maximum`, fail fast at the MacParakeet boundary rather than
-  silently clamping user intent
-- meeting hints describe remote/system speakers only, not total participants
+- `exact` cannot be combined with `minimum` or `maximum`
+- `minimum <= maximum` when both are provided
+- meeting hints describe remote/system speakers only, not total attendees
 
-Extend `DiarizationServiceProtocol` to accept options while keeping a defaulted
-compatibility overload:
+Fail fast at the MacParakeet boundary when user intent is invalid. Do not rely
+on FluidAudio's internal clamping as user-facing validation.
+
+### Protocol Shape
+
+Change the protocol so options cannot be silently ignored:
 
 ```swift
-func diarize(audioURL: URL, options: DiarizationOptions) async throws
-    -> MacParakeetDiarizationResult
+public protocol DiarizationServiceProtocol: Sendable {
+    func diarize(
+        audioURL: URL,
+        options: DiarizationOptions
+    ) async throws -> MacParakeetDiarizationResult
+}
+
+public extension DiarizationServiceProtocol {
+    func diarize(audioURL: URL) async throws -> MacParakeetDiarizationResult {
+        try await diarize(audioURL: audioURL, options: .default)
+    }
+}
 ```
 
-### Manager Construction
-
-The current `DiarizationService` stores one manager with one immutable config.
-Speaker-count hints require one of these shapes:
-
-1. Build a new `OfflineDiarizerManager` per distinct resolved config while
-   reusing the same model cache directory.
-2. Add a small manager factory/cache keyed by normalized `DiarizationOptions`.
-
-Prefer the factory/cache if repeated meeting retranscribes become common. For
-the first implementation, a per-run manager is acceptable if model preparation
-is still cached on disk and measured by the quality report.
+Do not add a default implementation of the options-taking method that calls the
+old method. That would allow mocks or alternate services to ignore hints while
+tests still pass.
 
 ### Config Mapping
 
-Map `SpeakerCountHint` to:
+Preserve the injected base config. Do not rebuild from
+`OfflineDiarizerConfig.Clustering.community`, because that would discard any
+custom config passed to `DiarizationService.init(config:)`.
 
 ```swift
-var clustering = OfflineDiarizerConfig.Clustering.community
-clustering.numSpeakers = hint.exact
-clustering.minSpeakers = hint.minimum
-clustering.maxSpeakers = hint.maximum
-let config = OfflineDiarizerConfig(clustering: clustering)
+var config = baseConfig
+if let hint = options.speakerCountHint {
+    if let exact = hint.exact {
+        config.clustering.numSpeakers = exact
+        config.clustering.minSpeakers = nil
+        config.clustering.maxSpeakers = nil
+    } else {
+        config.clustering.numSpeakers = nil
+        config.clustering.minSpeakers = hint.minimum
+        config.clustering.maxSpeakers = hint.maximum
+    }
+}
 ```
 
-Preserve existing default values for segmentation, embedding, VBx, and
-post-processing unless an explicit quality profile changes them.
+The first implementation can construct a new `OfflineDiarizerManager` per run.
+If profiling shows repeated model reloads are costly, add a small manager cache
+later keyed only by normalized speaker-count hints.
 
 ### CLI
 
@@ -251,86 +229,174 @@ Add file/URL transcription flags:
 
 Rules:
 
-- require speaker detection to be enabled, or enable it implicitly with a clear
-  CLI help description
-- reject `--speakers` combined with `--min-speakers` / `--max-speakers`
-- include hints in JSON output metadata when `--diarization-report` is used
+- these flags imply speaker detection for the run
+- reject `--speakers` combined with `--min-speakers` or `--max-speakers`
+- reject invalid bounds before any transcription starts
+- include requested hints in the fresh-run report
 
 ### Meeting UI
 
-Add meeting-level expected remote speaker count only after the Core/CLI path is
-validated:
+Defer meeting UI for speaker-count hints until the Core/CLI path has evidence.
+Users may enter attendee count instead of active remote speaker count; the UI
+needs careful wording and should not be part of the first implementation.
 
-- default: automatic
-- optional exact remote speaker count
-- optional min/max remote speaker range
-- calendar attendees can prefill a suggestion but cannot silently force it
+## Phase 2: Conservative Word-to-Speaker Assignment
 
-## Phase 2: Word-to-Speaker Reconciliation
-
-Replace strict overlap-only assignment with a measured reconciliation step.
-
-### Algorithm
-
-Create a `SpeakerWordAssigner` that returns both words and stats:
+Replace `SpeakerMerger` with a pure assigner that returns both words and
+assignment stats.
 
 ```swift
 public struct SpeakerWordAssignmentResult: Sendable, Equatable {
     public var words: [WordTimestamp]
     public var summary: WordSpeakerAssignmentSummary
 }
+
+public struct WordSpeakerAssignmentSummary: Codable, Sendable, Equatable {
+    public var totalWords: Int
+    public var directOverlapWords: Int
+    public var fallbackNearestWords: Int
+    public var sourceOnlyWords: Int
+    public var unassignedWords: Int
+    public var fallbackToleranceMs: Int
+    public var ambiguityMarginMs: Int
+}
 ```
 
-Assignment order:
+### Assignment Method
+
+Track assignment method separately from final `speakerId`.
+
+```swift
+public enum WordSpeakerAssignmentMethod: String, Codable, Sendable {
+    case directOverlap
+    case fallbackNearest
+    case sourceOnly
+    case unassigned
+}
+```
+
+Do not infer assignment quality from `speakerId != nil`. In meetings,
+`speakerId = "system"` means source-only attribution, not a diarized speaker.
+
+### Algorithm
 
 1. Direct max-overlap segment wins.
-2. If no overlap, use nearest diarization segment only when the word midpoint is
-   within a conservative tolerance.
-3. Leave the word unassigned when the nearest segment is too far away.
+2. If there is no overlap, compute interval boundary gap to nearby diarization
+   segments.
+3. Fallback only if:
+   - best gap is within tolerance
+   - candidate is unambiguous
+   - assignment does not cross source boundaries
+4. Leave meeting words source-only when the nearest candidates are ambiguous or
+   too far away.
 
-Initial fallback tolerance:
+Use interval boundary gap, not midpoint distance:
 
-- 500 ms for file/URL transcription
-- 500 ms for meeting system-track reconciliation
-- do not bridge across source IDs
-- do not assign microphone words from system diarization
+```swift
+if word.endMs <= segment.startMs {
+    gap = segment.startMs - word.endMs
+} else if segment.endMs <= word.startMs {
+    gap = word.startMs - segment.endMs
+} else {
+    gap = 0
+}
+```
 
-The tolerance should be configurable in tests and reportable in diagnostics,
-not exposed as a user setting initially.
+Initial conservative defaults:
 
-### Why This Matters
+- fallback tolerance: 250 ms
+- ambiguity margin: 150 ms
 
-ASR word timestamps and diarization segments are generated by different model
-paths. Small boundary drift should not turn otherwise-good diarization into
-missing speaker labels.
+These values must be injectable in tests and recorded in reports. Do not expose
+them in the general UI.
+
+### Finalizer Safety
+
+Before true unassigned/source-only handling lands, fix
+`MeetingTranscriptFinalizer.buildDiarizationSegments` so a leading unassigned
+word does not cause all later segments to be dropped. It should start from the
+first word that has a displayable speaker/source ID.
 
 ### Tests
 
-Extend `SpeakerMergerTests` or replace them with `SpeakerWordAssignerTests`:
-
-- exact overlap still wins
+- exact overlap wins
 - nearest-before fallback within tolerance
 - nearest-after fallback within tolerance
 - no fallback across large gaps
-- no fallback when segments are empty
-- tie handling remains deterministic
-- summary counts direct/fallback/unassigned words
+- no fallback when two different speakers are close
+- no fallback across microphone/system boundaries
+- source-only meeting words are counted as source-only, not assigned
+- output ordering is deterministic when word start times tie
+- leading unassigned/source-only words do not drop later segments
 
-## Phase 3: Speaker Assignment Overlay
+## Phase 3: Fresh-Run Diarization Report
 
-Improve correction and export quality without pretending the model is perfect.
+Add a content-free report for fresh transcriptions only. Do not add
+`meetings diarization-report <id>` until raw diarization segments and assignment
+summaries are persisted.
 
-### Data Model
+### Core Type
 
-Keep existing speaker IDs stable, but extend the stored speaker metadata with
-optional provenance. The smallest compatible path is to extend `SpeakerInfo`
-with optional fields:
+```swift
+public struct DiarizationQualityReport: Codable, Sendable, Equatable {
+    public var transcriptionSourceType: Transcription.SourceType
+    public var diarizedAudioSource: AudioSource?
+    public var requestedSpeakerHint: SpeakerCountHint?
+    public var detectedSpeakerCount: Int
+    public var rawDiarizationSegmentCount: Int
+    public var segmentsPerSpeaker: [String: Int]
+    public var speakingTimeMsPerSpeaker: [String: Int]
+    public var assignmentSummary: WordSpeakerAssignmentSummary
+    public var warnings: [DiarizationQualityWarning]
+}
+```
+
+The report must not include transcript text, audio paths, URLs, speaker names,
+or raw word content.
+
+### Initial Warnings
+
+Warnings should name observable symptoms, not root-cause claims:
+
+- `speakerCountBelowHint`
+- `speakerCountAboveHint`
+- `lowSystemDiarizedCoverage`
+- `highFallbackAssignmentRate`
+- `highSourceOnlyWordRate`
+
+Each warning should include the threshold used in the report payload. Avoid
+warnings such as `excessiveSpeakerSwitchRate` until a local fixture set proves
+that the metric is useful. Rapid speaker switching may be real conversation.
+
+### CLI Surface
+
+Start with:
+
+```text
+macparakeet-cli transcribe ... --diarization-report <path>
+```
+
+This report is computed while the fresh raw diarizer output and assignment
+summary are still in memory.
+
+Defer:
+
+```text
+macparakeet-cli meetings diarization-report <id>
+```
+
+That command requires persistence changes first.
+
+## Phase 4: Minimal Speaker Label Provenance
+
+Keep current inline rename behavior, but record where labels came from.
+
+Extend `SpeakerInfo` with optional fields only:
 
 ```swift
 public enum SpeakerLabelSource: String, Codable, Sendable {
     case modelDefault
     case user
-    case participantHint
 }
 
 public struct SpeakerInfo: Codable, Sendable, Equatable {
@@ -339,42 +405,28 @@ public struct SpeakerInfo: Codable, Sendable, Equatable {
     public var source: AudioSource?
     public var rawProviderSpeakerId: String?
     public var labelSource: SpeakerLabelSource?
-    public var assignedParticipantId: String?
-    public var assignedParticipantName: String?
 }
 ```
 
-Because `speakers` is JSON and the new fields are optional, this can be
-backward-compatible with existing rows. If later needs exceed simple metadata,
-add a dedicated `speakerAssignments` JSON column instead of overloading
-`SpeakerInfo`.
+Because `speakers` is JSON and new fields are optional, this can remain
+backward-compatible with existing rows.
 
-### Behavior
+Behavior:
 
-- Model-created speakers use `labelSource = .modelDefault`.
-- User rename sets `labelSource = .user`.
-- Participant suggestion sets `labelSource = .participantHint` only after user
-  confirmation.
-- Raw speaker IDs remain stable even after labels change.
-- Exports use display labels but JSON output includes raw IDs and provenance.
+- model-created speakers use `labelSource = .modelDefault`
+- user rename sets `labelSource = .user`
+- raw provider IDs remain stable even after labels change
+- exports continue to use display labels
+- JSON output can expose raw IDs and label provenance
 
-### UI
+Defer participant assignment fields and UI. There is no shown participant model
+to anchor them cleanly, names can become stale, and participant identity is a
+separate layer from speaker label provenance.
 
-Keep the current inline rename path, then add a small assignment menu:
+## Phase 5: Private Evaluation Harness
 
-- `Rename`
-- `Assign to participant`
-- `Clear assignment`
-
-Do not auto-assign attendees to diarized speakers. Suggest only when the user
-has enough context to confirm.
-
-## Phase 4: Evaluation Harness
-
-Add a repeatable local evaluation path before tuning clustering thresholds or
+Add a repeatable local evaluation path before tuning thresholds or exposing
 quality profiles.
-
-### Fixtures
 
 Support private, untracked fixtures:
 
@@ -382,93 +434,75 @@ Support private, untracked fixtures:
 fixtures/private/diarization/
   two-remote-speakers/
     system.wav
-    expected.json        # optional coarse expectations
-    reference.rttm       # optional, if available
+    expected.json
+    reference.rttm       # optional, only when real labels exist
 ```
 
-Keep real meeting audio out of git.
+`expected.json` can start coarse:
 
-### Harness
+```json
+{
+  "expectedRemoteSpeakers": 2,
+  "maxSourceOnlyWordRate": 0.15,
+  "notes": "Two speakers, no overlap"
+}
+```
 
-Add a developer command or script that can:
+The harness should:
 
-- run the same audio through default config
+- run default config
 - run exact/min/max speaker-count variants
-- run threshold variants around the current default
 - emit `DiarizationQualityReport` for each run
 - compute DER/JER only when an RTTM reference is present
 
-The useful first comparison is not a huge benchmark. It is a small repeatable
-set of MacParakeet-realistic failures:
+Do not treat expected speaker count as a benchmark. It is a coarse symptom
+check, not ground truth.
 
-- two remote speakers
-- three or more remote speakers
-- similar-sounding remote speakers
-- overlapping speech
-- late-joining speaker
-- long meeting with topic changes
+## Deferred Work
 
-## Phase 5: Quality Profiles
+These are intentionally not in the first implementation:
 
-Only after Phase 0-4 are in place, consider named local quality profiles.
-
-Potential profiles:
-
-- `balanced`: current FluidAudio defaults
-- `precise`: lower segmentation step ratio and lower minimum segment duration
-  when the user wants best quality over speed
-- `fast`: current defaults or future embedding skip strategy if reports show
-  minimal quality loss
-
-Do not expose raw clustering threshold, VBx priors, or segmentation internals in
-the general UI. Keep those in developer tooling unless repeated evidence shows a
-real user-facing need.
-
-## Optional Future: External Benchmark Mode
-
-External/cloud diarization can be useful as a benchmark, but it is not part of
-the default product path.
-
-If pursued later:
-
-- require a separate ADR
-- require explicit user opt-in per run or provider configuration
-- never enable from calendar, meeting type, or speaker count automatically
-- persist provider/model provenance
-- compare against local FluidAudio on the same audio before deciding whether any
-  product integration is worth the privacy and operational cost
+- user-facing quality profiles
+- raw clustering threshold or VBx tuning UI
+- meeting-level expected speaker count UI
+- participant assignment menu
+- `assignedParticipantName` or participant fields on `SpeakerInfo`
+- stored-meeting `diarization-report` without persisted raw diarizer output
+- cloud/provider diarization productization
 
 ## Implementation Order
 
-1. `DiarizationQualityReport` builder and tests.
-2. `DiarizationOptions` / `SpeakerCountHint` Core API.
-3. Speaker-count config plumbing into `DiarizationService`.
-4. CLI flags for file/URL transcription speaker hints.
-5. `SpeakerWordAssigner` with direct/fallback/unassigned stats.
-6. Meeting system-track reconciliation uses `SpeakerWordAssigner`.
-7. JSON/report surfaces expose content-free quality metrics.
-8. Optional meeting UI for expected remote speaker count.
-9. `SpeakerInfo` provenance extension and user assignment behavior.
-10. Private fixture harness and local evaluation script.
-11. Quality profiles only after reports show which knobs matter.
+1. Add `SpeakerID` helper and tests for source-prefixed speaker IDs.
+2. Add `DiarizationOptions` with `SpeakerCountHint` only.
+3. Change `DiarizationServiceProtocol` so options cannot be silently ignored.
+4. Map hints onto a copy of the injected base config.
+5. Add CLI `--speakers`, `--min-speakers`, and `--max-speakers`.
+6. Replace `SpeakerMerger` with `SpeakerWordAssigner`.
+7. Use conservative, ambiguity-aware fallback assignment for system diarization.
+8. Fix `buildDiarizationSegments` for leading source-only/unassigned words.
+9. Add fresh-run `--diarization-report <path>`.
+10. Extend `SpeakerInfo` minimally with source/raw-ID/label-source metadata.
+11. Add the private fixture harness.
+12. Reconsider stored-meeting reports and quality profiles only after raw state
+    and fixtures exist.
 
 ## Acceptance Criteria
 
-1. A known two-remote-speaker meeting can be transcribed with an exact remote
-   speaker count hint, and the report records that hint.
-2. A bad diarization run produces a local report that distinguishes at least
-   these failure classes:
-   - wrong detected speaker count
-   - low word assignment coverage
-   - excessive speaker switching
-   - raw `system` words left after system diarization
-3. The word assignment step reports direct, fallback, and unassigned counts.
-4. Speaker rename remains backward-compatible with existing transcripts.
-5. User-assigned labels are stored as user corrections, not confused with raw
-   model speaker IDs.
-6. Calendar or participant metadata never silently asserts speaker identity.
-7. No transcript text, audio path, URL, or speaker label is added to telemetry.
-8. Existing diarization behavior remains the default when no hints are supplied.
+1. A known two-remote-speaker file can be transcribed with `--speakers 2`, and
+   the fresh-run report records the requested hint and detected speaker count.
+2. Invalid speaker hint combinations fail before transcription starts.
+3. Existing no-hint behavior remains the default.
+4. Word assignment reports direct, fallback, source-only, and unassigned counts.
+5. Fallback assignment refuses ambiguous nearby speakers.
+6. Meeting microphone words are never assigned from system diarization.
+7. A leading source-only/unassigned word does not drop later diarization
+   segments.
+8. Speaker rename remains backward-compatible with existing transcripts and sets
+   `labelSource = .user` for renamed speakers.
+9. No transcript text, audio path, URL, or speaker label is added to telemetry
+   or diagnostic logs.
+10. The first report surface is fresh-run only; stored-meeting reports are not
+    shipped until raw diarizer state is persisted.
 
 ## Verification Plan
 
@@ -488,8 +522,9 @@ Manual validation:
 
 1. Transcribe a local multi-speaker file with no hints.
 2. Transcribe the same file with `--speakers 2`.
-3. Compare report warnings, speaker count, assignment coverage, and switch rate.
-4. Retranscribe a meeting with isolated `system.m4a` and confirm the hint applies
-   only to remote/system speakers.
-5. Rename or assign a speaker and confirm exports show the display label while
-   JSON still preserves the raw speaker ID.
+3. Compare requested hint, detected speaker count, assignment coverage, and
+   source-only rate.
+4. Retranscribe a meeting with isolated `system.m4a` and confirm the hint
+   applies only to remote/system speakers.
+5. Rename a speaker and confirm exports show the display label while JSON still
+   preserves the raw speaker ID and label source.
