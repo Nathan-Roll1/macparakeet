@@ -2,8 +2,8 @@
 
 > Status: ACTIVE PLAN
 > Date: 2026-05-27
-> Review: revised after ChatGPT Pro review to reduce overengineering and avoid
-> brittle heuristics.
+> Review: revised after two ChatGPT Pro reviews and local fresh-eye review to
+> reduce overengineering and avoid brittle heuristics.
 > Scope: speaker diarization accuracy, speaker-to-word attribution, local
 > diagnostics, and minimal speaker-label provenance. This is separate from the
 > meeting echo-suppression plan, which targets audio bleed into the microphone
@@ -166,12 +166,19 @@ evaluation harness proves which profile knobs matter.
 - `minimum <= maximum` when both are provided
 - meeting hints describe remote/system speakers only, not total attendees
 
-Fail fast at the MacParakeet boundary when user intent is invalid. Do not rely
-on FluidAudio's internal clamping as user-facing validation.
+Validation belongs in Core, not only in the CLI or future UI. Call the Core
+validator from `DiarizationService.diarize(audioURL:options:)` before manager
+creation so every caller gets the same guardrail.
+
+Fail fast when user intent is invalid. Do not rely on FluidAudio's internal
+clamping as user-facing validation.
 
 ### Protocol Shape
 
-Change the protocol so options cannot be silently ignored:
+Extend the existing protocol so options cannot be silently ignored. Keep the
+existing model lifecycle methods (`prepareModels`, `isReady`, `hasCachedModels`)
+on the protocol; the important change is that the options-taking `diarize`
+method is the required method.
 
 ```swift
 public protocol DiarizationServiceProtocol: Sendable {
@@ -179,6 +186,10 @@ public protocol DiarizationServiceProtocol: Sendable {
         audioURL: URL,
         options: DiarizationOptions
     ) async throws -> MacParakeetDiarizationResult
+
+    func prepareModels(onProgress: (@Sendable (String) -> Void)?) async throws
+    func isReady() async -> Bool
+    func hasCachedModels() async -> Bool
 }
 
 public extension DiarizationServiceProtocol {
@@ -213,9 +224,34 @@ if let hint = options.speakerCountHint {
 }
 ```
 
-The first implementation can construct a new `OfflineDiarizerManager` per run.
-If profiling shows repeated model reloads are costly, add a small manager cache
-later keyed only by normalized speaker-count hints.
+### Manager Ownership
+
+The current service stores one immutable manager. Speaker-count hints require a
+manager/config refactor, not only an extra argument.
+
+Prefer this first-pass shape:
+
+```swift
+private let baseConfig: OfflineDiarizerConfig
+private let makeManager: @Sendable (OfflineDiarizerConfig) -> any OfflineDiarizerManaging
+```
+
+For each run:
+
+1. validate `DiarizationOptions`
+2. copy `baseConfig`
+3. apply speaker-count hints
+4. create a manager from the resolved config
+5. call `prepareModels(at:)` on that manager before processing
+
+Do not rely on the actor's old `modelsReady` flag for newly-created managers.
+Disk cache can make model loading cheap, but a fresh manager still needs to be
+prepared. If profiling later shows per-run manager creation is too slow, add a
+small cache keyed only by normalized speaker-count hints. Do not key a cache by
+full `OfflineDiarizerConfig` unless the config is made intentionally `Hashable`.
+
+Tests should use a spy factory to prove exact/min/max hints reach the resolved
+FluidAudio config.
 
 ### CLI
 
@@ -242,8 +278,9 @@ needs careful wording and should not be part of the first implementation.
 
 ## Phase 2: Conservative Word-to-Speaker Assignment
 
-Replace `SpeakerMerger` with a pure assigner that returns both words and
-assignment stats.
+Add a pure assigner that returns both words and assignment stats. Keep
+`SpeakerMerger` as a temporary compatibility wrapper if needed, but route new
+production code through `SpeakerWordAssigner`.
 
 ```swift
 public struct SpeakerWordAssignmentResult: Sendable, Equatable {
@@ -310,6 +347,44 @@ Initial conservative defaults:
 These values must be injectable in tests and recorded in reports. Do not expose
 them in the general UI.
 
+### Source Policy
+
+Keep the first assigner source-scoped rather than asking it to reason over a
+mixed microphone/system word list.
+
+Meeting system-track call shape:
+
+```swift
+assign(
+    words: systemWords,
+    segments: systemSegments,
+    sourceOnlySpeakerId: AudioSource.system.rawValue
+)
+```
+
+File/URL call shape:
+
+```swift
+assign(
+    words: words,
+    segments: diarizationSegments,
+    sourceOnlySpeakerId: nil
+)
+```
+
+Behavior:
+
+- meeting no assignment -> keep `speakerId = "system"` and count
+  `.sourceOnly`
+- file/URL no assignment -> keep `speakerId = nil` and count `.unassigned`
+- microphone words are never passed to a system diarization assignment call
+
+### Tie Handling
+
+Direct-overlap ties are ambiguous. If two different speakers have the same
+maximum overlap for a word, leave the word source-only/unassigned rather than
+using array order as a hidden tie-breaker.
+
 ### Finalizer Safety
 
 Before true unassigned/source-only handling lands, fix
@@ -325,6 +400,7 @@ first word that has a displayable speaker/source ID.
 - no fallback across large gaps
 - no fallback when two different speakers are close
 - no fallback across microphone/system boundaries
+- direct-overlap tie leaves a word source-only/unassigned
 - source-only meeting words are counted as source-only, not assigned
 - output ordering is deterministic when word start times tie
 - leading unassigned/source-only words do not drop later segments
@@ -354,6 +430,22 @@ public struct DiarizationQualityReport: Codable, Sendable, Equatable {
 The report must not include transcript text, audio paths, URLs, speaker names,
 or raw word content.
 
+### Assignment Summary Flow
+
+Do not recompute assignment counts from final `speakerId` values. That would
+reintroduce the source-vs-speaker ambiguity this plan is removing.
+
+Thread the `WordSpeakerAssignmentSummary` produced by `SpeakerWordAssigner`
+through the fresh transcription path while raw diarizer output is still in
+memory. For meetings, the internal finalized result can carry:
+
+```swift
+let wordSpeakerAssignmentSummary: WordSpeakerAssignmentSummary?
+```
+
+The stored transcript does not need to persist this in the first pass unless a
+stored-meeting report is added later.
+
 ### Initial Warnings
 
 Warnings should name observable symptoms, not root-cause claims:
@@ -367,6 +459,23 @@ Warnings should name observable symptoms, not root-cause claims:
 Each warning should include the threshold used in the report payload. Avoid
 warnings such as `excessiveSpeakerSwitchRate` until a local fixture set proves
 that the metric is useful. Rapid speaker switching may be real conversation.
+
+Use a structured warning payload, not an enum-only list:
+
+```swift
+public struct DiarizationQualityWarning: Codable, Sendable, Equatable {
+    public var kind: DiarizationQualityWarningKind
+    public var observed: Double
+    public var threshold: Double
+    public var denominator: String?
+}
+```
+
+Define denominators explicitly:
+
+- `highFallbackAssignmentRate = fallbackNearestWords / eligibleDiarizedWords`
+- `highSourceOnlyWordRate = sourceOnlyWords / totalSystemWords`
+- `lowSystemDiarizedCoverage = diarizedSystemWords / totalSystemWords`
 
 ### CLI Surface
 
@@ -418,6 +527,24 @@ Behavior:
 - raw provider IDs remain stable even after labels change
 - exports continue to use display labels
 - JSON output can expose raw IDs and label provenance
+
+`rawProviderSpeakerId` should preserve the actual upstream FluidAudio ID when
+available, for example `speaker_0`, not merely MacParakeet's stable display ID
+`S1`. `DiarizationService` already sees the raw-to-stable mapping, so this
+metadata should be attached there before meeting code wraps IDs as `system:S1`.
+
+Meeting wrapping should be an explicit adapter, not incidental string assembly:
+
+```swift
+static func systemDiarization(from result: MacParakeetDiarizationResult)
+    -> MeetingTranscriptFinalizer.SystemDiarization
+```
+
+That adapter should transform speaker IDs and segments together:
+
+- `S1` -> `system:S1`
+- `SpeakerInfo.source = .system`
+- `rawProviderSpeakerId` remains the original FluidAudio speaker ID when known
 
 Defer participant assignment fields and UI. There is no shown participant model
 to anchor them cleanly, names can become stale, and participant identity is a
@@ -472,19 +599,32 @@ These are intentionally not in the first implementation:
 
 ## Implementation Order
 
-1. Add `SpeakerID` helper and tests for source-prefixed speaker IDs.
-2. Add `DiarizationOptions` with `SpeakerCountHint` only.
-3. Change `DiarizationServiceProtocol` so options cannot be silently ignored.
-4. Map hints onto a copy of the injected base config.
-5. Add CLI `--speakers`, `--min-speakers`, and `--max-speakers`.
-6. Replace `SpeakerMerger` with `SpeakerWordAssigner`.
-7. Use conservative, ambiguity-aware fallback assignment for system diarization.
-8. Fix `buildDiarizationSegments` for leading source-only/unassigned words.
-9. Add fresh-run `--diarization-report <path>`.
-10. Extend `SpeakerInfo` minimally with source/raw-ID/label-source metadata.
-11. Add the private fixture harness.
-12. Reconsider stored-meeting reports and quality profiles only after raw state
-    and fixtures exist.
+Implement in small PR-sized slices:
+
+1. Speaker ID and hint plumbing:
+   - add `SpeakerID` helper and tests for source-prefixed speaker IDs
+   - add `DiarizationOptions` with `SpeakerCountHint` only
+   - add Core-level hint validation
+   - change `DiarizationServiceProtocol` so options cannot be silently ignored
+   - refactor `DiarizationService` to use `baseConfig` plus manager factory
+   - map hints onto a copy of the injected base config
+   - add CLI `--speakers`, `--min-speakers`, and `--max-speakers`
+2. Word assignment:
+   - add `SpeakerWordAssigner`
+   - keep `SpeakerMerger` as a compatibility wrapper if needed
+   - use conservative, ambiguity-aware fallback assignment for system diarization
+   - fix `buildDiarizationSegments` for leading source-only/unassigned words
+   - thread assignment summaries through fresh-run internals
+3. Fresh-run report:
+   - add `--diarization-report <path>`
+   - use structured warning payloads with explicit denominators
+4. Minimal speaker provenance:
+   - extend `SpeakerInfo` with source/raw-ID/label-source metadata
+   - add explicit meeting system-diarization adapter
+5. Private fixture harness:
+   - keep this separate from the basic hint/assigner/report implementation
+6. Reconsider stored-meeting reports and quality profiles only after raw state
+   and fixtures exist.
 
 ## Acceptance Criteria
 
@@ -497,11 +637,16 @@ These are intentionally not in the first implementation:
 6. Meeting microphone words are never assigned from system diarization.
 7. A leading source-only/unassigned word does not drop later diarization
    segments.
-8. Speaker rename remains backward-compatible with existing transcripts and sets
-   `labelSource = .user` for renamed speakers.
-9. No transcript text, audio path, URL, or speaker label is added to telemetry
+8. Direct-overlap ties between different speakers are treated as ambiguous.
+9. `DiarizationService` validates hints in Core and tests prove resolved hints
+   reach the FluidAudio config.
+10. Meeting system diarization wraps segments and speakers through one adapter,
+    preserving raw provider speaker IDs where available.
+11. Speaker rename remains backward-compatible with existing transcripts and sets
+    `labelSource = .user` for renamed speakers.
+12. No transcript text, audio path, URL, or speaker label is added to telemetry
    or diagnostic logs.
-10. The first report surface is fresh-run only; stored-meeting reports are not
+13. The first report surface is fresh-run only; stored-meeting reports are not
     shipped until raw diarizer state is persisted.
 
 ## Verification Plan
@@ -509,7 +654,7 @@ These are intentionally not in the first implementation:
 Targeted first pass:
 
 ```bash
-swift test --filter 'DiarizationServiceTests|SpeakerMergerTests|TranscriptionServiceTests|TranscriptSegmenterTests'
+swift test --filter 'DiarizationServiceTests|SpeakerWordAssignerTests|SpeakerMergerTests|TranscriptionServiceTests|TranscriptSegmenterTests'
 ```
 
 Before merging implementation:
