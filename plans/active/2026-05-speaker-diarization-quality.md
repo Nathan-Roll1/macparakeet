@@ -265,10 +265,38 @@ Add file/URL transcription flags:
 
 Rules:
 
-- these flags imply speaker detection for the run
+- these flags imply speaker detection for the run when speaker detection is
+  `app-default`
+- reject speaker-count flags combined with explicit `--speaker-detection off`
+  or `--no-diarize`
 - reject `--speakers` combined with `--min-speakers` or `--max-speakers`
 - reject invalid bounds before any transcription starts
 - include requested hints in the fresh-run report
+
+### Transcription Integration Surface
+
+Thread per-run diarization options through `TranscriptionService` explicitly;
+do not read them from global state or stash them on the service instance.
+
+Add a small result-bearing path for fresh runs that need diagnostics:
+
+```swift
+public struct TranscriptionRunOptions: Sendable, Equatable {
+    public var diarizationOptions: DiarizationOptions
+    public var includeDiarizationReport: Bool
+}
+
+public struct TranscriptionRunResult: Sendable {
+    public var transcription: Transcription
+    public var diarizationQualityReport: DiarizationQualityReport?
+}
+```
+
+Existing UI/protocol methods can keep returning `Transcription` by calling the
+options-taking path with defaults and discarding the report. The CLI should use
+the result-bearing path when speaker-count hints or `--diarization-report` are
+present. Do not persist the report on `Transcription` or in the database in the
+first pass.
 
 ### Meeting UI
 
@@ -519,6 +547,18 @@ public struct SpeakerInfo: Codable, Sendable, Equatable {
 
 Because `speakers` is JSON and new fields are optional, this can remain
 backward-compatible with existing rows.
+
+Keep the existing source-compatible initializer shape:
+
+```swift
+public init(
+    id: String,
+    label: String,
+    source: AudioSource? = nil,
+    rawProviderSpeakerId: String? = nil,
+    labelSource: SpeakerLabelSource? = nil
+)
+```
 
 Behavior:
 
