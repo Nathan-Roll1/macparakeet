@@ -287,3 +287,56 @@ Run focused VM tests, then full `swift test`.
 
 - Default selection: **Dictation** (assumed modal intent). Revisit once
   `onboarding_use_case_selected` data lands.
+
+## Handoff (Phase 1)
+
+For the agent picking this up.
+
+**Read first:** this plan top-to-bottom, `spec/adr/005-onboarding-first-run.md`,
+and the `README.md` in any `Sources/MacParakeetCore/<subsystem>/` you touch (per
+CLAUDE.md). The Design section has the file:line references.
+
+**Scope — Phase 1 only. Do NOT pull Phase 2 (lazy diarization) forward.**
+
+1. Add `OnboardingViewModel.UseCase` (`dictation`/`meetings`/`everything`) +
+   observable `useCase` property + `selectUseCase(_:)`, persisted under
+   `onboarding.useCase`, default `.dictation`. (Design §1.)
+2. Insert `Step.useCase` after `.welcome` — raw values are ephemeral, so this is
+   safe. (Design §2.)
+3. Convert `visibleSteps` from **static** to **instance**, gating accessibility/
+   hotkey on `includesDictation` and meetingRecording/calendar on
+   `includesMeetings` (+ existing `AppFeatures` flags). Update call sites:
+   `goNext`/`goBack` and `OnboardingFlowView.swift:55`. (Design §3.)
+4. Build the `useCaseStep` UI — 3 selectable rows, pre-select Dictation, tap
+   selects / Continue advances, footnotes name the permissions each sets up.
+   (Design §4.)
+5. Tailor `doneStep` per use-case. (Design §5.)
+6. Add `.useCase` arms to **every** exhaustive `Step` switch listed in §2.
+7. Add the `onboarding_use_case_selected` telemetry event. **Two-repo change:**
+   also add it to `ALLOWED_EVENTS` in
+   `macparakeet-website/functions/api/telemetry.ts` and **deploy that before**
+   the app build ships — the Worker rejects the whole batch on an unknown event
+   name. (Design §6.)
+
+**Leave model downloads untouched** — diarization stays on the critical path for
+all three use cases in Phase 1.
+
+**Load-bearing safety contract (Design §7):** pruning is only safe because every
+un-chosen feature self-prompts for its permission later — Transcribe meeting tile
+→ screen-recording prompt; Settings/pill → accessibility; Settings → calendar.
+**Verify each works.** If one does not self-prompt, closing that gap is in
+Phase 1 scope.
+
+**Tests:** extend `Tests/MacParakeetTests/ViewModels/OnboardingViewModelTests.swift`
+per the Testing section — ViewModel/logic only, no SwiftUI view tests. Run focused
+VM tests, then full `swift test`.
+
+**Docs on completion:** ADR-005 amendment, `spec/02-features.md` + `spec/README.md`
+progress, new `REQ-ONB-001` in `spec/kernel/requirements.yaml`, traceability map,
+then archive this plan to `plans/completed/`.
+
+**For the user, not the agent:** default selection is Dictation — revisit from
+telemetry, don't change it unprompted.
+
+**Do not touch** unrelated in-flight work in the tree (dictation-stall plan,
+`MeetingVADLatencyBenchmark.swift`, silent-buffer plan).
