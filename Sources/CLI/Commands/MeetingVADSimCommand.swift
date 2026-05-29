@@ -35,6 +35,11 @@ struct MeetingVADSimCommand: AsyncParsableCommand {
         let batchSamples = max(1, batchMs) * 16  // 16 samples per ms @ 16kHz
 
         let samples = try MeetingVADChunkingSimulator.loadSamples16k(url: url)
+        let level = amplitude(samples)
+        if !json {
+            print(String(format: "audio level     : peak=%@ dBFS  rms=%@ dBFS  (%@)",
+                         dbfsString(level.peakDbfs), dbfsString(level.rmsDbfs), loudnessVerdict(level.rmsDbfs)))
+        }
 
         var reports: [MeetingVADChunkingSimulator.Report] = []
         for m in modes {
@@ -48,6 +53,36 @@ struct MeetingVADSimCommand: AsyncParsableCommand {
             for report in reports { printHuman(report) }
             if reports.count > 1 { printComparison(reports) }
         }
+    }
+
+    private func amplitude(_ samples: [Float]) -> (peakDbfs: Double, rmsDbfs: Double) {
+        var peak: Float = 0
+        var sumSquares: Double = 0
+        for s in samples {
+            let a = abs(s)
+            if a > peak { peak = a }
+            sumSquares += Double(s) * Double(s)
+        }
+        let rms = samples.isEmpty ? 0 : (sumSquares / Double(samples.count)).squareRoot()
+        let peakDbfs = peak > 0 ? 20 * log10(Double(peak)) : -.infinity
+        let rmsDbfs = rms > 0 ? 20 * log10(rms) : -.infinity
+        return (peakDbfs, rmsDbfs)
+    }
+
+    private func dbfsString(_ v: Double) -> String {
+        v.isFinite ? String(format: "%.1f", v) : "-inf"
+    }
+
+    /// Rough interpretation so "0 chunks" is unambiguous: is the file actually
+    /// silent, or is VAD missing audible speech? Keyed on RMS, not peak — a
+    /// single click/notification hits a high peak on an otherwise silent track,
+    /// so peak alone would mislabel silence as "normal level". Sustained speech
+    /// lands around −30…−20 dBFS RMS; −45 and below carries no real speech.
+    private func loudnessVerdict(_ rmsDbfs: Double) -> String {
+        if !rmsDbfs.isFinite || rmsDbfs < -55 { return "silent — no sustained speech" }
+        if rmsDbfs < -45 { return "near-silent" }
+        if rmsDbfs < -30 { return "quiet speech" }
+        return "active speech"
     }
 
     private func parseModes() throws -> [MeetingVADChunkingSimulator.Mode] {
