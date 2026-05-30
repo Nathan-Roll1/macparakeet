@@ -61,6 +61,7 @@ final class MeetingRecordingFlowCoordinator {
     private var microphoneMuteToggleTask: Task<Void, Never>?
     private var autoDismissTask: Task<Void, Never>?
     private var pillPollingTask: Task<Void, Never>?
+    private var pillGlowPollingTask: Task<Void, Never>?
     private var transcriptObservationTask: Task<Void, Never>?
     private var speechWarmUpObservationTask: Task<Void, Never>?
     private var activeFlowSettlementWaiters: [CheckedContinuation<Void, Never>] = []
@@ -150,6 +151,7 @@ final class MeetingRecordingFlowCoordinator {
             // the pill to `.transcribing` / `.error`; we must not stomp it.
             guard self.pillViewModel.canTogglePause else { return }
             self.pillViewModel.state = wantPause ? .paused : .recording
+            self.pillController?.refreshState()
             self.panelViewModel?.isPaused = wantPause
         }
     }
@@ -416,6 +418,7 @@ final class MeetingRecordingFlowCoordinator {
             pillController?.show()
             startSpeechWarmUpObservation()
             startPillPolling()
+            startPillGlowPolling()
             startTranscriptObservation()
 
         case .startRecording:
@@ -481,6 +484,7 @@ final class MeetingRecordingFlowCoordinator {
             pillViewModel.micLevel = 0
             pillViewModel.systemLevel = 0
             pillViewModel.state = .completing
+            pillController?.refreshState()
             pillViewModel.onCompletionAnimationFinished = { [weak self] in
                 guard let self, self.pillViewModel.state == .completing else { return }
                 // Flower collapsed — show merkaba spinner (or checkmark if already done)
@@ -497,6 +501,7 @@ final class MeetingRecordingFlowCoordinator {
                 } else {
                     self.pillViewModel.state = .transcribing
                 }
+                self.pillController?.refreshState()
             }
             panelViewModel?.state = .transcribing
             panelViewModel?.micLevel = 0
@@ -572,6 +577,7 @@ final class MeetingRecordingFlowCoordinator {
             // If spinner is showing, transition to checkmark now
             if pillViewModel.state == .transcribing {
                 pillViewModel.state = .completed
+                pillController?.refreshState()
             }
             panelViewModel?.state = .hidden
 
@@ -611,6 +617,7 @@ final class MeetingRecordingFlowCoordinator {
                 panelViewModel?.compactErrorRecoveryMessage
                     ?? "Meeting interrupted. Open Library to retry transcription or export captured audio."
             )
+            pillController?.refreshState()
             hideMeetingPanel()
 
         case .hidePill:
@@ -735,21 +742,46 @@ final class MeetingRecordingFlowCoordinator {
         pillPollingTask = Task { @MainActor [weak self] in
             guard let self else { return }
             while !Task.isCancelled {
-                let micLevel = await meetingRecordingService.micLevel
-                let systemLevel = await meetingRecordingService.systemLevel
+                let micLevel = Self.displayLevel(await meetingRecordingService.micLevel)
+                let systemLevel = Self.displayLevel(await meetingRecordingService.systemLevel)
                 let elapsedSeconds = await meetingRecordingService.elapsedSeconds
                 let captureMode = await meetingRecordingService.captureMode
                 let microphoneMuteState = await meetingRecordingService.microphoneMuteState
 
                 guard !Task.isCancelled else { break }
-                pillViewModel.micLevel = micLevel
-                pillViewModel.systemLevel = systemLevel
-                pillViewModel.elapsedSeconds = elapsedSeconds
-                panelViewModel?.elapsedSeconds = elapsedSeconds
-                panelViewModel?.micLevel = micLevel
-                panelViewModel?.systemLevel = systemLevel
-                panelViewModel?.isMicrophoneMuted = microphoneMuteState.isMuted
-                panelViewModel?.canToggleMicrophoneMute = microphoneMuteState.canMute
+                if pillViewModel.micLevel != micLevel {
+                    pillViewModel.micLevel = micLevel
+                }
+                if pillViewModel.systemLevel != systemLevel {
+                    pillViewModel.systemLevel = systemLevel
+                }
+                if pillViewModel.elapsedSeconds != elapsedSeconds {
+                    pillViewModel.elapsedSeconds = elapsedSeconds
+                }
+                if let panelViewModel {
+                    if panelViewModel.elapsedSeconds != elapsedSeconds {
+                        panelViewModel.elapsedSeconds = elapsedSeconds
+                    }
+                    // While actively recording the panel orbs are driven by the
+                    // fast (~30 fps) glow loop; this 1 s loop only settles them
+                    // (→ 0) when paused/stopped so they don't freeze on the last
+                    // live frame. Writing levels here every second while recording
+                    // would also visibly fight the fast loop's smoother updates.
+                    if captureMode != .full {
+                        if panelViewModel.micLevel != micLevel {
+                            panelViewModel.micLevel = micLevel
+                        }
+                        if panelViewModel.systemLevel != systemLevel {
+                            panelViewModel.systemLevel = systemLevel
+                        }
+                    }
+                    if panelViewModel.isMicrophoneMuted != microphoneMuteState.isMuted {
+                        panelViewModel.isMicrophoneMuted = microphoneMuteState.isMuted
+                    }
+                    if panelViewModel.canToggleMicrophoneMute != microphoneMuteState.canMute {
+                        panelViewModel.canToggleMicrophoneMute = microphoneMuteState.canMute
+                    }
+                }
                 // Pause/resume reconciliation (issue #235). The user-facing
                 // toggle does an optimistic flip; this poll is the
                 // authoritative source if the optimistic flip diverged from
@@ -785,14 +817,63 @@ final class MeetingRecordingFlowCoordinator {
                     break
                 }
 
-                try? await Task.sleep(for: .milliseconds(150))
+                try? await Task.sleep(for: .seconds(1))
             }
         }
+    }
+
+    private static func displayLevel(_ level: Float) -> Float {
+        let clamped = min(1, max(0, level))
+        return (clamped * 20).rounded() / 20
+    }
+
+    /// Fast (~30 fps) audio channel for the live, near-real-time visualizers.
+    /// Deliberately separate from `startPillPolling` (1 s): that loop writes the
+    /// `@Observable` props (elapsed, state, mute) that fan out to the *whole*
+    /// panel/tile body, so speeding it up would re-trigger the per-tick relayout
+    /// this PR fixed. This loop only touches surfaces where a level change is
+    /// cheap — the pill rosette's `CALayer` opacity (no `@Observable` at all) and
+    /// the panel's `DualAudioOrbView`, whose read is isolated in the `LiveAudioOrb`
+    /// leaf so only the 20pt orb re-renders. Runs only while actively recording
+    /// (paused/processing states rest dim).
+    private func startPillGlowPolling() {
+        pillGlowPollingTask?.cancel()
+        pillGlowPollingTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                if pillViewModel.state == .recording {
+                    let mic = await meetingRecordingService.micLevel
+                    let system = await meetingRecordingService.systemLevel
+                    guard !Task.isCancelled else { break }
+                    // Floating pill rosette: straight to CALayer opacity.
+                    pillController?.updateLiveAudioLevel(max(mic, system))
+                    // Panel orbs: quantized + change-gated, so a write (and the
+                    // leaf re-render it triggers) fires only on a visible step.
+                    if let panelViewModel {
+                        let micQ = Self.displayLevel(mic)
+                        let systemQ = Self.displayLevel(system)
+                        if panelViewModel.micLevel != micQ {
+                            panelViewModel.micLevel = micQ
+                        }
+                        if panelViewModel.systemLevel != systemQ {
+                            panelViewModel.systemLevel = systemQ
+                        }
+                    }
+                }
+                try? await Task.sleep(for: .milliseconds(33))
+            }
+        }
+    }
+
+    private func stopPillGlowPolling() {
+        pillGlowPollingTask?.cancel()
+        pillGlowPollingTask = nil
     }
 
     private func stopPillPolling() {
         pillPollingTask?.cancel()
         pillPollingTask = nil
+        stopPillGlowPolling()
     }
 
     private func startTranscriptObservation() {
