@@ -218,6 +218,27 @@ culprit from Experiment #10.
 | `Sources/MacParakeet/Views/MeetingRecording/MeetingRecordingPanelView.swift` | **`BreathingSeedOfLifeView` migrated from SwiftUI `TimelineView(.animation)` to an `NSViewRepresentable` + CALayer (`BreathingSeedOfLifeNSView`).** Rotation/breathing now run as `CABasicAnimation`s on the render server. `freeze` uses the canonical CA pause (`layer.speed = 0` + `timeOffset`) — the clean external pause the old `TimelineView(paused:)` comment was reaching for. `reduceMotion` renders a still rosette. Public API (`BreathingSeedOfLifeView(freeze:)`) unchanged, so all three call sites (transcript watermark, live-notes watermark, summary skeleton) are fixed with no call-site edits. |
 | `Sources/MacParakeet/Views/MeetingRecording/MeetingRecordingPillController.swift` | **Restored Reduce Motion** on the AppKit pill (the CA migration had dropped it — the old SwiftUI pill gated on `!reduceMotion`). Reads `NSWorkspace.shared.accessibilityDisplayShouldReduceMotion`, observes `accessibilityDisplayOptionsDidChangeNotification`. **Compacted the black capsule** from 54×106 → 54×86 (it had ~20pt of dead space above/below the flower); centered on the panel midY so the icon position is unchanged. **Restored the hover-time badge** (red dot / amber when paused + live `formattedElapsed`, in a dark capsule above the pill) — the CA migration had dropped the prior SwiftUI pill's hover affordance. CALayer-based (`timeBadgeLayer`/`timeDotLayer`/`timeTextLayer`), fades in on hover, refreshes each second. |
 | `Sources/MacParakeet/Views/Transcription/MeetingRecordingTile.swift` | **Removed dead animation machinery** from `SacredFlowerTile` (both call sites already passed `isAnimating: false`, so the `rotation`/`sway` `@State`, `startActive`/`stopActive`, and `onChange`/`onAppear` never ran). Now a clean static rosette; the audio-reactive glow (quantized to ~1 Hz upstream) is the only live element. Dropped the unused `reduceMotion` env var. |
+
+### Follow-up QA finding — 2026-05-30
+
+After PR #396 merged, a fresh dev-app QA pass found the pill-only case behaving
+as expected (~13-17% CPU after warmup), but the Meetings workspace visible case
+could still climb into the ~36-43% range. `sample` still showed
+`NSHostingView.layout` / `DisplayList` work, and the remaining always-visible
+surface was `MeetingRecordingTile`.
+
+The follow-up fix removed the tile's last recording-tick SwiftUI animations:
+
+- `Text(viewModel.formattedElapsed).contentTransition(.numericText())`
+- `.animation(.easeInOut(duration: 0.2), value: viewModel.elapsedSeconds)`
+- `.animation(.easeOut(duration: 0.5), value: audioLevel)` on `SacredFlowerTile`
+
+Those were value-scoped rather than infinite animations, but while recording
+they still retriggered SwiftUI animation/render work on every elapsed/audio
+level tick in an always-resident main-window surface. After removing them, the
+visible Meetings recording case settled mostly around ~13-18% in the first
+post-patch window and ~23-29% in a longer debug-build window, with the severe
+50-70% / hover-lag behavior gone.
 | `Sources/MacParakeet/Views/Meetings/MeetingsView.swift` | **Isolated the live status chip** (`MeetingsLiveStatusChip`). `MeetingsView.body` read `meetingPillViewModel.formattedElapsed` (via `headerStatusTitle`), so every 1 s elapsed tick re-evaluated the *entire* body — including the meetings-list `ForEach` — forcing a full-tree `sizeThatFits`/layout pass while recording. **This was the actual "laggy Meetings workspace while recording" symptom from the original report** (see on-device session below). Moving the `formattedElapsed` read into its own leaf view scopes the per-second invalidation to the chip. |
 
 These build on the already-applied WIP:

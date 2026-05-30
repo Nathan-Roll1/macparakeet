@@ -202,11 +202,6 @@ struct MeetingRecordingTile: View {
                 Text(viewModel.formattedElapsed)
                     .font(.system(size: 15, weight: .semibold).monospacedDigit())
                     .foregroundStyle(DesignSystem.Colors.textSecondary)
-                    // Rolling-digit timer. Transient (value-keyed on the 1 s
-                    // elapsed tick), so it animates the digit change without any
-                    // continuous animation.
-                    .contentTransition(.numericText())
-                    .animation(.easeInOut(duration: 0.2), value: viewModel.elapsedSeconds)
             }
 
             Spacer()
@@ -604,12 +599,6 @@ private struct SacredFlowerTile: View {
                 .padding(.top, -2)
         }
         .frame(width: 64)
-        // The tile shares the pill view-model, whose levels are sampled by the
-        // 1 s state poll (not the pill/panel fast loop). Ease each step so the
-        // glow breathes toward the new level instead of snapping once a second.
-        // Transient (value-scoped) — no continuous animation, so it doesn't
-        // reintroduce the resident-window render churn this PR removed.
-        .animation(.easeOut(duration: 0.5), value: audioLevel)
     }
 
     private var flowerHead: some View {
