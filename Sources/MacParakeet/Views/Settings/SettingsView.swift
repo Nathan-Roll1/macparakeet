@@ -2271,7 +2271,7 @@ struct SettingsView: View {
     }
 
     fileprivate struct ModelRowAction: Identifiable {
-        let id = UUID()
+        var id: String { label }
         let label: String
         let isProminent: Bool
         let isDestructive: Bool

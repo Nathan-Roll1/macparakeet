@@ -213,8 +213,11 @@ public actor WhisperEngine: STTTranscribing {
         } catch {
             return false
         }
-        SpeechEnginePreference.clearWhisperOptimized(variant: model, defaults: defaults)
-        return localModelFolder(model: model, downloadBase: downloadBase) == nil
+        let removed = localModelFolder(model: model, downloadBase: downloadBase) == nil
+        if removed {
+            SpeechEnginePreference.clearWhisperOptimized(variant: model, defaults: defaults)
+        }
+        return removed
     }
 
     public func transcribe(

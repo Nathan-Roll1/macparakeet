@@ -1748,6 +1748,17 @@ final class SettingsViewModelTests: XCTestCase {
         XCTAssertTrue(recorder.parakeetCalls.isEmpty)
     }
 
+    func testDeleteParakeetVariantRefusesSelectedBuildWhenWhisperActive() {
+        let recorder = ModelDeleteRecorder()
+        let vm = makeDeletionViewModel(engine: .whisper, parakeetVariant: .v3, recorder: recorder)
+        vm.downloadedParakeetVariants = [.v3, .v2]
+
+        vm.deleteParakeetVariant(.v3)
+
+        XCTAssertTrue(vm.downloadedParakeetVariants.contains(.v3))
+        XCTAssertTrue(recorder.parakeetCalls.isEmpty)
+    }
+
     func testDeleteParakeetVariantIgnoredWhileSwitching() {
         let recorder = ModelDeleteRecorder()
         let vm = makeDeletionViewModel(engine: .parakeet, parakeetVariant: .v3, recorder: recorder)

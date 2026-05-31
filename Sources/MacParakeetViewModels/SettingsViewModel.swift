@@ -1648,20 +1648,16 @@ public final class SettingsViewModel {
         }
     }
 
-    /// Removes a downloaded Parakeet build, freeing ~465 MB. The build the
-    /// active engine would load is protected — the UI only offers delete for
-    /// the other, downloaded build, and the guards here enforce that even if a
-    /// stale tap slips through. The "Downloaded" badge drops immediately; a
-    /// disk refresh then confirms.
+    /// Removes a downloaded Parakeet build, freeing ~465 MB. The selected
+    /// Parakeet build is protected — the UI only offers delete for the other,
+    /// downloaded build, and the guards here enforce that even if a stale tap
+    /// slips through. The "Downloaded" badge drops immediately; a disk refresh
+    /// then confirms.
     public func deleteParakeetVariant(_ variant: ParakeetModelVariant) {
         guard !speechEngineSwitching else { return }
-        // Never delete the build the active engine would load — it would force
-        // a silent re-download on the next dictation. Meeting-active state needs
-        // no separate guard: a meeting pins the variant chosen at its start, and
-        // variant switches are blocked while a meeting runs, so the active build
-        // can't change mid-meeting. Only the dormant, non-selected build is ever
-        // deletable here, and removing files for a build that isn't loaded is safe.
-        guard !(speechEnginePreference == .parakeet && parakeetModelVariant == variant) else { return }
+        // Never delete the selected Parakeet build. Even while Whisper is the
+        // active engine, this is the build Parakeet would load after a switch.
+        guard parakeetModelVariant != variant else { return }
         guard downloadedParakeetVariants.contains(variant) else { return }
 
         // Invalidate any in-flight status refresh so it can't re-add the badge

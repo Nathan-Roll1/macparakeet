@@ -266,9 +266,7 @@ extension ModelsCommand {
                 }
                 // --force overrides the guard; make the consequence explicit since
                 // there's no interactive confirmation on the CLI.
-                FileHandle.standardError.write(
-                    Data("Warning: deleting \(target.displayName), the model currently in use. It will re-download on next use.\n".utf8)
-                )
+                printErr("Warning: deleting \(target.displayName), the model currently in use. It will re-download on next use.")
             }
 
             switch target.kind {
