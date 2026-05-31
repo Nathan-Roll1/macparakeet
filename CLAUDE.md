@@ -4,7 +4,7 @@
 
 ## What is MacParakeet?
 
-A **fast, private, local-first voice app** for macOS. The v0.6 release ships system-wide dictation, file/URL transcription, meeting recording, Parakeet v3/v2 model selection, optional local WhisperKit multilingual STT for Korean, Japanese, Chinese, and other languages outside Parakeet's coverage, and productized Transforms on `main`.
+A **fast, private, local-first voice app** for macOS. The v0.6 release ships system-wide dictation, file/URL transcription, meeting recording, Parakeet v3/v2 model selection, optional local WhisperKit multilingual STT for Korean, Japanese, Chinese, and other languages outside Parakeet's coverage, and productized Transforms.
 
 **North Star:** Fast, local-first voice app for Mac.
 
@@ -16,20 +16,21 @@ A **fast, private, local-first voice app** for macOS. The v0.6 release ships sys
 
 | Channel | Agent Assumption | Features |
 |---------|------------------|----------|
-| Stable DMG | User-facing release, recommended for normal use | Dictation, file/video/YouTube transcription, meeting recording, optional WhisperKit, exports, vocabulary, AI features |
-| `main` | Development | v0.6 release scope plus productized Transforms, calendar auto-start enabled (`AppFeatures.calendarEnabled = true`; default `.off`), and VAD-guided meeting live-preview chunking enabled as a release candidate (`AppFeatures.meetingVadLiveChunkingEnabled = true`) |
+| Stable DMG | User-facing release, recommended for normal use | Dictation, file/video/YouTube transcription, meeting recording, calendar auto-start (opt-in, default `.off`), productized Transforms, VAD-guided meeting live-preview chunking, optional WhisperKit, exports, vocabulary, AI features |
+| `main` | Development | Latest stable release plus untagged in-progress fixes. No feature flag differs from the latest release tag — the `AppFeatures` feature flags carry the same values on `main` and the shipping build |
 
-When editing public-facing docs, preserve this release boundary: v0.6 includes
-meeting recording and WhisperKit. Calendar reminders and auto-start are
-implemented and enabled on `main` (`AppFeatures.calendarEnabled = true`);
-calendar auto-start defaults to mode `.off`, so it is strictly opt-in. Calendar-
+When editing public-facing docs, keep the channel framing accurate: the Stable
+DMG and `main` currently ship the same feature set — the `AppFeatures` feature
+flags carry the same values on `main` and the latest release tag, so `main` differs only
+by untagged in-progress fixes. Transforms shipped to stable in v0.6.7, calendar
+auto-start in v0.6.10, and VAD-guided meeting live-preview chunking in v0.6.14.
+Calendar auto-start defaults to mode `.off`, so it is strictly opt-in. Calendar-
 driven auto-stop was removed (ADR-017 amendment, 2026-05) — scheduled end times
 are unreliable, so recordings are stopped manually (activity/audio-based auto-stop
-is a future ADR). VAD-guided meeting live-preview chunking is flag-on on `main`
-as a release candidate: launch-time background prep fetches the Silero model,
-Parakeet meetings use speech-boundary live chunks when it is cached, and all
-missing/error paths fall back to the fixed 5s / 1s chunker; final meeting
-transcription is unchanged.
+is a future ADR). VAD-guided meeting live-preview chunking is flag-on: launch-time
+background prep fetches the Silero model, Parakeet meetings use speech-boundary
+live chunks when it is cached, and all missing/error paths fall back to the fixed
+5s / 1s chunker; final meeting transcription is unchanged.
 
 ## Quick Navigation
 
@@ -130,30 +131,30 @@ All ADRs are in `spec/adr/`. These are locked decisions -- don't second-guess th
 | ADR-019 | Crash-resilient meeting recording (implemented) | `spec/adr/019-crash-resilient-meeting-recording.md` |
 | ADR-020 | Live meeting notepad + memo-steered summaries (implemented) | `spec/adr/020-live-meeting-notepad-and-memo-summaries.md` |
 | ADR-021 | WhisperKit as optional multilingual STT engine (implemented) | `spec/adr/021-whisperkit-multilingual-stt.md` |
-| ADR-022 | Transforms — system-wide LLM rewrites on selected text (Phase 2 productized; enabled on `main`) | `spec/adr/022-transforms-system-wide-rewrite.md` |
+| ADR-022 | Transforms — system-wide LLM rewrites on selected text (Phase 2 productized; enabled, shipping since v0.6.7) | `spec/adr/022-transforms-system-wide-rewrite.md` |
 
 > Historical/dormant ADRs (still in `spec/adr/`, kept for context): ADR-003 (one-time purchase pricing), ADR-006 (trial + license activation), ADR-008 (local LLM runtime). Current public builds are free/GPL-3.0 and unlocked. The old LemonSqueezy/trial entitlement plumbing is intentionally retained as future-option code for GPL-compatible official paid distribution/support; do not remove it as dead code without explicit owner direction and an ADR/spec update.
 
 ## Current Phase
 
-**Current main branch** -- v0.6 release scope includes meeting recording, Parakeet v3/v2 model selection, optional WhisperKit multilingual STT, and productized Transforms. Calendar auto-start/reminders are implemented and enabled (`AppFeatures.calendarEnabled = true`) after the post-#318 reliability hardening; auto-start defaults to mode `.off`, so it stays opt-in. VAD-guided meeting live-preview chunking is enabled as a release candidate (`AppFeatures.meetingVadLiveChunkingEnabled = true`) with fixed-chunker fallback and unchanged final transcription.
+**Current main branch** -- v0.6 release scope includes meeting recording, Parakeet v3/v2 model selection, optional WhisperKit multilingual STT, and productized Transforms. Calendar auto-start/reminders are implemented and enabled (`AppFeatures.calendarEnabled = true`) after the post-#318 reliability hardening; auto-start defaults to mode `.off`, so it stays opt-in. VAD-guided meeting live-preview chunking is enabled (`AppFeatures.meetingVadLiveChunkingEnabled = true`, shipping since v0.6.14) with fixed-chunker fallback and unchanged final transcription.
 
 - **v0.1–v0.5** MVP → Clean Pipeline → YouTube/Export → Polish/Launch → Data/UI/Prompts (open-source release). See the `spec/README.md` roadmap and git tags for the full per-version feature history.
-- **v0.6** Meeting Recording + Multilingual STT + Transforms -- ScreenCaptureKit system audio + raw AVAudioEngine mic capture by default, retained opt-in VPIO plumbing, fragmented MP4 source files + crash recovery (ADR-019), transcript-layer suppression, concurrent with dictation (ADR-015), centralized STT runtime + scheduler (ADR-016), VAD-guided meeting live-preview chunking with fixed fallback (flag-on release candidate on `main`), sacred-geometry recording pill + Notes/Transcript/Ask meeting panel, customizable Ask quick prompts, library integration, prompt/result/chat support (ADR-014), live notepad + memo-steered summaries with `{{userNotes}}` template variable + slash commands (ADR-020), Parakeet model selection (`v3` multilingual default, `v2` English-only opt-in) across Settings/CLI, optional WhisperKit engine support for non-Parakeet languages, persisted speech-engine preference, Whisper language picker/default, CLI `transcribe --engine parakeet|whisper --language --parakeet-model`, Whisper model download path, engine pinning for active meeting sessions and crash recovery (ADR-021), and productized system-wide LLM Transforms with `Polish`, `Distill`, and `Decide` built-ins (ADR-022).
+- **v0.6** Meeting Recording + Multilingual STT + Transforms -- ScreenCaptureKit system audio + raw AVAudioEngine mic capture by default, retained opt-in VPIO plumbing, fragmented MP4 source files + crash recovery (ADR-019), transcript-layer suppression, concurrent with dictation (ADR-015), centralized STT runtime + scheduler (ADR-016), VAD-guided meeting live-preview chunking with fixed fallback (flag-on, shipping since v0.6.14), sacred-geometry recording pill + Notes/Transcript/Ask meeting panel, customizable Ask quick prompts, library integration, prompt/result/chat support (ADR-014), live notepad + memo-steered summaries with `{{userNotes}}` template variable + slash commands (ADR-020), Parakeet model selection (`v3` multilingual default, `v2` English-only opt-in) across Settings/CLI, optional WhisperKit engine support for non-Parakeet languages, persisted speech-engine preference, Whisper language picker/default, CLI `transcribe --engine parakeet|whisper --language --parakeet-model`, Whisper model download path, engine pinning for active meeting sessions and crash recovery (ADR-021), and productized system-wide LLM Transforms with `Polish`, `Distill`, and `Decide` built-ins (ADR-022).
 - **Calendar auto-start** -- ADR-017 Phases 1 + 2, enabled with `.off` default (see "Current main branch" above for live flag state); Phase 3 (late-join/retro-link) remains proposed.
 
 ## Key Patterns
 
 ### Three Primary Modes + Transforms
 
-MacParakeet has three primary capture modes plus a system-wide text-rewrite surface (ADR-022) in the `main` branch product direction:
+MacParakeet has three primary capture modes plus a system-wide text-rewrite surface (ADR-022):
 
 1. **System-wide dictation** -- Press hotkey anywhere on macOS, speak, text is pasted (WisprFlow-style)
 2. **File transcription** -- Drag-drop audio/video files (multi-file and folder drops, plus a multi-select/folder Browse picker, fan out into a sequential local batch — `AudioFileEnumerator` expands + caps at 200, `TranscriptionViewModel` drains one at a time, results stream into Library, "Cancel all" stops it) or paste a YouTube link (single-URL; MacWhisper-style). A finished file/URL/batch plays a chime + (backgrounded) banner behind one opt-out Settings toggle (`notifyOnTranscriptionComplete`, default on).
 3. **Meeting recording** -- Capture system audio + mic simultaneously, transcribe locally (simple Granola-style)
-4. **Transforms** -- Select text anywhere on macOS, press a bound hotkey (⌥1 / ⌥2 / ⌥3 by default), and the selection is rewritten in place through the user's LLM provider. ADR-022. Productized Transforms are enabled on `main` via `AppFeatures.transformsEnabled = true`. Ships with three built-in Transforms: *Polish*, *Distill*, *Decide* — synthesized by a paired creative-director + staff-PM review on 2026-05-12 (Improve → Re-shape → Re-direct pedagogy). Reuses the spike's brand-finished floating pill (ADR-022 §4); user-bound shortcuts dispatch through a single process-wide `TransformsHotkeyRegistry`.
+4. **Transforms** -- Select text anywhere on macOS, press a bound hotkey (⌥1 / ⌥2 / ⌥3 by default), and the selection is rewritten in place through the user's LLM provider. ADR-022. Productized Transforms are enabled via `AppFeatures.transformsEnabled = true` (shipping since v0.6.7). Ships with three built-in Transforms: *Polish*, *Distill*, *Decide* — synthesized by a paired creative-director + staff-PM review on 2026-05-12 (Improve → Re-shape → Re-direct pedagogy). Reuses the spike's brand-finished floating pill (ADR-022 §4); user-bound shortcuts dispatch through a single process-wide `TransformsHotkeyRegistry`.
 
-The three capture modes share the same STT scheduler/runtime path on `main` but have different UI flows, audio sources, and data models. Parakeet is the default engine; Whisper can be selected globally or per CLI call for languages Parakeet does not cover. **Dictation and meeting recording run concurrently** (ADR-015) -- a user can dictate freely during a meeting recording. Dictation and meeting microphone capture fan out from one process-wide `SharedMicrophoneStream`/AVAudioEngine; meeting system audio remains a separate ScreenCaptureKit stream. Transforms is unrelated to STT — it operates on whatever text is currently selected and sends it through the configured LLM provider.
+The three capture modes share the same STT scheduler/runtime path but have different UI flows, audio sources, and data models. Parakeet is the default engine; Whisper can be selected globally or per CLI call for languages Parakeet does not cover. **Dictation and meeting recording run concurrently** (ADR-015) -- a user can dictate freely during a meeting recording. Dictation and meeting microphone capture fan out from one process-wide `SharedMicrophoneStream`/AVAudioEngine; meeting system audio remains a separate ScreenCaptureKit stream. Transforms is unrelated to STT — it operates on whatever text is currently selected and sends it through the configured LLM provider.
 
 The Transcribe tab is the unified capture surface — one place for all three modes (dictation can also start there via hotkey/menu bar, since dictation is global):
 

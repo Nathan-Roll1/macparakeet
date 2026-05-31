@@ -63,8 +63,8 @@ The [notarized DMG](https://downloads.macparakeet.com/MacParakeet.dmg) is the st
 
 | Channel | Status | Includes |
 |---------|--------|----------|
-| Stable DMG | Recommended for normal use | Dictation, file/video/YouTube transcription, meeting recording, meeting calendar reminders and opt-in auto-start, Transforms, optional WhisperKit, exports, vocabulary, AI features |
-| `main` branch | Development | Latest stable release plus in-progress fixes and development changes, including beta media pause while dictating and a VAD-guided meeting live-preview release candidate |
+| Stable DMG | Recommended for normal use | Dictation, file/video/YouTube transcription, meeting recording, meeting calendar reminders and opt-in auto-start, Transforms, VAD-guided meeting live-preview chunking, optional WhisperKit, exports, vocabulary, AI features |
+| `main` branch | Development | Latest stable release plus untagged in-progress fixes and development changes |
 
 Meeting calendar support is live in the stable DMG. MacParakeet reads upcoming meetings from the local macOS Calendar store through EventKit, can show reminders, and can optionally start a recording after a countdown. Auto-start defaults to `.off` and must be opted into; recordings still stop manually.
 

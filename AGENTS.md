@@ -9,7 +9,7 @@
 
 MacParakeet is a fast, private, local-first voice app for macOS. The v0.6
 release has three co-equal capture modes: system-wide dictation, file
-transcription, and meeting recording, plus productized Transforms on `main`
+transcription, and meeting recording, plus productized Transforms
 for selected-text rewrites. Parakeet TDT 0.6B via FluidAudio CoreML on the
 Apple Neural Engine is the default STT family: multilingual v3 is the default,
 and English-only v2 is an opt-in Parakeet model for users who want the fastest
@@ -18,17 +18,19 @@ local multilingual engine for languages Parakeet does not cover.
 
 **Release status:** v0.6 ships system-wide dictation, file/URL transcription
 including local-file batches, meeting recording, Parakeet v3/v2 model
-selection, optional WhisperKit multilingual STT, and productized Transforms on
-`main`. Calendar reminders and auto-start are
-implemented and enabled on `main` (`AppFeatures.calendarEnabled = true`);
+selection, optional WhisperKit multilingual STT, and productized Transforms
+(shipping to stable since v0.6.7). Calendar reminders and auto-start are
+enabled (`AppFeatures.calendarEnabled = true`, shipping since v0.6.10);
 calendar auto-start defaults to mode `.off`, so it is strictly opt-in. Calendar-
 driven auto-stop was removed (ADR-017 amendment) — recordings stop manually.
-Current `main` also has VAD-guided meeting live-preview chunking enabled as a
-release candidate (`AppFeatures.meetingVadLiveChunkingEnabled = true`):
+VAD-guided meeting live-preview chunking is enabled
+(`AppFeatures.meetingVadLiveChunkingEnabled = true`, shipping since v0.6.14):
 launch-time prep fetches the Silero VAD model in the background, Parakeet
 meetings cut live-preview chunks at speech boundaries when the model is cached,
 and missing/erroring VAD falls back to the fixed 5s / 1s-overlap chunker without
-affecting the final post-stop transcript.
+affecting the final post-stop transcript. The Stable DMG and `main` ship the
+same feature set — the `AppFeatures` feature flags carry the same values on
+`main` and the latest release tag; `main` differs only by untagged in-progress fixes.
 
 Free and open-source (GPL-3.0). Apple Silicon only. Requires macOS 14.2+.
 
