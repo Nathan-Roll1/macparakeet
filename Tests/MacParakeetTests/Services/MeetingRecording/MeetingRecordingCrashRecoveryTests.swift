@@ -7,6 +7,18 @@ final class MeetingRecordingCrashRecoveryTests: XCTestCase {
     private static let helperFolderEnv = "MACPARAKEET_CRASH_RECOVERY_HELPER_FOLDER"
 
     func testKillNineMidRecordingProducesPlayableFiles() async throws {
+        // Heavy end-to-end check: spawns a child xctest process, lets it write
+        // real AVFoundation audio, SIGKILLs it, then asserts the fragmented MP4
+        // is still playable. Inherently slow (~5-13s) and environment-sensitive,
+        // so it is opt-in. The recovery *logic* (including "use remaining
+        // playable audio after a corrupt/truncated source") is covered by the
+        // fast, deterministic MeetingRecordingRecoveryServiceTests. Run with:
+        //   MACPARAKEET_CRASH_RECOVERY_TESTS=1 swift test
+        try XCTSkipUnless(
+            ProcessInfo.processInfo.environment["MACPARAKEET_CRASH_RECOVERY_TESTS"] == "1",
+            "Set MACPARAKEET_CRASH_RECOVERY_TESTS=1 to run the kill-9 crash-recovery integration test."
+        )
+
         let folderURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("MeetingRecordingCrashRecoveryTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
