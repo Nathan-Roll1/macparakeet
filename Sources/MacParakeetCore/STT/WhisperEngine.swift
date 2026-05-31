@@ -506,9 +506,9 @@ public actor WhisperEngine: STTTranscribing {
         Task.detached(priority: .background) {
             let milestones: [(elapsedSeconds: Int, message: String)] = [
                 (15, "Optimizing Whisper for this Mac..."),
-                (60, "Still optimizing Whisper with Core ML. The first load can take a few minutes..."),
-                (180, "Still preparing Whisper. This one-time optimization should be faster next time..."),
-                (300, "Whisper is still optimizing. Leave MacParakeet open until Core ML finishes...")
+                (60, "Still optimizing Whisper with Core ML. First-time setup can take 3-5 minutes on some Macs..."),
+                (180, "Still preparing Whisper. This one-time optimization is usually much faster next time..."),
+                (300, "Whisper is still optimizing. Leave MacParakeet open while Core ML finishes...")
             ]
 
             var previousElapsedSeconds = 0

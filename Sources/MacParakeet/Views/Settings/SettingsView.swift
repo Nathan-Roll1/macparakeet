@@ -1780,7 +1780,7 @@ struct SettingsView: View {
 
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: DesignSystem.Spacing.sm) {
-                        Text(variant.displayName)
+                        Text(variant.modelName)
                             .font(DesignSystem.Typography.body.weight(.medium))
                             .foregroundStyle(DesignSystem.Colors.textPrimary)
                         parakeetVariantStatusBadge(isDownloaded: isDownloaded, size: variant.approximateDownloadSize)
@@ -1799,7 +1799,7 @@ struct SettingsView: View {
         .buttonStyle(.plain)
         .disabled(viewModel.speechEngineSwitching)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(variant.displayName). \(variant.coverageSummary) \(downloadStatusLabel)")
+        .accessibilityLabel("\(variant.modelName). \(variant.displayName). \(variant.coverageSummary) \(downloadStatusLabel)")
         // `.combine` can drop the wrapping Button's role, so assert it explicitly
         // alongside the selected state for VoiceOver.
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : [.isButton])

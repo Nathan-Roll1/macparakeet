@@ -215,7 +215,7 @@ public enum ParakeetModelVariant: String, CaseIterable, Codable, Sendable {
     case v3
     case v2
 
-    /// Short label for the variant's language posture (Settings tile heading).
+    /// Short label for the variant's language posture.
     public var displayName: String {
         switch self {
         case .v3: "Multilingual"

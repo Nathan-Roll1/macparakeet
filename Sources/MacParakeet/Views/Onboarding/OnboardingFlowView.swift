@@ -1231,7 +1231,7 @@ struct OnboardingFlowView: View {
             return nil
         case .engine:
             if viewModel.whisperRecommendation != nil {
-                return "Preparing Whisper — this can take several minutes. Everything works offline after setup."
+                return "Preparing Whisper — first-time Core ML optimization can take 3-5 minutes on some Macs. Everything works offline after setup."
             }
             return "Downloading — this can take several minutes. Everything works offline after setup."
         case .welcome, .hotkey, .done:

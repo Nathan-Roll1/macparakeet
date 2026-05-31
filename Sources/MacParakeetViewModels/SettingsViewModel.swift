@@ -1250,7 +1250,7 @@ public final class SettingsViewModel {
             if whisperHasBeenOptimized {
                 whisperModelStatusDetail = "\(friendly) · Installed locally, loads in seconds."
             } else {
-                whisperModelStatusDetail = "\(friendly) · Installed locally. First switch optimizes for this Mac."
+                whisperModelStatusDetail = "\(friendly) · Installed locally. First switch can take 3-5 minutes while Core ML optimizes it."
             }
         } else {
             whisperModelStatus = .notDownloaded
