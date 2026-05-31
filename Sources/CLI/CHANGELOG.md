@@ -80,6 +80,40 @@ by checking exit code first: `2` = misuse, `1` = runtime, `0` = success.
 
 ## [Unreleased]
 
+## [2.5.0] -- 2026-05-30
+
+### Added
+
+- Parakeet now exposes both model builds: the multilingual `v3` (default) and
+  the English-only `v2`. v2 is a touch faster on English and never mis-detects
+  English speech as another language (the v3 auto-detect failure behind issues
+  #311 and #398).
+- `config set parakeet-model v3|v2` (also `multilingual`/`english` aliases) and
+  `config get parakeet-model` persist the shared GUI/CLI Parakeet build
+  preference. Listed in `config list`.
+- `transcribe --parakeet-model app-default|v3|v2` overrides the Parakeet build
+  for a single run; `app-default` follows the saved preference. Ignored for
+  Whisper.
+- `models list` now lists both Parakeet builds (`parakeet-v3`, `parakeet-v2`)
+  with their per-build install state and approximate size. `models select
+  parakeet-v2` (also `parakeet:v2` / `parakeet-english`) persists the build.
+  `models warm-up` / `repair` / `status` now operate on the selected build
+  instead of always defaulting to v3.
+- `models download parakeet-v2` / `parakeet-v3` (and bare `parakeet` for the
+  selected build) pre-fetches a Parakeet build without selecting it, alongside
+  the existing `whisper-*` download path.
+
+### Changed
+
+- `models list` now returns **two** Parakeet rows (`parakeet-v3`, `parakeet-v2`)
+  instead of one. Callers that assumed a single Parakeet entry, or that read the
+  Parakeet id as the literal `"parakeet"`, should switch to selecting by the
+  `selected` flag / the new ids. The bare `parakeet` id still works in
+  `models select` (keeps the persisted build). JSON field names and types are
+  unchanged.
+- `models list` Parakeet `size` now reports the real ~465 MB per-build download
+  footprint (previously an inaccurate "6 GB" placeholder).
+
 ## [2.4.0] -- 2026-05-29
 
 ### Added
