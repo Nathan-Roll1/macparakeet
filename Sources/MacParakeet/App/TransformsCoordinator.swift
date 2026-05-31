@@ -18,9 +18,9 @@ import OSLog
 /// - manages cancel-then-restart on re-trigger, run-ID stale-event
 ///   guarding, and per-Transform telemetry
 ///
-/// Replaces `TransformsSpikeCoordinator` (which bound a single hardcoded
-/// Opt+Ctrl+1 to a baked-in Polish prompt). The coordinator is gated by
-/// `AppFeatures.transformsEnabled`, which is enabled on `main` after the
+/// Supersedes the original AX-coverage spike (a single hardcoded Opt+Ctrl+1
+/// bound to a baked-in Polish prompt). The coordinator is gated by
+/// `AppFeatures.transformsEnabled`, which is enabled and shipping after the
 /// website telemetry allowlist deploy landed.
 @MainActor
 final class TransformsCoordinator {
@@ -37,11 +37,10 @@ final class TransformsCoordinator {
     private var inFlightTask: Task<Void, Never>?
     private var bindingsChangedObserver: NSObjectProtocol?
 
-    /// Per-run identity for stale-event guarding. See the same pattern in
-    /// the spike coordinator: if the user re-triggers a hotkey mid-flight,
-    /// the previous task may emit a terminal event after cancellation
-    /// lands. We gate every UI/state mutation in the task body on
-    /// `activeRunID == myRunID`.
+    /// Per-run identity for stale-event guarding: if the user re-triggers a
+    /// hotkey mid-flight, the previous task may emit a terminal event after
+    /// cancellation lands. We gate every UI/state mutation in the task body
+    /// on `activeRunID == myRunID`.
     private var activeRunID: UUID?
 
     /// Cached snapshot of bound `.transform` prompts, keyed by ID. Used to

@@ -38,10 +38,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var dictationFlowCoordinator: DictationFlowCoordinator?
     private var meetingRecordingFlowCoordinator: MeetingRecordingFlowCoordinator?
     private var meetingAutoStartCoordinator: MeetingAutoStartCoordinator?
-    /// Transforms spike (see `AppFeatures.transformsSpikeEnabled` and
-    /// `docs/research/transforms-design-2026-05.md`). Always created; `start()`
-    /// is a no-op when the flag is off so the binary surface stays clean.
-    private var transformsSpikeCoordinator: TransformsSpikeCoordinator?
     /// Productized Transforms coordinator (ADR-022). Owns the process-wide
     /// `TransformsHotkeyRegistry` + dispatch from registered hotkeys to the
     /// `TransformExecutor` pipeline. Gated on `AppFeatures.transformsEnabled`.
@@ -349,7 +345,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         dictationFlowCoordinator?.hideIdlePill()
         hotkeyCoordinator?.stopAll()
         meetingAutoStartCoordinator?.stop()
-        transformsSpikeCoordinator?.stop()
         transformsCoordinator?.stop()
         settingsObserverCoordinator.stopObserving()
         environmentSetupTask?.cancel()
@@ -468,19 +463,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotkeyCoordinator = runtime.hotkeyCoordinator
         meetingAutoStartCoordinator = runtime.meetingAutoStartCoordinator
 
-        // Transforms spike — registers Opt+Ctrl+1 only when the feature flag
-        // is on (see `AppFeatures.transformsSpikeEnabled`). Always-created so
-        // we can `stop()` it cleanly during termination even if the flag
-        // flipped after launch.
+        // Shared resolver for the user's LLM provider — returns the live
+        // service when a provider is configured, nil otherwise. Consumed by
+        // the Transforms coordinator below.
         let configStore = env.llmConfigStore
         let llmService = env.llmService
         let llmServiceProvider: () -> LLMServiceProtocol? = { [weak configStore, llmService] in
             guard let configStore else { return nil }
             return (try? configStore.loadConfig()) != nil ? llmService : nil
         }
-        let spike = TransformsSpikeCoordinator(llmServiceProvider: llmServiceProvider)
-        spike.start()
-        transformsSpikeCoordinator = spike
 
         // Productized Transforms coordinator (ADR-022). Reads `.transform`
         // prompts from the shared `PromptRepository` and dispatches their

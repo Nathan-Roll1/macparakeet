@@ -15,8 +15,7 @@ import OSLog
 /// **Threading.** The CGEvent tap callback runs on the runloop that installed
 /// the tap (typically the main runloop). The registry's public `onTrigger`
 /// closure is invoked synchronously from that callback — callers should
-/// hop to `@MainActor` for any UI work, the same way
-/// `TransformsSpikeCoordinator` does for the spike's single hotkey.
+/// hop to `@MainActor` for any UI work (as `TransformsCoordinator` does).
 ///
 /// See ADR-022 §4 for the architectural rationale (one tap, N transforms).
 public final class TransformsHotkeyRegistry {

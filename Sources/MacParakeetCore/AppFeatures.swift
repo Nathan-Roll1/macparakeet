@@ -23,14 +23,6 @@ public enum AppFeatures {
     /// onboarding or Settings; nothing changes for existing users until they do.
     public static let calendarEnabled: Bool = true
 
-    /// Transforms spike (docs/research/transforms-design-2026-05.md, Phase 1
-    /// AX-coverage spike). When `true`, installs the spike's hardcoded
-    /// Opt+Ctrl+1 path alongside the productized registry — kept only as
-    /// a development-only escape hatch. The spike's Polish prompt is now
-    /// also a built-in `.transform` row, so any release build should
-    /// leave this `false` and rely on `transformsEnabled` instead.
-    public static let transformsSpikeEnabled: Bool = false
-
     /// Transforms — productized Phase 2 (ADR-022). When `true`:
     /// - the Transforms tab appears in the main sidebar
     /// - `TransformsHotkeyRegistry` installs its event tap on launch
