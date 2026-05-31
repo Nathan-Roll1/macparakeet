@@ -276,6 +276,11 @@ final class ModelLifecycleCommandTests: XCTestCase {
         XCTAssertTrue(forced.force)
     }
 
+    func testDeleteFailureIsRuntimeFailure() {
+        let error = ModelDeletionError.deleteFailed("Could not delete Parakeet v2.")
+        XCTAssertEqual(CLI.normalizedExitCode(for: error), .failure)
+    }
+
     func testWarmUpRetriesConfiguredAttempts() async {
         let stt = StubSTTClient()
         let diarization = StubDiarizationService()

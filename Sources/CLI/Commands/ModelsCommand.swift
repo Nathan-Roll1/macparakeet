@@ -277,7 +277,7 @@ extension ModelsCommand {
                 }
                 let removed = STTRuntime.deleteParakeetModel(version: variant.asrModelVersion)
                 guard removed else {
-                    throw ValidationError("Could not delete \(variant.modelName). It may be missing or in use by another process.")
+                    throw ModelDeletionError.deleteFailed("Could not delete \(variant.modelName). It may be missing or in use by another process.")
                 }
                 print("Deleted \(target.displayName) · freed \(variant.approximateDownloadSize).")
             case .whisper(let variant):
@@ -287,7 +287,7 @@ extension ModelsCommand {
                 }
                 let removed = STTRuntime.deleteWhisperModel(variant: variant, defaults: defaults)
                 guard removed else {
-                    throw ValidationError("Could not delete Whisper \(SpeechEnginePreference.friendlyVariantName(variant)). It may be missing or in use by another process.")
+                    throw ModelDeletionError.deleteFailed("Could not delete Whisper \(SpeechEnginePreference.friendlyVariantName(variant)). It may be missing or in use by another process.")
                 }
                 let freed = whisperModelSizeLabel(for: variant).map { " · freed \($0)" } ?? ""
                 print("Deleted \(target.displayName)\(freed).")
@@ -556,6 +556,17 @@ struct ModelDeletionTarget: Equatable {
 
     let kind: Kind
     let displayName: String
+}
+
+enum ModelDeletionError: Error, Equatable, LocalizedError {
+    case deleteFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .deleteFailed(let message):
+            return message
+        }
+    }
 }
 
 /// Maps a `models list` id (`parakeet-v2`, `whisper-…`, bare `parakeet` /
