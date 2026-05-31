@@ -195,6 +195,31 @@ public actor WhisperEngine: STTTranscribing {
         }
     }
 
+    /// Removes a downloaded Whisper variant from disk and forgets its optimized
+    /// flag so a later re-download honestly reports the cold-start cost. A
+    /// no-op (returns `false`) when the variant isn't present. Pure file work —
+    /// callers are responsible for not deleting the engine currently in use.
+    @discardableResult
+    public static func deleteModel(
+        model: String = WhisperEngine.defaultModelVariant,
+        downloadBase: URL = WhisperEngine.defaultDownloadBase,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        guard let folder = localModelFolder(model: model, downloadBase: downloadBase) else {
+            return false
+        }
+        do {
+            try FileManager.default.removeItem(at: folder)
+        } catch {
+            return false
+        }
+        let removed = localModelFolder(model: model, downloadBase: downloadBase) == nil
+        if removed {
+            SpeechEnginePreference.clearWhisperOptimized(variant: model, defaults: defaults)
+        }
+        return removed
+    }
+
     public func transcribe(
         audioPath: String,
         job: STTJobKind,
