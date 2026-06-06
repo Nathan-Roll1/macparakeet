@@ -80,6 +80,8 @@ by checking exit code first: `2` = misuse, `1` = runtime, `0` = success.
 
 ## [Unreleased]
 
+## [2.7.0] -- 2026-06-06
+
 ### Added
 
 - `transcribe` now accepts per-run speaker-count constraints for diarization:

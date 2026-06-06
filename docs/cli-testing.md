@@ -30,7 +30,7 @@ macparakeet-cli
 │       --parakeet-model app-default|v3|v2 [--output-dir DIR]
 │       --speaker-detection app-default|on|off
 │       [--speaker-count N | --speaker-min N [--speaker-max N] | --speaker-max N]
-│       --youtube-audio-quality app-default|m4a|best-available
+│       --media-audio-quality app-default|m4a|best-available
 ├── history                              View and manage history
 │   ├── dictations [--limit] [--json]    List recent dictations (default)
 │   ├── transcriptions [--limit] [--json]  List recent transcriptions
@@ -140,7 +140,7 @@ swift run macparakeet-cli transcribe "<FILE_OR_MEDIA_URL>" \
   --speaker-detection app-default \
   --mode app-default \
   --downloaded-audio app-default \
-  --youtube-audio-quality app-default
+  --media-audio-quality app-default
 ```
 
 ### 2) Deterministic Mode (recommended for CI/agent reproducibility)
@@ -154,7 +154,7 @@ swift run macparakeet-cli transcribe "<FILE_OR_MEDIA_URL>" \
   --speaker-detection off \
   --mode raw \
   --downloaded-audio delete \
-  --youtube-audio-quality m4a
+  --media-audio-quality m4a
 ```
 
 Or clean mode with retained downloads:
@@ -166,10 +166,10 @@ swift run macparakeet-cli transcribe "<FILE_OR_MEDIA_URL>" \
   --speaker-detection on \
   --mode clean \
   --downloaded-audio keep \
-  --youtube-audio-quality best-available
+  --media-audio-quality best-available
 ```
 
-`--youtube-audio-quality app-default` follows the GUI setting. `m4a` matches
+`--media-audio-quality app-default` follows the GUI setting. `m4a` matches
 the app's default compatibility-first selector. `best-available` asks `yt-dlp`
 for the best audio stream and then lets the normal conversion pipeline prepare
 the STT input.
@@ -260,7 +260,7 @@ swift run macparakeet-cli transcribe "<FILE>" --format json
 swift run macparakeet-cli transcribe "<FILE>" --format transcript
 
 # Transient transcription: no completed row in Library/history
-swift run macparakeet-cli transcribe "<FILE_OR_YOUTUBE_URL>" --format transcript --no-history
+swift run macparakeet-cli transcribe "<FILE_OR_MEDIA_URL>" --format transcript --no-history
 
 # Batch mode: writes one transcript file per resolved input
 swift run macparakeet-cli transcribe lecture1.m4a lectures/ \
@@ -273,7 +273,7 @@ swift run macparakeet-cli transcribe lecture1.m4a lectures/ \
 piped directly into `pbcopy`, `grep`, `tee`, or a local LLM command.
 
 `--no-history` uses the same transcription pipeline without retaining a completed
-history row. For YouTube inputs, downloaded audio is temporary regardless of
+history row. For media URL inputs, downloaded audio is temporary regardless of
 the shared audio-retention default.
 
 ## Model Selection

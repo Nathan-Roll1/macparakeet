@@ -53,7 +53,7 @@ commands:
       --speaker-detection app-default \
       --mode app-default \
       --downloaded-audio app-default \
-      --youtube-audio-quality app-default \
+      --media-audio-quality app-default \
       --format json
   list_models: macparakeet-cli models list --json
   set_parakeet_model: macparakeet-cli config set parakeet-model "{v3_or_v2}" --json

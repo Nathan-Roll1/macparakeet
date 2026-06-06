@@ -465,7 +465,7 @@ CREATE UNIQUE INDEX idx_ai_formatter_profiles_category_unique
 
 **Notes:**
 - Exact app profiles store bundle IDs and display names as local user data only. They are used for prompt resolution and local history/debug provenance, not telemetry.
-- Matching precedence is exact bundle, then coarse category, then the existing global AI Formatter prompt.
+- Matching precedence is exact bundle, then custom coarse category, then built-in category smart default, then the fallback AI Formatter prompt.
 - Duplicate exact-bundle and category targets are rejected by both schema unique indexes and `AIFormatterProfileRepository` so the matching rule stays deterministic and direct/future write paths cannot create ambiguous routing.
 - Bundle profile rows require a non-empty lowercased/trimmed bundle ID. Category profile rows require a valid `TelemetryAppCategory` raw value.
 - Browser hostname/domain matching is intentionally not represented in this schema. V1 treats browsers as exact browser apps or the coarse `browser` category.
