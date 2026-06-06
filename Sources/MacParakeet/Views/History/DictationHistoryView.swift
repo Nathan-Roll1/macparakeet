@@ -5,6 +5,7 @@ import MacParakeetViewModels
 
 struct DictationHistoryView: View {
     @Bindable var viewModel: DictationHistoryViewModel
+    @State private var deleteAlertCount = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -36,6 +37,11 @@ struct DictationHistoryView: View {
         .animation(DesignSystem.Animation.contentSwap, value: viewModel.playingDictationId)
         .animation(DesignSystem.Animation.contentSwap, value: viewModel.playbackError != nil)
         .animation(DesignSystem.Animation.contentSwap, value: viewModel.selectedSubTab)
+        .onChange(of: viewModel.pendingDeleteCount) { _, count in
+            if count > 0 {
+                deleteAlertCount = count
+            }
+        }
         .alert(
             deleteAlertTitle,
             isPresented: Binding(
@@ -282,16 +288,20 @@ struct DictationHistoryView: View {
     }
 
     private var deleteAlertTitle: String {
-        let count = viewModel.pendingDeleteCount
+        let count = displayedDeleteAlertCount
         return count > 1 ? "Delete \(count) Dictations?" : "Delete Dictation?"
     }
 
     private var deleteAlertMessage: String {
-        let count = viewModel.pendingDeleteCount
+        let count = displayedDeleteAlertCount
         if count > 1 {
             return "These dictations and their audio files will be permanently deleted."
         }
         return "This dictation and its audio file will be permanently deleted."
+    }
+
+    private var displayedDeleteAlertCount: Int {
+        deleteAlertCount > 0 ? deleteAlertCount : viewModel.pendingDeleteCount
     }
 }
 

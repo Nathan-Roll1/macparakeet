@@ -519,12 +519,26 @@ final class DictationHistoryViewModelTests: XCTestCase {
         _ description: String,
         file: StaticString = #filePath,
         line: UInt = #line,
-        predicate: () -> Bool
+        predicate: @escaping () -> Bool
     ) async {
-        for _ in 0..<100 {
-            if predicate() { return }
-            try? await Task.sleep(for: .milliseconds(10))
+        if predicate() { return }
+
+        let expectation = expectation(description: description)
+        let pollTask = Task { @MainActor in
+            while !Task.isCancelled {
+                if predicate() {
+                    expectation.fulfill()
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(25))
+            }
         }
-        XCTFail("Timed out waiting for \(description)", file: file, line: line)
+
+        await fulfillment(of: [expectation], timeout: 5.0)
+        pollTask.cancel()
+
+        if !predicate() {
+            XCTFail("Timed out waiting for \(description)", file: file, line: line)
+        }
     }
 }
