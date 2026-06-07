@@ -134,8 +134,47 @@ final class MeetingRecordingPanelViewModelTests: XCTestCase {
         XCTAssertEqual(
             viewModel.chatTranscript,
             """
-            Testing the meeting panel
-            Reply from the call
+            Me: Testing the meeting panel
+            Others: Reply from the call
+            """
+        )
+    }
+
+    func testRefreshingChatTranscriptContextUsesCurrentModeWithoutPreviewChange() async throws {
+        var mode = TranscriptAIContextMode.richTranscript
+        let viewModel = MeetingRecordingPanelViewModel(
+            transcriptAIContextModeProvider: { mode }
+        )
+        let mockService = MockLLMService()
+        viewModel.chatViewModel.configure(llmService: mockService, transcriptText: "")
+        viewModel.updatePreviewLines([
+            MeetingRecordingPreviewLine(
+                id: "1",
+                timestamp: "0:05",
+                speakerLabel: "Me",
+                text: "Testing the meeting panel",
+                source: .microphone
+            ),
+            MeetingRecordingPreviewLine(
+                id: "2",
+                timestamp: "0:08",
+                speakerLabel: "Others",
+                text: "Reply from the call",
+                source: .system
+            )
+        ])
+
+        mode = .plainTranscript
+        viewModel.refreshChatTranscriptContext()
+        viewModel.chatViewModel.inputText = "Summarize this"
+        viewModel.chatViewModel.sendMessage()
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        XCTAssertEqual(
+            mockService.lastChatTranscript,
+            """
+            Me: Testing the meeting panel
+            Others: Reply from the call
             """
         )
     }

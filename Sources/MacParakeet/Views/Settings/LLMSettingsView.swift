@@ -370,18 +370,16 @@ struct LLMSettingsView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            if viewModel.transcriptAIContextMode == .richTranscript {
-                HStack(alignment: .top, spacing: 6) {
-                    Image(systemName: "info.circle.fill")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(DesignSystem.Colors.textSecondary)
-                    Text("Speaker labels are a rough reference from audio-source separation and diarization, not a high-accuracy identification of who said each line.")
-                        .font(DesignSystem.Typography.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(alignment: .top, spacing: 6) {
+                Image(systemName: "info.circle.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(DesignSystem.Colors.textSecondary)
+                Text("When included, speaker labels are a rough reference from audio-source separation and diarization, not a high-accuracy identification of who said each line.")
+                    .font(DesignSystem.Typography.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .id("ai.transcriptContext")
     }

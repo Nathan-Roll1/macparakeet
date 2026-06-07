@@ -121,12 +121,13 @@ public final class MeetingRecordingPanelViewModel {
             if !lines.isEmpty {
                 liveTranscriptStatus = .live
             }
-            // Keep the live Ask tab fed with the latest transcript without disturbing
-            // chat history. The transcript AI context preference decides whether
-            // future sends use rich timestamp/speaker context or plain text.
-            chatViewModel.updateTranscriptText(chatTranscript)
+            refreshChatTranscriptContext()
         }
         self.isTranscriptionLagging = isTranscriptionLagging
+    }
+
+    public func refreshChatTranscriptContext() {
+        chatViewModel.updateTranscriptText(chatTranscript)
     }
 
     public var transcriptText: String {
@@ -138,7 +139,11 @@ public final class MeetingRecordingPanelViewModel {
         case .richTranscript:
             return transcriptText
         case .plainTranscript:
-            return previewLines.map(\.text).joined(separator: "\n")
+            return previewLines.map { line in
+                let label = line.speakerLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !label.isEmpty else { return line.text }
+                return "\(label): \(line.text)"
+            }.joined(separator: "\n")
         }
     }
 

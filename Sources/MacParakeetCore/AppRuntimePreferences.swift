@@ -45,7 +45,7 @@ public enum TranscriptAIContextMode: String, CaseIterable, Codable, Identifiable
         case .richTranscript:
             return "Use timestamps and available speaker labels when the transcript has them."
         case .plainTranscript:
-            return "Use the transcript text without timing or speaker labels."
+            return "Use transcript text without timestamps."
         }
     }
 
