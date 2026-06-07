@@ -59,6 +59,13 @@ public final class DictationHistoryViewModel {
 
     public var selectedSubTab: SubTab = .history {
         didSet {
+            // Selection is a History-only affordance; leaving the History
+            // sub-tab tears down any active bulk-selection mode. Keyed off
+            // "not History" rather than "== .stats" so a future third sub-tab
+            // can't silently strand the user in bulk mode.
+            if selectedSubTab != .history {
+                exitBulkSelection()
+            }
             if selectedSubTab == .stats {
                 refreshStatsTabData()
             }
@@ -95,6 +102,13 @@ public final class DictationHistoryViewModel {
     // MARK: - Selection
 
     public var selectedDictationIDs: Set<UUID> = []
+
+    /// When true, the History list shows per-row selection controls and the
+    /// bulk action bar. Bulk selection is a deliberate mode the user enters
+    /// from a row's ellipsis menu — selection chrome stays hidden during
+    /// ordinary browsing. Exited on confirmed bulk delete, Cancel, leaving the
+    /// History sub-tab, or leaving the Dictations section.
+    public var isBulkSelectionModeEnabled = false
 
     public var selectedDictationCount: Int {
         selectedDictationIDs.count
@@ -212,7 +226,22 @@ public final class DictationHistoryViewModel {
         selectedDictationIDs = visibleDictationIDs
     }
 
+    /// Empty the selection without leaving bulk mode, so the user can clear and
+    /// reselect without reopening the menu. Distinct from `exitBulkSelection()`,
+    /// which also tears down the mode.
     public func clearSelection() {
+        selectedDictationIDs = []
+    }
+
+    /// Enter bulk-selection mode, preselecting the row the user invoked it from.
+    public func beginBulkSelection(startingWith dictation: Dictation) {
+        isBulkSelectionModeEnabled = true
+        selectedDictationIDs.insert(dictation.id)
+    }
+
+    /// Leave bulk-selection mode and drop any selection.
+    public func exitBulkSelection() {
+        isBulkSelectionModeEnabled = false
         selectedDictationIDs = []
     }
 
@@ -229,6 +258,12 @@ public final class DictationHistoryViewModel {
         let selectedDictations = pendingDeleteSelectedDictations
         pendingDeleteSelectedDictations = []
         guard !selectedDictations.isEmpty else { return }
+        // A confirmed bulk delete is a deliberate end to the bulk workflow. Tear
+        // the mode down through the single exit path so the cleanup is explicit
+        // and self-contained — `exitBulkSelection` clears the live selection
+        // unconditionally, while the rows to delete are held in the local
+        // snapshot, so deletion is unaffected.
+        exitBulkSelection()
         deleteDictations(selectedDictations)
     }
 
