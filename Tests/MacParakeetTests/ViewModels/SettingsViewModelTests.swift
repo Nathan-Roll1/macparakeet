@@ -134,6 +134,7 @@ final class SettingsViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.silenceAutoStop, "silenceAutoStop should default to false")
         XCTAssertEqual(viewModel.silenceDelay, 2.0, "silenceDelay should default to 2.0")
         XCTAssertFalse(viewModel.pauseMediaDuringDictation, "pauseMediaDuringDictation should default to false")
+        XCTAssertFalse(viewModel.instantDictationEnabled, "instantDictationEnabled should default to false")
         XCTAssertFalse(
             viewModel.keepDictationOnClipboard,
             "keepDictationOnClipboard should default to false (opt-in)"
@@ -178,6 +179,7 @@ final class SettingsViewModelTests: XCTestCase {
             forKey: UserDefaultsAppRuntimePreferences.meetingAudioSourceModeKey
         )
         testDefaults.set(true, forKey: UserDefaultsAppRuntimePreferences.pauseMediaDuringDictationKey)
+        testDefaults.set(true, forKey: UserDefaultsAppRuntimePreferences.instantDictationEnabledKey)
         HotkeyTrigger.chord(modifiers: ["control", "option"], keyCode: 46)
             .save(to: testDefaults, defaultsKey: HotkeyTrigger.meetingDefaultsKey)
 
@@ -198,6 +200,7 @@ final class SettingsViewModelTests: XCTestCase {
         XCTAssertEqual(vm.selectedMicrophoneDeviceUID, "usb-mic-uid")
         XCTAssertEqual(vm.meetingAudioSourceMode, .systemOnly)
         XCTAssertTrue(vm.pauseMediaDuringDictation)
+        XCTAssertTrue(vm.instantDictationEnabled)
         XCTAssertEqual(vm.meetingHotkeyTrigger, .chord(modifiers: ["control", "option"], keyCode: 46))
     }
 
@@ -219,7 +222,65 @@ final class SettingsViewModelTests: XCTestCase {
         XCTAssertEqual(settings, [.pauseMediaDuringDictation, .pauseMediaDuringDictation])
     }
 
+    func testInstantDictationPersistsEmitsTelemetryAndPostsNotification() {
+        let telemetry = SettingsTelemetrySpy()
+        Telemetry.configure(telemetry)
+        var instantDictationNotificationCount = 0
+        var microphoneNotificationCount = 0
+        let observer = NotificationCenter.default.addObserver(
+            forName: .macParakeetInstantDictationDidChange,
+            object: nil,
+            queue: nil
+        ) { _ in
+            instantDictationNotificationCount += 1
+        }
+        let microphoneObserver = NotificationCenter.default.addObserver(
+            forName: .macParakeetMicrophoneSelectionDidChange,
+            object: nil,
+            queue: nil
+        ) { _ in
+            microphoneNotificationCount += 1
+        }
+        defer {
+            NotificationCenter.default.removeObserver(observer)
+            NotificationCenter.default.removeObserver(microphoneObserver)
+        }
+
+        viewModel.instantDictationEnabled = true
+
+        XCTAssertTrue(testDefaults.bool(forKey: UserDefaultsAppRuntimePreferences.instantDictationEnabledKey))
+        XCTAssertEqual(instantDictationNotificationCount, 1)
+        XCTAssertEqual(microphoneNotificationCount, 0)
+
+        let settings = telemetry.snapshot().compactMap { event -> TelemetrySettingName? in
+            guard case .settingChanged(let setting) = event else { return nil }
+            return setting
+        }
+        XCTAssertEqual(settings, [.instantDictation])
+    }
+
     func testSelectedMicrophonePersistsUIDAndClearsForSystemDefault() {
+        var microphoneNotificationCount = 0
+        var instantDictationNotificationCount = 0
+        let observer = NotificationCenter.default.addObserver(
+            forName: .macParakeetMicrophoneSelectionDidChange,
+            object: nil,
+            queue: nil
+        ) { _ in
+            microphoneNotificationCount += 1
+        }
+        let instantDictationObserver = NotificationCenter.default.addObserver(
+            forName: .macParakeetInstantDictationDidChange,
+            object: nil,
+            queue: nil
+        ) { _ in
+            instantDictationNotificationCount += 1
+        }
+        defer {
+            NotificationCenter.default.removeObserver(observer)
+            NotificationCenter.default.removeObserver(instantDictationObserver)
+        }
+
         viewModel.selectedMicrophoneDeviceUID = "usb-mic-uid"
 
         XCTAssertEqual(
@@ -230,9 +291,23 @@ final class SettingsViewModelTests: XCTestCase {
         viewModel.selectedMicrophoneDeviceUID = SettingsViewModel.systemDefaultMicrophoneSelection
 
         XCTAssertNil(testDefaults.string(forKey: UserDefaultsAppRuntimePreferences.selectedMicrophoneDeviceUIDKey))
+        XCTAssertEqual(microphoneNotificationCount, 2)
+        XCTAssertEqual(instantDictationNotificationCount, 0)
     }
 
     func testSelectedMicrophoneNormalizesBlankSelectionToSystemDefault() {
+        let telemetry = SettingsTelemetrySpy()
+        Telemetry.configure(telemetry)
+        var microphoneNotificationCount = 0
+        let observer = NotificationCenter.default.addObserver(
+            forName: .macParakeetMicrophoneSelectionDidChange,
+            object: nil,
+            queue: nil
+        ) { _ in
+            microphoneNotificationCount += 1
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
         viewModel.selectedMicrophoneDeviceUID = "usb-mic-uid"
         XCTAssertEqual(
             testDefaults.string(forKey: UserDefaultsAppRuntimePreferences.selectedMicrophoneDeviceUIDKey),
@@ -243,6 +318,13 @@ final class SettingsViewModelTests: XCTestCase {
 
         XCTAssertEqual(viewModel.selectedMicrophoneDeviceUID, SettingsViewModel.systemDefaultMicrophoneSelection)
         XCTAssertNil(testDefaults.string(forKey: UserDefaultsAppRuntimePreferences.selectedMicrophoneDeviceUIDKey))
+        XCTAssertEqual(microphoneNotificationCount, 2)
+
+        let settings = telemetry.snapshot().compactMap { event -> TelemetrySettingName? in
+            guard case .settingChanged(let setting) = event else { return nil }
+            return setting
+        }
+        XCTAssertEqual(settings, [.microphoneSelection, .microphoneSelection])
     }
 
     func testRefreshMicrophoneDevicesUsesInjectedDevicesAndMarksDefaultFirst() {

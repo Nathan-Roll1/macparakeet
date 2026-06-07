@@ -168,6 +168,7 @@ public final class SettingsViewModel {
             let normalized = Self.normalizedMicrophoneSelection(selectedMicrophoneDeviceUID)
             if selectedMicrophoneDeviceUID != normalized {
                 selectedMicrophoneDeviceUID = normalized
+                return
             }
             if normalized == Self.systemDefaultMicrophoneSelection {
                 defaults.removeObject(forKey: UserDefaultsAppRuntimePreferences.selectedMicrophoneDeviceUIDKey)
@@ -178,6 +179,7 @@ public final class SettingsViewModel {
             microphoneTestTask = nil
             microphoneTestState = .idle
             microphoneTestLevel = 0
+            NotificationCenter.default.post(name: .macParakeetMicrophoneSelectionDidChange, object: nil)
             Telemetry.send(.settingChanged(setting: .microphoneSelection))
         }
     }
@@ -197,6 +199,16 @@ public final class SettingsViewModel {
                 forKey: UserDefaultsAppRuntimePreferences.pauseMediaDuringDictationKey
             )
             Telemetry.send(.settingChanged(setting: .pauseMediaDuringDictation))
+        }
+    }
+    public var instantDictationEnabled: Bool {
+        didSet {
+            defaults.set(
+                instantDictationEnabled,
+                forKey: UserDefaultsAppRuntimePreferences.instantDictationEnabledKey
+            )
+            NotificationCenter.default.post(name: .macParakeetInstantDictationDidChange, object: nil)
+            Telemetry.send(.settingChanged(setting: .instantDictation))
         }
     }
     public var microphoneDeviceOptions: [MicrophoneDeviceOption] = []
@@ -590,6 +602,9 @@ public final class SettingsViewModel {
         meetingAudioSourceMode = MeetingAudioSourceMode.current(defaults: defaults)
         pauseMediaDuringDictation = defaults.object(
             forKey: UserDefaultsAppRuntimePreferences.pauseMediaDuringDictationKey
+        ) as? Bool ?? false
+        instantDictationEnabled = defaults.object(
+            forKey: UserDefaultsAppRuntimePreferences.instantDictationEnabledKey
         ) as? Bool ?? false
         voiceReturnEnabled = defaults.bool(forKey: UserDefaultsAppRuntimePreferences.voiceReturnEnabledKey)
         voiceReturnTrigger = defaults.string(forKey: UserDefaultsAppRuntimePreferences.voiceReturnTriggerKey) ?? "press return"
