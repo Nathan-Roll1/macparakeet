@@ -65,6 +65,25 @@ final class FeedbackViewModelTests: XCTestCase {
         Telemetry.configure(NoOpTelemetryService())
     }
 
+    /// An ISO-8601 timestamp `secondsAgo` before now, in the writer's format —
+    /// used to build diagnostic-log fixtures whose recency the scoping logic
+    /// (which uses the real `Date()`) will evaluate.
+    static func iso(secondsAgo: Double) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: Date().addingTimeInterval(-secondsAgo))
+    }
+
+    /// Polls until `condition` holds or `timeout` elapses, so async submission
+    /// assertions wait for the detached submit task deterministically instead
+    /// of racing a fixed delay on a loaded runner.
+    private func waitUntil(timeout: Duration = .seconds(5), _ condition: () -> Bool) async {
+        let deadline = ContinuousClock.now + timeout
+        while !condition(), ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+    }
+
     // MARK: - Initial State
 
     func testDefaultState() {
@@ -175,6 +194,7 @@ final class FeedbackViewModelTests: XCTestCase {
         viewModel.screenshotData = Data([0x00])
         viewModel.screenshotFilename = "test.png"
         viewModel.includeDiagnosticLog = true
+        viewModel.includeFullDiagnosticHistory = true
         viewModel.showSystemInfo = true
         viewModel.submissionState = .error("something")
 
@@ -187,6 +207,7 @@ final class FeedbackViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.screenshotFilename)
         XCTAssertTrue(viewModel.screenshotAttachments.isEmpty)
         XCTAssertFalse(viewModel.includeDiagnosticLog)
+        XCTAssertFalse(viewModel.includeFullDiagnosticHistory)
         XCTAssertFalse(viewModel.showSystemInfo)
         XCTAssertEqual(viewModel.submissionState, .idle)
     }
@@ -393,11 +414,15 @@ final class FeedbackViewModelTests: XCTestCase {
         XCTAssertNotNil(operation?.errorType)
     }
 
-    func testSubmissionFailsWhenDiagnosticLogIsTooLarge() async throws {
+    func testSubmissionTrimsOversizedDiagnosticLogToRecentWindow() async throws {
         let logURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("oversized-dictation-audio-\(UUID().uuidString).log")
-        let oversizedData = Data(count: Int(AudioCaptureDiagnostics.diagnosticLogMaxBytes) + 1)
-        try oversizedData.write(to: logURL)
+        // A realistic, all-recent log far larger than the recent byte cap.
+        let filler = String(repeating: "x", count: 800)
+        let lines = (0..<3000).map { index in
+            "\(Self.iso(secondsAgo: Double(3000 - index))) dictation_capture_stop seq=\(index) \(filler)"
+        }
+        try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: logURL)
         defer { try? FileManager.default.removeItem(at: logURL) }
 
         viewModel = FeedbackViewModel(diagnosticLogURL: logURL)
@@ -406,14 +431,101 @@ final class FeedbackViewModelTests: XCTestCase {
         viewModel.includeDiagnosticLog = true
 
         viewModel.submit()
-        try await Task.sleep(for: .milliseconds(100))
+        await waitUntil { mockService.submitCallCount == 1 }
+
+        // The oversized log is trimmed to the recent window, not rejected.
+        XCTAssertEqual(mockService.submitCallCount, 1)
+        let base64 = try XCTUnwrap(mockService.lastPayload?.diagnosticLog?.base64)
+        let decoded = try XCTUnwrap(Data(base64Encoded: base64))
+        XCTAssertLessThanOrEqual(decoded.count, AudioCaptureDiagnostics.recentUploadMaxBytes)
+        let text = String(decoding: decoded, as: UTF8.self)
+        XCTAssertTrue(text.contains("seq=2999"), "newest line should survive")
+        XCTAssertFalse(text.contains("seq=0 "), "oldest line should be trimmed")
+    }
+
+    func testSubmissionAttachesOnlyRecentWindowByDefault() async throws {
+        let logURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("windowed-dictation-audio-\(UUID().uuidString).log")
+        let raw = """
+        \(Self.iso(secondsAgo: 240 * 3600)) dictation_capture_stop seq=old
+        \(Self.iso(secondsAgo: 3600)) dictation_capture_stop seq=recent
+        """ + "\n"
+        try Data(raw.utf8).write(to: logURL)
+        defer { try? FileManager.default.removeItem(at: logURL) }
+
+        viewModel = FeedbackViewModel(diagnosticLogURL: logURL)
+        viewModel.configure(feedbackService: mockService)
+        viewModel.message = "Dictation acted weird"
+        viewModel.includeDiagnosticLog = true
+
+        viewModel.submit()
+        await waitUntil { mockService.submitCallCount == 1 }
+
+        let base64 = try XCTUnwrap(mockService.lastPayload?.diagnosticLog?.base64)
+        let text = String(decoding: try XCTUnwrap(Data(base64Encoded: base64)), as: UTF8.self)
+        XCTAssertTrue(text.contains("seq=recent"))
+        XCTAssertFalse(text.contains("seq=old"), "entries older than the window should be dropped by default")
+    }
+
+    func testSubmissionAttachesFullHistoryWhenRequested() async throws {
+        let logURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("fullhistory-dictation-audio-\(UUID().uuidString).log")
+        let raw = """
+        \(Self.iso(secondsAgo: 240 * 3600)) dictation_capture_stop seq=old
+        \(Self.iso(secondsAgo: 3600)) dictation_capture_stop seq=recent
+        """ + "\n"
+        try Data(raw.utf8).write(to: logURL)
+        defer { try? FileManager.default.removeItem(at: logURL) }
+
+        viewModel = FeedbackViewModel(diagnosticLogURL: logURL)
+        viewModel.configure(feedbackService: mockService)
+        viewModel.message = "Dictation acted weird"
+        viewModel.includeDiagnosticLog = true
+        viewModel.includeFullDiagnosticHistory = true
+
+        viewModel.submit()
+        await waitUntil { mockService.submitCallCount == 1 }
+
+        let base64 = try XCTUnwrap(mockService.lastPayload?.diagnosticLog?.base64)
+        let text = String(decoding: try XCTUnwrap(Data(base64Encoded: base64)), as: UTF8.self)
+        XCTAssertTrue(text.contains("seq=recent"))
+        XCTAssertTrue(text.contains("seq=old"), "full history should include entries older than the window")
+    }
+
+    func testSubmissionFailsWhenDiagnosticLogIsEmpty() async throws {
+        let logURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("empty-dictation-audio-\(UUID().uuidString).log")
+        try Data().write(to: logURL)
+        defer { try? FileManager.default.removeItem(at: logURL) }
+
+        viewModel = FeedbackViewModel(diagnosticLogURL: logURL)
+        viewModel.configure(feedbackService: mockService)
+        viewModel.message = "Dictation acted weird"
+        viewModel.includeDiagnosticLog = true
+
+        viewModel.submit()
+        await waitUntil {
+            if case .error = viewModel.submissionState { return true }
+            return false
+        }
 
         XCTAssertEqual(mockService.submitCallCount, 0)
         if case .error(let message) = viewModel.submissionState {
-            XCTAssertEqual(message, "The diagnostic log is too large to attach.")
+            XCTAssertEqual(message, "The diagnostic log is empty.")
         } else {
-            XCTFail("Expected oversized diagnostic log error, got \(viewModel.submissionState)")
+            XCTFail("Expected empty diagnostic log error, got \(viewModel.submissionState)")
         }
+    }
+
+    func testTurningDiagnosticsOffResetsFullHistoryOptIn() {
+        viewModel.includeDiagnosticLog = true
+        viewModel.includeFullDiagnosticHistory = true
+
+        // Disabling diagnostics must clear the advanced full-history opt-in so
+        // re-enabling later starts from the privacy-preferring recent window.
+        viewModel.includeDiagnosticLog = false
+
+        XCTAssertFalse(viewModel.includeFullDiagnosticHistory)
     }
 
     // MARK: - System Info
