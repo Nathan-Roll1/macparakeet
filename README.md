@@ -89,13 +89,14 @@ Meeting calendar support is live in the stable DMG. MacParakeet reads upcoming m
 - Optional English-only Parakeet v2 model (~2.1% WER) for users who do not want v3 language auto-detect
 - ~66 MB working memory per active Parakeet inference slot
 - 25 European languages with Parakeet auto-detection
-- Optional local WhisperKit engine for Korean, Japanese, Chinese, and many other languages
+- Optional local Nemotron Beta engine for fast multilingual ASR, plus WhisperKit for Korean, Japanese, Chinese, and many other languages
 
 ### Limitations
 
 - Apple Silicon only (M1/M2/M3/M4)
 - Parakeet is best for English and supported European languages
-- WhisperKit multilingual support requires a separate local model download before first use
+- Nemotron is Beta while real-world quality is benchmarked
+- Nemotron and WhisperKit multilingual support require separate local model downloads before first use
 
 ## Get it
 
