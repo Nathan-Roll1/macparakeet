@@ -1119,7 +1119,9 @@ struct TranscriptResultView: View {
 
             Spacer()
 
-            if !editingTranscript, hasCleanTranscriptText, hasTimestamps {
+            // Show whenever word timestamps exist: Timed renders from word data,
+            // and Text falls back to the raw transcript when clean text is absent.
+            if !editingTranscript, hasTimestamps {
                 Picker("Transcript view", selection: $transcriptDisplayMode) {
                     ForEach(TranscriptDisplayMode.allCases, id: \.self) { mode in
                         Text(mode.rawValue).tag(mode)
@@ -2500,7 +2502,7 @@ struct TranscriptResultView: View {
     }
 
     private func syncTranscriptDisplayMode() {
-        transcriptDisplayMode = hasCleanTranscriptText ? .text : .timed
+        transcriptDisplayMode = (hasCleanTranscriptText || !hasTimestamps) ? .text : .timed
     }
 
     private func beginTranscriptEdit() {
