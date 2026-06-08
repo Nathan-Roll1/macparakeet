@@ -65,6 +65,7 @@ pnpm-debug.log*
 
 # Logs
 *.log
+diagnostics/
 logs/
 
 # Test artifacts
