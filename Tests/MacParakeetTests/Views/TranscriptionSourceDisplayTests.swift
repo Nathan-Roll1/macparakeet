@@ -33,6 +33,21 @@ final class TranscriptionSourceDisplayTests: XCTestCase {
         XCTAssertEqual(display.symbolText, "𝕏")
     }
 
+    func testPodcastDisplaysAsPodcast() {
+        let transcription = Transcription(
+            fileName: "podcast.m4a",
+            sourceURL: "https://podcasts.apple.com/us/podcast/show/id123?i=456",
+            sourceType: .podcast
+        )
+
+        let display = TranscriptionSourceDisplay.resolve(for: transcription)
+
+        XCTAssertEqual(display, .podcast)
+        XCTAssertEqual(display.collapsedText, "Podcast")
+        XCTAssertEqual(display.expandedText, "Podcast episode")
+        XCTAssertNil(display.symbolText)
+    }
+
     func testUnknownDownloaderURLDisplaysAsVideo() {
         let transcription = Transcription(
             fileName: "video.m4a",

@@ -6,6 +6,7 @@ enum TranscriptionSourceDisplay: Equatable {
     case localFile
     case youtube
     case x
+    case podcast
     case mediaURL
 
     static func resolve(for transcription: Transcription) -> TranscriptionSourceDisplay {
@@ -14,6 +15,8 @@ enum TranscriptionSourceDisplay: Equatable {
             return .meeting
         case .file:
             return .localFile
+        case .podcast:
+            return .podcast
         case .youtube:
             guard let sourceURL = transcription.sourceURL else { return .youtube }
             if XURLValidator.isXURL(sourceURL) { return .x }
@@ -32,6 +35,8 @@ enum TranscriptionSourceDisplay: Equatable {
             return "YouTube"
         case .x:
             return "X"
+        case .podcast:
+            return "Podcast"
         case .mediaURL:
             return "Video"
         }
@@ -47,6 +52,8 @@ enum TranscriptionSourceDisplay: Equatable {
             return "YouTube source"
         case .x:
             return "X source"
+        case .podcast:
+            return "Podcast episode"
         case .mediaURL:
             return "Video source"
         }
@@ -60,6 +67,8 @@ enum TranscriptionSourceDisplay: Equatable {
             return "waveform"
         case .youtube, .x, .mediaURL:
             return "play.rectangle.fill"
+        case .podcast:
+            return "mic.fill"
         }
     }
 
@@ -67,7 +76,7 @@ enum TranscriptionSourceDisplay: Equatable {
         switch self {
         case .x:
             return "𝕏"
-        case .meeting, .localFile, .youtube, .mediaURL:
+        case .meeting, .localFile, .youtube, .podcast, .mediaURL:
             return nil
         }
     }
@@ -80,6 +89,8 @@ enum TranscriptionSourceDisplay: Equatable {
             return DesignSystem.Colors.youtubeRed
         case .x:
             return DesignSystem.Colors.xMark
+        case .podcast:
+            return DesignSystem.Colors.podcastPurple
         case .mediaURL:
             return DesignSystem.Colors.textSecondary
         }

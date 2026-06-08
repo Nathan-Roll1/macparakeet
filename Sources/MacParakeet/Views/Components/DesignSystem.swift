@@ -84,6 +84,9 @@ enum DesignSystem {
         // YouTube badge
         static let youtubeRed = Color.red
 
+        // Apple Podcasts badge
+        static let podcastPurple = Color(red: 0.55, green: 0.34, blue: 0.86)
+
         // X badge — adaptive mark (near-black on light, near-white on dark),
         // matching X's appearance-aware branding.
         static let xMark = Color(light: .init(red: 0.09, green: 0.09, blue: 0.11),

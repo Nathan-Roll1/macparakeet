@@ -161,14 +161,14 @@ final class PromptRepositoryTests: XCTestCase {
 
     func testSetAutoRunDisableFromAllNarrowsToOtherSources() throws {
         // Summary is auto-run + unscoped (all). Turning it off for meetings
-        // should keep it running for file/YouTube.
+        // should keep it running for every other transcription source.
         let summary = try XCTUnwrap((try repo.fetchAll()).first(where: { $0.name == "Summary" }))
 
         try repo.setAutoRun(id: summary.id, source: .meeting, enabled: false)
 
         let reloaded = try XCTUnwrap(try repo.fetch(id: summary.id))
         XCTAssertTrue(reloaded.isAutoRun)
-        XCTAssertEqual(reloaded.appliesToSources, [.file, .youtube])
+        XCTAssertEqual(reloaded.appliesToSources, [.file, .youtube, .podcast])
         XCTAssertFalse(reloaded.autoRuns(for: .meeting))
         XCTAssertTrue(reloaded.autoRuns(for: .youtube))
     }
@@ -193,7 +193,7 @@ final class PromptRepositoryTests: XCTestCase {
         let summary = try XCTUnwrap((try repo.fetchAll()).first(where: { $0.name == "Summary" }))
 
         try repo.setAutoRun(id: summary.id, source: .meeting, enabled: false)
-        XCTAssertEqual(try XCTUnwrap(repo.fetch(id: summary.id)).appliesToSources, [.file, .youtube])
+        XCTAssertEqual(try XCTUnwrap(repo.fetch(id: summary.id)).appliesToSources, [.file, .youtube, .podcast])
 
         try repo.setAutoRun(id: summary.id, source: .meeting, enabled: true)
         let reloaded = try XCTUnwrap(try repo.fetch(id: summary.id))
@@ -238,7 +238,7 @@ final class PromptRepositoryTests: XCTestCase {
         // Built-ins ship unscoped, so restore must clear appliesToSources —
         // otherwise Summary comes back "visible" but silently meeting-only.
         let summary = try XCTUnwrap((try repo.fetchAll()).first(where: { $0.name == "Summary" }))
-        try repo.setAutoRun(id: summary.id, source: .meeting, enabled: false) // → {file, youtube}
+        try repo.setAutoRun(id: summary.id, source: .meeting, enabled: false) // -> {file, youtube, podcast}
         XCTAssertNotNil(try XCTUnwrap(repo.fetch(id: summary.id)).appliesToSources)
 
         try repo.restoreDefaults()
@@ -258,13 +258,34 @@ final class PromptRepositoryTests: XCTestCase {
         let first = try DatabaseManager(path: dbPath)
         let firstRepo = PromptRepository(dbQueue: first.dbQueue)
         let summary = try XCTUnwrap((try firstRepo.fetchAll()).first(where: { $0.name == "Summary" }))
-        try firstRepo.setAutoRun(id: summary.id, source: .meeting, enabled: false) // → {file, youtube}
+        try firstRepo.setAutoRun(id: summary.id, source: .meeting, enabled: false) // -> {file, youtube, podcast}
 
         // Fresh boot re-runs the reconciler; the user's scoping must survive.
         let second = try DatabaseManager(path: dbPath)
         let secondRepo = PromptRepository(dbQueue: second.dbQueue)
         let reloaded = try XCTUnwrap(try secondRepo.fetch(id: summary.id))
-        XCTAssertEqual(reloaded.appliesToSources, [.file, .youtube], "Reconciler must preserve user source-scoping on built-ins.")
+        XCTAssertEqual(reloaded.appliesToSources, [.file, .youtube, .podcast], "Reconciler must preserve user source-scoping on built-ins.")
+    }
+
+    func testReconcilerPreservesLegacyPartialAppliesToSources() throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("reconciler-legacy-applies-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+        let dbPath = tmpDir.appendingPathComponent("macparakeet.db").path
+
+        let first = try DatabaseManager(path: dbPath)
+        let firstRepo = PromptRepository(dbQueue: first.dbQueue)
+        var summary = try XCTUnwrap((try firstRepo.fetchAll()).first(where: { $0.name == "Summary" }))
+        summary.appliesToSources = [.file, .youtube]
+        try firstRepo.save(summary)
+
+        // A pre-podcast explicit file/YouTube scope is user intent, not an old
+        // spelling of "all"; reconciliation must not widen it to podcasts.
+        let second = try DatabaseManager(path: dbPath)
+        let secondRepo = PromptRepository(dbQueue: second.dbQueue)
+        let reloaded = try XCTUnwrap(try secondRepo.fetch(id: summary.id))
+        XCTAssertEqual(reloaded.appliesToSources, [.file, .youtube])
     }
 
     func testReconcilerPreservesUserCustomizedBuiltInTransformFields() throws {

@@ -435,6 +435,30 @@ ingestion model; the queue machinery is generic enough for a future
 playlist front-end). The CLI mirrors this — see F11 / `macparakeet-cli
 transcribe` and the CLI CHANGELOG (REQ-CLI-002).
 
+**Apple Podcasts URL transcription:** Pasting an Apple Podcasts link
+(`podcasts.apple.com/.../id<show>?i=<episode>`) resolves the episode through
+the public iTunes lookup API to its audio enclosure URL plus episode title,
+show name, artwork, description, and duration — no HTML scraping. A native
+streaming downloader fetches the enclosure before it flows through the same
+local STT path as YouTube. An episode link transcribes that episode; a show
+link transcribes the latest episode. Saved transcripts use a dedicated
+`podcast` source type with its own Library filter and source chip, and the
+Transcribe-tab link field plus the Spotlight-style URL panel both accept
+YouTube and Apple Podcasts links. Implemented in `PodcastURLValidator`,
+`PodcastEpisodeResolver`, and the `TranscriptionService.transcribeURL` podcast
+branch.
+
+**Podcast search (freetext discovery):** Beyond pasting a URL, a freetext
+query — `"Lex Fridman episode 400"` — resolves to an episode by searching the
+iTunes podcast directory (`PodcastDirectoryService`), parsing the matched
+show's RSS feed (`PodcastFeedParser`), and selecting the episode by number /
+title hints or latest (`PodcastEpisodeMatcher`, ported from the
+`podcast-transcribe` tool). The chosen enclosure is fetched with a native
+streaming downloader (`PodcastAudioDownloader`, no `yt-dlp` needed for
+podcasts) and transcribed locally. Exposed today via the CLI
+(`macparakeet-cli transcribe --podcast "<query>"`,
+`TranscriptionService.transcribePodcastQuery`); the GUI surfaces URL paste.
+
 **Completion notification (v0.6 — REQ-UI-006):**
 
 When a file, YouTube, or batch transcription finishes, MacParakeet plays a

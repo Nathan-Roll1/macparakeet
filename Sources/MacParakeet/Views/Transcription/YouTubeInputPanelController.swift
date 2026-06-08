@@ -25,11 +25,14 @@ final class YouTubeInputPanelController {
     func show() {
         if panel != nil { return }
 
-        // Auto-paste: if clipboard has a valid YouTube or X URL, use it as initial value
+        // Auto-paste: if clipboard has a supported media URL, use it as the
+        // initial value.
         var initialURL = ""
         if let clip = NSPasteboard.general.string(forType: .string)?
             .trimmingCharacters(in: .whitespacesAndNewlines),
-           YouTubeURLValidator.isYouTubeURL(clip) || XURLValidator.isXURL(clip) {
+           YouTubeURLValidator.isYouTubeURL(clip)
+            || XURLValidator.isXURL(clip)
+            || PodcastURLValidator.isApplePodcastsURL(clip) {
             initialURL = clip
         }
 

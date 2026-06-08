@@ -54,6 +54,25 @@ private struct FormatterOutcome: Sendable {
     static let skipped = FormatterOutcome(text: nil, run: nil)
 }
 
+/// Metadata that pre-resolution (e.g. an Apple Podcasts iTunes lookup or RSS
+/// feed parse) supplies for a downloaded media URL. When present, these fields
+/// win over the generic metadata inferred from a raw enclosure URL.
+private struct ResolvedMediaMetadata: Sendable {
+    let title: String?
+    let channelName: String?
+    let thumbnailURL: String?
+    let description: String?
+    let durationSeconds: Int?
+
+    init(podcast: ResolvedPodcastEpisode) {
+        self.title = podcast.episodeTitle
+        self.channelName = podcast.showName
+        self.thumbnailURL = podcast.artworkURL
+        self.description = podcast.episodeDescription
+        self.durationSeconds = podcast.durationSeconds
+    }
+}
+
 extension TranscriptionServiceProtocol {
     public func transcribe(fileURL: URL) async throws -> Transcription {
         try await transcribe(fileURL: fileURL, source: .file, onProgress: nil)
@@ -201,6 +220,9 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
     private let shouldKeepDownloadedAudio: @Sendable () -> Bool
     private let shouldDiarize: @Sendable () -> Bool
     private let youtubeDownloader: YouTubeDownloading?
+    private let podcastResolver: PodcastResolving?
+    private let podcastSearchResolver: PodcastSearchResolving?
+    private let podcastAudioFetcher: PodcastAudioFetching?
     private let diarizationService: DiarizationServiceProtocol?
     private let mediaMetadataExtractor: MediaMetadataExtracting
     private let thumbnailCache: ThumbnailCaching
@@ -221,6 +243,9 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
         shouldKeepDownloadedAudio: (@Sendable () -> Bool)? = nil,
         shouldDiarize: (@Sendable () -> Bool)? = nil,
         youtubeDownloader: YouTubeDownloading? = nil,
+        podcastResolver: PodcastResolving? = nil,
+        podcastSearchResolver: PodcastSearchResolving? = nil,
+        podcastAudioFetcher: PodcastAudioFetching? = nil,
         diarizationService: DiarizationServiceProtocol? = nil,
         mediaMetadataExtractor: MediaMetadataExtracting = AVMediaMetadataExtractor(),
         thumbnailCache: ThumbnailCaching = ThumbnailCacheService.shared,
@@ -241,6 +266,9 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
         self.shouldKeepDownloadedAudio = shouldKeepDownloadedAudio ?? { true }
         self.shouldDiarize = shouldDiarize ?? { true }
         self.youtubeDownloader = youtubeDownloader
+        self.podcastResolver = podcastResolver
+        self.podcastSearchResolver = podcastSearchResolver
+        self.podcastAudioFetcher = podcastAudioFetcher
         self.diarizationService = diarizationService
         self.mediaMetadataExtractor = mediaMetadataExtractor
         self.thumbnailCache = thumbnailCache
@@ -282,6 +310,8 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
         let sourceType: Transcription.SourceType = switch source {
         case .youtube:
             .youtube
+        case .podcast:
+            .podcast
         case .meeting:
             .meeting
         case .file, .dragDrop:
@@ -564,16 +594,28 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
         persistResult: Bool,
         onProgress: (@Sendable (TranscriptionProgress) -> Void)? = nil
     ) async throws -> Transcription {
-        let mediaURL = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        let inputURL = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Apple Podcasts links are their own lane: resolve via the iTunes
+        // lookup API to an enclosure + episode metadata, fetch the audio with
+        // the native streaming downloader, then transcribe. Everything else
+        // (YouTube + generic media URLs) keeps the yt-dlp `.youtube` lineage.
+        if PodcastURLValidator.isApplePodcastsURL(inputURL) {
+            return try await transcribePodcastURL(
+                inputURL,
+                persistResult: persistResult,
+                onProgress: onProgress
+            )
+        }
+
         let operation = TranscriptionOperationContext(
             source: .youtube,
-            inputKind: YouTubeURLValidator.isYouTubeURL(mediaURL) ? .youtube : .media,
+            inputKind: YouTubeURLValidator.isYouTubeURL(inputURL) ? .youtube : .media,
             mediaExtension: nil,
             fileSizeBucket: nil
         )
-
         return try await Observability.withOperationContext(operation.operationContext) {
-            guard let downloader = youtubeDownloader else {
+            guard youtubeDownloader != nil else {
                 sendTranscriptionOperation(
                     operation,
                     outcome: .unavailable,
@@ -582,174 +624,322 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
                 )
                 throw YouTubeDownloadError.ytDlpNotFound
             }
-
             try await assertCanTranscribeOrEmitPreflight(operation)
-
-            var unownedDownloadedAudioURL: URL?
-            defer {
-                if let unownedDownloadedAudioURL {
-                    try? FileManager.default.removeItem(at: unownedDownloadedAudioURL)
-                }
-            }
-
-            let downloadResult: YouTubeDownloader.DownloadResult
-            do {
-                onProgress?(.downloading(percent: 0))
-                downloadResult = try await downloader.download(url: mediaURL) { percent in
-                    onProgress?(.downloading(percent: percent))
-                }
-            } catch {
-                if error is CancellationError {
-                    Telemetry.send(.transcriptionCancelled(
-                        source: .youtube,
-                        audioDurationSeconds: nil,
-                        stage: .download
-                    ))
-                    sendTranscriptionOperation(
-                        operation,
-                        outcome: .cancelled,
-                        stage: .download
-                    )
-                } else {
-                    Telemetry.send(.transcriptionFailed(
-                        source: .youtube,
-                        stage: .download,
-                        errorType: Self.errorType(for: error),
-                        errorDetail: TelemetryErrorClassifier.errorDetail(error)
-                    ))
-                    sendTranscriptionOperation(
-                        operation,
-                        outcome: .failure,
-                        stage: .download,
-                        errorType: Self.errorType(for: error)
-                    )
-                }
-                throw error
-            }
-            unownedDownloadedAudioURL = downloadResult.audioFileURL
-            onProgress?(.downloading(percent: 100))
-            do {
-                try Task.checkCancellation()
-            } catch {
-                Telemetry.send(.transcriptionCancelled(
-                    source: .youtube,
-                    audioDurationSeconds: downloadResult.durationSeconds.map(Double.init),
-                    stage: .download
-                ))
-                sendTranscriptionOperation(
-                    operation,
-                    outcome: .cancelled,
-                    stage: .download,
-                    audioDurationSeconds: downloadResult.durationSeconds.map(Double.init)
-                )
-                throw error
-            }
-            let keepDownloadedAudio = shouldKeepDownloadedAudio()
-                && persistResult
-            let embeddedMetadata = await mediaMetadataExtractor.metadata(for: downloadResult.audioFileURL)
-            let title = Self.firstNonEmpty(
-                downloadResult.title == "Untitled" ? nil : downloadResult.title,
-                embeddedMetadata.title,
-                downloadResult.title
-            ) ?? "Untitled"
-            let durationMs = downloadResult.durationSeconds
-                .flatMap { $0 > 0 ? $0 * 1000 : nil }
-                ?? embeddedMetadata.durationMs
-            let channelName = Self.firstNonEmpty(downloadResult.channelName, embeddedMetadata.author)
-            let videoDescription = Self.firstNonEmpty(downloadResult.videoDescription, embeddedMetadata.description)
-            let artifactMetadata = YouTubeAudioArtifactMetadata(
-                title: title,
-                artist: channelName,
-                description: videoDescription,
-                thumbnailURL: downloadResult.thumbnailURL
-            )
-
-            var transcription = Transcription(
-                fileName: title,
-                filePath: keepDownloadedAudio ? downloadResult.audioFileURL.path : nil,
-                durationMs: durationMs,
-                language: nil,
-                status: .processing,
-                sourceURL: mediaURL,
-                thumbnailURL: downloadResult.thumbnailURL,
-                channelName: channelName,
-                videoDescription: videoDescription,
-                sourceType: .youtube
-            )
-            if persistResult {
-                do {
-                    try transcriptionRepo.save(transcription)
-                } catch {
-                    sendTranscriptionOperation(
-                        operation,
-                        outcome: .failure,
-                        stage: .persistence,
-                        audioDurationSeconds: downloadResult.durationSeconds.map(Double.init),
-                        errorType: Self.errorType(for: error)
-                    )
-                    throw error
-                }
-            }
-            if persistResult, downloadResult.thumbnailURL == nil {
-                await cacheEmbeddedArtworkIfPresent(embeddedMetadata, for: transcription.id)
-            }
-            if keepDownloadedAudio {
-                unownedDownloadedAudioURL = nil
-            }
-            Telemetry.send(.transcriptionStarted(
-                source: .youtube,
-                audioDurationSeconds: downloadResult.durationSeconds.map(Double.init)
-            ))
-
-            // Cache YouTube thumbnail locally (non-blocking)
-            if persistResult, let thumbURL = downloadResult.thumbnailURL {
-                let transcriptionId = transcription.id
-                let logger = self.logger
-                let thumbnailCache = self.thumbnailCache
-                Task.detached(priority: .utility) {
-                    do {
-                        _ = try await thumbnailCache.downloadThumbnail(from: thumbURL, for: transcriptionId)
-                    } catch {
-                        logger.error("transcription_thumbnail_download_failed id=\(transcriptionId, privacy: .public) error_type=\(Self.errorType(for: error), privacy: .public) error_detail=\(error.localizedDescription, privacy: .private)")
-                    }
-                }
-            }
-
-            onProgress?(.transcribing(percent: 0))
-            if !keepDownloadedAudio {
-                unownedDownloadedAudioURL = nil
-            }
-            let completed = try await transcribeAudio(
-                fileURL: downloadResult.audioFileURL,
-                source: .youtube,
-                sttJob: .fileTranscription,
-                transcription: &transcription,
+            return try await downloadAndTranscribeResolvedMedia(
+                downloadURL: inputURL,
+                metadataOverride: nil,
+                sourceURL: inputURL,
+                telemetrySource: .youtube,
+                sourceType: .youtube,
+                isPodcast: false,
                 operation: operation,
-                tempFiles: [downloadResult.audioFileURL],
-                cleanUpDownloadedFiles: !keepDownloadedAudio,
                 persistResult: persistResult,
                 onProgress: onProgress
             )
+        }
+    }
 
-            // Issue #237: "Best available" yt-dlp downloads (Opus-in-WebM)
-            // measurably improve Parakeet WER, but AVFoundation has no
-            // WebM/Opus decoder, so the saved file silently fails on the
-            // in-app audio scrubber. Transcode the retained file to .m4a
-            // off the main return so the scrubber can play it. Skip when
-            // audio retention is off — no point spending CPU to convert a
-            // file the user wants deleted.
-            if keepDownloadedAudio,
-               let storedPath = completed.filePath,
-               YouTubeAudioPlaybackConverter.needsConversion(forPath: storedPath) {
-                schedulePlaybackConversion(
-                    transcriptionId: completed.id,
-                    inputPath: storedPath,
-                    metadata: artifactMetadata
+    /// Transcribe an Apple Podcasts page URL: iTunes-lookup resolve → native
+    /// enclosure fetch → local STT.
+    private func transcribePodcastURL(
+        _ inputURL: String,
+        persistResult: Bool,
+        onProgress: (@Sendable (TranscriptionProgress) -> Void)? = nil
+    ) async throws -> Transcription {
+        let operation = Self.podcastOperationContext()
+        return try await Observability.withOperationContext(operation.operationContext) {
+            guard let resolver = podcastResolver else {
+                sendTranscriptionOperation(
+                    operation,
+                    outcome: .unavailable,
+                    stage: .download,
+                    errorType: Self.errorType(for: PodcastResolveError.lookupFailed("resolver unavailable"))
                 )
+                throw PodcastResolveError.lookupFailed("Podcast resolver unavailable")
+            }
+            try await assertCanTranscribeOrEmitPreflight(operation)
+
+            let resolved: ResolvedPodcastEpisode
+            do {
+                resolved = try await resolver.resolve(url: inputURL)
+            } catch {
+                emitPodcastResolveFailure(operation, error: error)
+                throw error
             }
 
-            return completed
+            return try await downloadAndTranscribeResolvedMedia(
+                downloadURL: resolved.audioURL,
+                metadataOverride: ResolvedMediaMetadata(podcast: resolved),
+                sourceURL: inputURL,
+                telemetrySource: .podcast,
+                sourceType: .podcast,
+                isPodcast: true,
+                operation: operation,
+                persistResult: persistResult,
+                onProgress: onProgress
+            )
         }
+    }
+
+    public func transcribePodcastQuery(
+        query: String,
+        onProgress: (@Sendable (TranscriptionProgress) -> Void)? = nil
+    ) async throws -> Transcription {
+        try await transcribePodcastQuery(query: query, persistResult: true, onProgress: onProgress)
+    }
+
+    public func transcribePodcastQueryTransient(
+        query: String,
+        onProgress: (@Sendable (TranscriptionProgress) -> Void)? = nil
+    ) async throws -> Transcription {
+        try await transcribePodcastQuery(query: query, persistResult: false, onProgress: onProgress)
+    }
+
+    /// Transcribe a freetext podcast query ("Lex Fridman episode 400"): iTunes
+    /// search → RSS feed parse → episode select → native fetch → local STT.
+    private func transcribePodcastQuery(
+        query: String,
+        persistResult: Bool,
+        onProgress: (@Sendable (TranscriptionProgress) -> Void)? = nil
+    ) async throws -> Transcription {
+        let operation = Self.podcastOperationContext()
+        return try await Observability.withOperationContext(operation.operationContext) {
+            guard let searchResolver = podcastSearchResolver else {
+                sendTranscriptionOperation(
+                    operation,
+                    outcome: .unavailable,
+                    stage: .download,
+                    errorType: Self.errorType(for: PodcastSearchError.requestFailed("resolver unavailable"))
+                )
+                throw PodcastSearchError.requestFailed("Podcast search resolver unavailable")
+            }
+            try await assertCanTranscribeOrEmitPreflight(operation)
+
+            let resolved: ResolvedPodcastEpisode
+            do {
+                resolved = try await searchResolver.resolve(query: query)
+            } catch {
+                emitPodcastResolveFailure(operation, error: error)
+                throw error
+            }
+
+            return try await downloadAndTranscribeResolvedMedia(
+                downloadURL: resolved.audioURL,
+                metadataOverride: ResolvedMediaMetadata(podcast: resolved),
+                sourceURL: resolved.audioURL,
+                telemetrySource: .podcast,
+                sourceType: .podcast,
+                isPodcast: true,
+                operation: operation,
+                persistResult: persistResult,
+                onProgress: onProgress
+            )
+        }
+    }
+
+    private static func podcastOperationContext() -> TranscriptionOperationContext {
+        TranscriptionOperationContext(
+            source: .podcast,
+            inputKind: .podcast,
+            mediaExtension: nil,
+            fileSizeBucket: nil
+        )
+    }
+
+    private func emitPodcastResolveFailure(_ operation: TranscriptionOperationContext, error: Error) {
+        if error is CancellationError {
+            Telemetry.send(.transcriptionCancelled(source: .podcast, audioDurationSeconds: nil, stage: .download))
+            sendTranscriptionOperation(operation, outcome: .cancelled, stage: .download)
+        } else {
+            Telemetry.send(.transcriptionFailed(
+                source: .podcast,
+                stage: .download,
+                errorType: Self.errorType(for: error),
+                errorDetail: TelemetryErrorClassifier.errorDetail(error)
+            ))
+            sendTranscriptionOperation(
+                operation,
+                outcome: .failure,
+                stage: .download,
+                errorType: Self.errorType(for: error)
+            )
+        }
+    }
+
+    /// Shared body: download the resolved media (native streaming fetch for
+    /// podcasts, yt-dlp for YouTube/generic media), persist, and transcribe.
+    private func downloadAndTranscribeResolvedMedia(
+        downloadURL: String,
+        metadataOverride: ResolvedMediaMetadata?,
+        sourceURL: String,
+        telemetrySource: TelemetryTranscriptionSource,
+        sourceType: Transcription.SourceType,
+        isPodcast: Bool,
+        operation: TranscriptionOperationContext,
+        persistResult: Bool,
+        onProgress: (@Sendable (TranscriptionProgress) -> Void)? = nil
+    ) async throws -> Transcription {
+        var unownedDownloadedAudioURL: URL?
+        defer {
+            if let unownedDownloadedAudioURL {
+                try? FileManager.default.removeItem(at: unownedDownloadedAudioURL)
+            }
+        }
+
+        let downloadResult: YouTubeDownloader.DownloadResult
+        do {
+            onProgress?(.downloading(percent: 0))
+            if isPodcast {
+                guard let fetcher = podcastAudioFetcher else {
+                    throw PodcastAudioFetchError.requestFailed("Podcast audio fetcher unavailable")
+                }
+                let fetchedURL = try await fetcher.fetch(
+                    audioURL: downloadURL,
+                    suggestedName: metadataOverride?.title
+                ) { percent in
+                    onProgress?(.downloading(percent: percent))
+                }
+                downloadResult = YouTubeDownloader.DownloadResult(
+                    audioFileURL: fetchedURL,
+                    title: metadataOverride?.title ?? "Untitled",
+                    durationSeconds: metadataOverride?.durationSeconds,
+                    channelName: metadataOverride?.channelName,
+                    thumbnailURL: metadataOverride?.thumbnailURL,
+                    videoDescription: metadataOverride?.description
+                )
+            } else {
+                guard let downloader = youtubeDownloader else {
+                    throw YouTubeDownloadError.ytDlpNotFound
+                }
+                downloadResult = try await downloader.download(url: downloadURL) { percent in
+                    onProgress?(.downloading(percent: percent))
+                }
+            }
+        } catch {
+            if error is CancellationError {
+                Telemetry.send(.transcriptionCancelled(source: telemetrySource, audioDurationSeconds: nil, stage: .download))
+                sendTranscriptionOperation(operation, outcome: .cancelled, stage: .download)
+            } else {
+                Telemetry.send(.transcriptionFailed(
+                    source: telemetrySource,
+                    stage: .download,
+                    errorType: Self.errorType(for: error),
+                    errorDetail: TelemetryErrorClassifier.errorDetail(error)
+                ))
+                sendTranscriptionOperation(operation, outcome: .failure, stage: .download, errorType: Self.errorType(for: error))
+            }
+            throw error
+        }
+        unownedDownloadedAudioURL = downloadResult.audioFileURL
+        onProgress?(.downloading(percent: 100))
+        // Prefer the resolver duration whichever is positive; the resolver wins
+        // for podcasts (a raw enclosure URL rarely advertises its length).
+        let resolvedDurationSeconds = [metadataOverride?.durationSeconds, downloadResult.durationSeconds]
+            .compactMap { $0 }
+            .first { $0 > 0 }
+        let audioDurationSeconds = resolvedDurationSeconds.map(Double.init)
+        do {
+            try Task.checkCancellation()
+        } catch {
+            Telemetry.send(.transcriptionCancelled(source: telemetrySource, audioDurationSeconds: audioDurationSeconds, stage: .download))
+            sendTranscriptionOperation(operation, outcome: .cancelled, stage: .download, audioDurationSeconds: audioDurationSeconds)
+            throw error
+        }
+        let keepDownloadedAudio = shouldKeepDownloadedAudio() && persistResult
+        let embeddedMetadata = await mediaMetadataExtractor.metadata(for: downloadResult.audioFileURL)
+        let title = Self.firstNonEmpty(
+            metadataOverride?.title,
+            downloadResult.title == "Untitled" ? nil : downloadResult.title,
+            embeddedMetadata.title,
+            downloadResult.title
+        ) ?? "Untitled"
+        let durationMs = resolvedDurationSeconds.map { $0 * 1000 } ?? embeddedMetadata.durationMs
+        let channelName = Self.firstNonEmpty(metadataOverride?.channelName, downloadResult.channelName, embeddedMetadata.author)
+        let videoDescription = Self.firstNonEmpty(metadataOverride?.description, downloadResult.videoDescription, embeddedMetadata.description)
+        let thumbnailURL = Self.firstNonEmpty(metadataOverride?.thumbnailURL, downloadResult.thumbnailURL)
+        let artifactMetadata = YouTubeAudioArtifactMetadata(
+            title: title,
+            artist: channelName,
+            description: videoDescription,
+            thumbnailURL: thumbnailURL
+        )
+
+        var transcription = Transcription(
+            fileName: title,
+            filePath: keepDownloadedAudio ? downloadResult.audioFileURL.path : nil,
+            durationMs: durationMs,
+            language: nil,
+            status: .processing,
+            sourceURL: sourceURL,
+            thumbnailURL: thumbnailURL,
+            channelName: channelName,
+            videoDescription: videoDescription,
+            sourceType: sourceType
+        )
+        if persistResult {
+            do {
+                try transcriptionRepo.save(transcription)
+            } catch {
+                sendTranscriptionOperation(operation, outcome: .failure, stage: .persistence, audioDurationSeconds: audioDurationSeconds, errorType: Self.errorType(for: error))
+                throw error
+            }
+        }
+        if persistResult, thumbnailURL == nil {
+            await cacheEmbeddedArtworkIfPresent(embeddedMetadata, for: transcription.id)
+        }
+        if keepDownloadedAudio {
+            unownedDownloadedAudioURL = nil
+        }
+        Telemetry.send(.transcriptionStarted(source: telemetrySource, audioDurationSeconds: audioDurationSeconds))
+
+        // Cache remote artwork locally (non-blocking) — YouTube thumbnail or
+        // Apple Podcasts episode artwork.
+        if persistResult, let thumbURL = thumbnailURL {
+            let transcriptionId = transcription.id
+            let logger = self.logger
+            let thumbnailCache = self.thumbnailCache
+            Task.detached(priority: .utility) {
+                do {
+                    _ = try await thumbnailCache.downloadThumbnail(from: thumbURL, for: transcriptionId)
+                } catch {
+                    logger.error("transcription_thumbnail_download_failed id=\(transcriptionId, privacy: .public) error_type=\(Self.errorType(for: error), privacy: .public) error_detail=\(error.localizedDescription, privacy: .private)")
+                }
+            }
+        }
+
+        onProgress?(.transcribing(percent: 0))
+        if !keepDownloadedAudio {
+            unownedDownloadedAudioURL = nil
+        }
+        let completed = try await transcribeAudio(
+            fileURL: downloadResult.audioFileURL,
+            source: telemetrySource,
+            sttJob: .fileTranscription,
+            transcription: &transcription,
+            operation: operation,
+            tempFiles: [downloadResult.audioFileURL],
+            cleanUpDownloadedFiles: !keepDownloadedAudio,
+            persistResult: persistResult,
+            onProgress: onProgress
+        )
+
+        // Issue #237: "Best available" yt-dlp downloads (Opus-in-WebM) measurably
+        // improve Parakeet WER, but AVFoundation has no WebM/Opus decoder, so the
+        // saved file silently fails on the in-app audio scrubber. Transcode the
+        // retained file to .m4a off the main return so the scrubber can play it.
+        // Podcast enclosures are normally already playable, so this is a no-op
+        // for them, but harmless.
+        if keepDownloadedAudio,
+           let storedPath = completed.filePath,
+           YouTubeAudioPlaybackConverter.needsConversion(forPath: storedPath) {
+            schedulePlaybackConversion(
+                transcriptionId: completed.id,
+                inputPath: storedPath,
+                metadata: artifactMetadata
+            )
+        }
+
+        return completed
     }
 
     /// Fire-and-forget post-STT transcode of an unplayable YouTube audio

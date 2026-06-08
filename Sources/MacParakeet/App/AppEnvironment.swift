@@ -276,6 +276,9 @@ final class AppEnvironment {
             shouldKeepDownloadedAudio: { [runtimePreferences] in runtimePreferences.shouldSaveTranscriptionAudio },
             shouldDiarize: { [runtimePreferences] in runtimePreferences.shouldDiarize },
             youtubeDownloader: youtubeDownloader,
+            podcastResolver: PodcastEpisodeResolver(),
+            podcastSearchResolver: PodcastQueryResolver(),
+            podcastAudioFetcher: PodcastAudioDownloader(),
             diarizationService: diarizationService
         )
 
