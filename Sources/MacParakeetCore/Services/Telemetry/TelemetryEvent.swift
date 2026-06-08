@@ -178,7 +178,7 @@ public enum TelemetryModelOperationAction: String, Sendable, Equatable {
     case warmUp = "warm_up"
     case repair
     case clearCache = "clear_cache"
-    /// Removing a single model from disk (one Parakeet build or the Whisper
+    /// Removing a single model from disk (one Parakeet build, Nemotron, or the Whisper
     /// variant), as opposed to `clearCache` which wipes the whole local stack.
     case deleteModel = "delete_model"
 }

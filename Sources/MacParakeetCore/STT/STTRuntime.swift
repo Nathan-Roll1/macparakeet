@@ -43,7 +43,7 @@ extension STTRuntimeProtocol {
     }
 }
 
-/// Sole owner of the shared Parakeet STT lifecycle.
+/// Sole owner of the shared local speech-engine lifecycle.
 ///
 /// The runtime stays process-wide and singular at the app boundary, but it keeps
 /// one `AsrManager` per execution slot so dictation remains isolated from the

@@ -930,7 +930,7 @@ The Transforms sidebar item is visible when `AppFeatures.transformsEnabled` is t
 │  ─────────────────────────────────────────────────────    │
 │                                                           │
 │  Engine                                                   │
-│  [ Parakeet ] [ Whisper ]                                 │
+│  [ Parakeet ] [ Nemotron Beta ] [ Whisper ]                │
 │                                                           │
 │  Whisper language                                         │
 │  [ Auto-detect                         ▾ ]                │
@@ -945,7 +945,7 @@ The Transforms sidebar item is visible when `AppFeatures.transformsEnabled` is t
 └───────────────────────────────────────────────────────────┘
 ```
 
-- Engine picker options: Parakeet (default) and Whisper.
+- Engine picker options: Parakeet (default), Nemotron Beta, and Whisper.
 - Whisper language picker is shown for the Whisper path. `Auto-detect` stores no explicit language; specific languages are normalized before saving.
 - Status pill states: `Unknown`, `Checking`, `Ready`, `Not Loaded`, `Not Downloaded`, `Downloading`, `Repairing`, `Failed`.
 - `Repair` retries Parakeet model download/initialization with bounded backoff.

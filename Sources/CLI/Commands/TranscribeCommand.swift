@@ -85,7 +85,7 @@ struct TranscribeCommand: AsyncParsableCommand, CLITelemetryMetadataProviding {
     @Option(help: "Language hint for Whisper or Nemotron, such as ko, en, or en-US. Parakeet ignores this flag.")
     var language: String?
 
-    @Option(name: .long, help: "Parakeet build: app-default, v3 (multilingual), v2 (English-only). app-default follows the saved preference; ignored for Whisper.")
+    @Option(name: .long, help: "Parakeet build: app-default, v3 (multilingual), v2 (English-only). app-default follows the saved preference; ignored for Nemotron and Whisper.")
     var parakeetModel: TranscribeParakeetModel = .appDefault
 
     @Option(help: "Downloaded media retention: app-default, keep, delete.")

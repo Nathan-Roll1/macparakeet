@@ -337,7 +337,7 @@ extension ModelsCommand {
 
 /// Recognizes the Parakeet ids surfaced by `models list` (`parakeet-v3`,
 /// `parakeet-v2`), the bare `parakeet` (current build), and the `:`/alias
-/// spellings. Returns nil for non-Parakeet ids so Whisper parsing runs.
+/// spellings. Returns nil for non-Parakeet ids so Nemotron/Whisper parsing runs.
 func parakeetDownloadVariant(
     from lowered: String,
     defaults: UserDefaults = macParakeetAppDefaults()
