@@ -149,3 +149,7 @@ READMEs today: `Audio/`, `STT/`, `TextProcessing/`, `Database/`,
 - **Commit format:** rich-format messages per
   [`docs/commit-guidelines.md`](./docs/commit-guidelines.md) for significant
   changes.
+- **PR & review workflow:** branch-first PR loop, reviewing to LGTM with
+  judgment, agent fresh-eye review, convergence, and the merge-ready checklist
+  in [`docs/pr-review-workflow.md`](./docs/pr-review-workflow.md). Scale the
+  ceremony to the change — trivial fixes go straight to `main`.

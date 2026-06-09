@@ -59,6 +59,7 @@ live chunks when it is cached, and all missing/error paths fall back to the fixe
 | Distribution, signing & auto-updates | `docs/distribution.md` |
 | Telemetry system | `docs/telemetry.md` |
 | Commit message format | `docs/commit-guidelines.md` |
+| PR & review workflow | `docs/pr-review-workflow.md` -> branch-first PR loop, review judgment, convergence, merge-ready checklist |
 | Implementation plans | `plans/` -> active and completed plans |
 | Codebase audits | `docs/audits/` -> two-pass independent audits with status, refutations, deferred items |
 | Cross-agent coding-agent guide | `AGENTS.md` -> slim, convention-following |
@@ -318,6 +319,7 @@ macparakeet/
 │   ├── brand-identity.md   # Logo, colors, typography, brand voice
 │   ├── cli-testing.md      # CLI testing guide
 │   ├── commit-guidelines.md # Rich commit message format
+│   ├── pr-review-workflow.md # PR loop: review to LGTM, converge, merge-ready
 │   ├── design-overhaul.md  # UI/UX redesign spec (warm magical direction)
 │   ├── distribution.md     # Signing, notarization, auto-updates (Sparkle)
 │   ├── telemetry.md        # Telemetry system
