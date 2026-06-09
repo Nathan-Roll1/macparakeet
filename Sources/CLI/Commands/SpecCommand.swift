@@ -118,8 +118,12 @@ private struct CLISpecParameter: Encodable {
     let required: Bool
     let summary: String
 
-    static func argument(_ name: String, summary: String) -> CLISpecParameter {
-        CLISpecParameter(name: name, valueName: nil, required: true, summary: summary)
+    static func argument(
+        _ name: String,
+        required: Bool = true,
+        summary: String
+    ) -> CLISpecParameter {
+        CLISpecParameter(name: name, valueName: nil, required: required, summary: summary)
     }
 
     static func option(
@@ -160,12 +164,23 @@ private extension CLISpecCommand {
         ),
         CLISpecCommand(
             ["transcribe"],
-            summary: "Transcribe an audio/video file, folder, or media URL.",
+            summary: "Transcribe audio/video files, folders, Apple Podcasts links/searches, or media URLs.",
             jsonMode: "--format json",
-            arguments: [.argument("input", summary: "File path, folder path, YouTube URL, or HTTP(S) media URL supported by yt-dlp.")],
+            arguments: [
+                .argument(
+                    "input...",
+                    required: false,
+                    summary: "Zero or more file paths, folders, YouTube URLs, Apple Podcasts URLs, or explicit HTTP(S) media URLs supported by yt-dlp. Omit when using --podcast."
+                ),
+            ],
             options: [
+                CLISpecParameter.option("--podcast", valueName: "QUERY", summary: "Search Apple Podcasts by show/episode text and transcribe the selected episode."),
+                CLISpecParameter.option("--output-dir", valueName: "DIR", summary: "Write one transcript file per input to this directory; implies batch mode."),
+                CLISpecParameter.option("--format", valueName: "text|transcript|json", summary: "Output format for stdout or written transcript files."),
                 CLISpecParameter.option("--engine", valueName: "parakeet|nemotron|whisper|app-default", summary: "Speech engine for this run."),
                 CLISpecParameter.option("--language", valueName: "CODE", summary: "Language hint for Nemotron or Whisper."),
+                CLISpecParameter.option("--parakeet-model", valueName: "app-default|v3|v2", summary: "Parakeet build for this run; ignored for Nemotron and Whisper."),
+                CLISpecParameter.option("--downloaded-audio", valueName: "app-default|keep|delete", summary: "Downloaded media retention policy."),
                 CLISpecParameter.option("--speaker-detection", valueName: "app-default|on|off", summary: "Speaker detection behavior for this run."),
                 CLISpecParameter.option("--speaker-count", valueName: "N", summary: "Exact known speaker count; implies speaker detection unless explicitly disabled."),
                 CLISpecParameter.option("--speaker-min", valueName: "N", summary: "Minimum speaker count bound for diarization."),
@@ -173,7 +188,7 @@ private extension CLISpecCommand {
                 CLISpecParameter.option("--media-audio-quality", valueName: "app-default|m4a|best-available", summary: "Downloaded media audio quality."),
                 CLISpecParameter.flag("--no-history", summary: "Do not persist the completed transcription."),
             ],
-            output: "Transcription result object."
+            output: "Single Transcription object for stdout mode; one transcript file per input in batch/output-dir mode."
         ),
         CLISpecCommand(
             ["config", "list"],

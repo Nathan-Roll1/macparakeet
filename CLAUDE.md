@@ -4,7 +4,7 @@
 
 ## What is MacParakeet?
 
-A **fast, private, local-first voice app** for macOS. The v0.6 release ships system-wide dictation, file/URL transcription, meeting recording, Parakeet v3/v2 model selection, optional local WhisperKit multilingual STT for Korean, Japanese, Chinese, and other languages outside Parakeet's coverage, and productized Transforms.
+A **fast, private, local-first voice app** for macOS. The v0.6 release ships system-wide dictation, file and multi-platform video/podcast URL transcription, meeting recording, Parakeet v3/v2 model selection, an optional Nemotron 3.5 Beta engine, optional local WhisperKit multilingual STT for Korean, Japanese, Chinese, and other languages outside Parakeet's coverage, opt-in instant dictation (warm-mic pre-roll), and productized Transforms.
 
 **North Star:** Fast, local-first voice app for Mac.
 
@@ -16,7 +16,7 @@ A **fast, private, local-first voice app** for macOS. The v0.6 release ships sys
 
 | Channel | Agent Assumption | Features |
 |---------|------------------|----------|
-| Stable DMG | User-facing release, recommended for normal use | Dictation, file/video URL transcription, meeting recording, calendar auto-start (opt-in, default `.off`), productized Transforms, VAD-guided meeting live-preview chunking, optional WhisperKit, exports, vocabulary, AI features |
+| Stable DMG | User-facing release, recommended for normal use | Dictation, file and multi-platform video/podcast URL transcription, meeting recording, calendar auto-start (opt-in, default `.off`), productized Transforms, VAD-guided meeting live-preview chunking, opt-in instant dictation, optional Nemotron Beta and WhisperKit engines, exports, vocabulary, AI features |
 | `main` | Development | Latest stable release plus untagged in-progress fixes. No feature flag differs from the latest release tag — the `AppFeatures` feature flags carry the same values on `main` and the shipping build |
 
 When editing public-facing docs, keep the channel framing accurate: the Stable
@@ -81,7 +81,7 @@ from grep. Folders with READMEs today: `Audio/`, `STT/`,
 | Platform | macOS 14.2+ | Apple Silicon only |
 | Language | Swift 5.9 (tools-version) | `Package.swift` declares `swift-tools-version: 5.9`; first-party code is kept Swift 6 language-mode / concurrency clean (separate CI compile check). SwiftUI for UI |
 | Database | SQLite | GRDB (single file, dictation history + transcriptions + meeting recordings) |
-| STT | Parakeet TDT 0.6B (v3 default, v2 opt-in) + optional WhisperKit | Parakeet via FluidAudio CoreML/ANE is default (v3 multilingual: ~2.5% WER, 155x realtime, 25 European languages; v2 English-only: ~2.1% WER and no language auto-detect); WhisperKit adds broader local multilingual coverage |
+| STT | Parakeet TDT 0.6B (v3 default, v2 opt-in) + optional Nemotron 3.5 Beta + optional WhisperKit | Parakeet via FluidAudio CoreML/ANE is default (v3 multilingual: ~2.5% WER, 155x realtime, 25 European languages; v2 English-only: ~2.1% WER and no language auto-detect); Nemotron 3.5 (Beta) is an opt-in fast multilingual FluidAudio engine, labeled Beta while quality is benchmarked; WhisperKit adds broader local multilingual coverage |
 | Audio | AVAudioEngine + ScreenCaptureKit | Mic capture for dictation; ScreenCaptureKit system audio + AVAudioEngine mic for meeting recording; FFmpeg (bundled) for video file conversion |
 | YouTube | yt-dlp | Standalone macOS binary, weekly non-blocking auto-update via `--update` |
 | Auto-Update | Sparkle 2 | In-app updates via EdDSA-signed appcast (non-App Store) |
@@ -114,7 +114,7 @@ All ADRs are in `spec/adr/`. These are locked decisions -- don't second-guess th
 
 | ADR | Decision | File |
 |-----|----------|------|
-| ADR-001 | Parakeet TDT 0.6B-v3 as primary/default STT; v2 English-only opt-in added by amendment | `spec/adr/001-parakeet-stt.md` |
+| ADR-001 | Parakeet TDT 0.6B-v3 as primary/default STT; v2 English-only opt-in and Nemotron 3.5 Beta added by amendment | `spec/adr/001-parakeet-stt.md` |
 | ADR-002 | Local-first processing (amended: opt-in LLM providers, opt-out telemetry) | `spec/adr/002-local-only.md` |
 | ADR-004 | Deterministic text processing pipeline | `spec/adr/004-deterministic-pipeline.md` |
 | ADR-005 | First-run onboarding flow | `spec/adr/005-onboarding-first-run.md` |
@@ -138,10 +138,10 @@ All ADRs are in `spec/adr/`. These are locked decisions -- don't second-guess th
 
 ## Current Phase
 
-**Current main branch** -- v0.6 release scope includes meeting recording, Parakeet v3/v2 model selection, optional WhisperKit multilingual STT, and productized Transforms. Calendar auto-start/reminders are implemented and enabled (`AppFeatures.calendarEnabled = true`) after the post-#318 reliability hardening; auto-start defaults to mode `.off`, so it stays opt-in. VAD-guided meeting live-preview chunking is enabled (`AppFeatures.meetingVadLiveChunkingEnabled = true`, shipping since v0.6.14) with fixed-chunker fallback and unchanged final transcription.
+**Current main branch** -- v0.6 release scope includes meeting recording, multi-platform video/podcast URL transcription (any `yt-dlp` site plus Apple Podcasts and freetext podcast search), Parakeet v3/v2 model selection, an optional Nemotron 3.5 Beta engine, optional WhisperKit multilingual STT, opt-in instant dictation (warm-mic pre-roll), and productized Transforms. Calendar auto-start/reminders are implemented and enabled (`AppFeatures.calendarEnabled = true`) after the post-#318 reliability hardening; auto-start defaults to mode `.off`, so it stays opt-in. VAD-guided meeting live-preview chunking is enabled (`AppFeatures.meetingVadLiveChunkingEnabled = true`, shipping since v0.6.14) with fixed-chunker fallback and unchanged final transcription.
 
 - **v0.1–v0.5** MVP → Clean Pipeline → YouTube/Export → Polish/Launch → Data/UI/Prompts (open-source release). See the `spec/README.md` roadmap and git tags for the full per-version feature history.
-- **v0.6** Meeting Recording + Multilingual STT + Transforms -- ScreenCaptureKit system audio + raw AVAudioEngine mic capture by default, retained opt-in VPIO plumbing, fragmented MP4 source files + crash recovery (ADR-019), transcript-layer suppression, concurrent with dictation (ADR-015), centralized STT runtime + scheduler (ADR-016), VAD-guided meeting live-preview chunking with fixed fallback (flag-on, shipping since v0.6.14), sacred-geometry recording pill + Notes/Transcript/Ask meeting panel, customizable Ask quick prompts, library integration, prompt/result/chat support (ADR-014), live notepad + memo-steered summaries with `{{userNotes}}` template variable + slash commands (ADR-020), Parakeet model selection (`v3` multilingual default, `v2` English-only opt-in) across Settings/CLI, optional WhisperKit engine support for non-Parakeet languages, persisted speech-engine preference, Whisper language picker/default, CLI `transcribe --engine parakeet|whisper --language --parakeet-model`, Whisper model download path, engine pinning for active meeting sessions and crash recovery (ADR-021), and productized system-wide LLM Transforms with `Polish`, `Distill`, and `Decide` built-ins (ADR-022).
+- **v0.6** Meeting Recording + Multilingual STT + Transforms -- ScreenCaptureKit system audio + raw AVAudioEngine mic capture by default, retained opt-in VPIO plumbing, fragmented MP4 source files + crash recovery (ADR-019), transcript-layer suppression, concurrent with dictation (ADR-015), centralized STT runtime + scheduler (ADR-016), VAD-guided meeting live-preview chunking with fixed fallback (flag-on, shipping since v0.6.14), sacred-geometry recording pill + Notes/Transcript/Ask meeting panel, customizable Ask quick prompts, library integration, prompt/result/chat support (ADR-014), live notepad + memo-steered summaries with `{{userNotes}}` template variable + slash commands (ADR-020), Parakeet model selection (`v3` multilingual default, `v2` English-only opt-in) across Settings/CLI, optional Nemotron 3.5 Beta and WhisperKit engine support for non-Parakeet languages, persisted speech-engine preference, Whisper/Nemotron language picker/default, CLI `transcribe --engine parakeet|nemotron|whisper --language --parakeet-model`, Whisper/Nemotron model download paths, engine pinning for active meeting sessions and crash recovery (ADR-021), multi-platform video/podcast URL transcription (any `yt-dlp` site plus Apple Podcasts iTunes resolution and freetext podcast search) with a platform-orbit hero and per-platform telemetry, opt-in instant dictation warm-mic pre-roll, and productized system-wide LLM Transforms with `Polish`, `Distill`, and `Decide` built-ins on Control-Option hotkeys (ADR-022).
 - **Calendar auto-start** -- ADR-017 Phases 1 + 2, enabled with `.off` default (see "Current main branch" above for live flag state); Phase 3 (late-join/retro-link) remains proposed.
 
 ## Key Patterns
@@ -173,7 +173,7 @@ The Meeting Recording tile (third row, ~96pt strip) reflects live recording stat
 
 ADR-016 defines the STT architecture as one process-wide scheduler path with a reserved dictation slot and a shared background slot where meeting work outranks file transcription. ADR-021 extends that path with speech-engine routing, engine-switch guards, and meeting-session engine leases.
 
-### STT Integration (Parakeet default, Whisper optional)
+### STT Integration (Parakeet default, Nemotron/Whisper optional)
 
 - Native Swift SDK via FluidAudio (CoreML on the Neural Engine)
 - Parakeet TDT 0.6B-v3 is the multilingual default; v2 is an English-only opt-in selected through Settings, `config set parakeet-model`, `models select parakeet-v2`, or `transcribe --parakeet-model v2`
@@ -183,8 +183,9 @@ ADR-016 defines the STT architecture as one process-wide scheduler path with a r
 - ~66 MB working memory per active Parakeet inference slot (vs ~2 GB+ on GPU/MLX)
 - ~465 MB CoreML speech model bundle per Parakeet build; v2 and v3 cache independently
 - ~130 MB diarization asset bundle prepared alongside onboarding/default speaker-detection readiness
+- Nemotron 3.5 ASR (Beta) is an opt-in FluidAudio CoreML multilingual streaming engine (model id `nemotron-multilingual-1120ms`, ~1.5 GB) selected via Settings, `config set nemotron-language`, `models select nemotron-multilingual-1120ms`, or `transcribe --engine nemotron`; labeled Beta while real-world quality is benchmarked (no word-level timestamps surfaced yet)
 - WhisperKit is available as a local secondary engine for broader language coverage; default model variant is `large-v3-v20240930_turbo_632MB`
-- Whisper language hints are optional (`auto` means detect); persisted default is stored in `UserDefaults` and exposed in Settings
+- Whisper and Nemotron language hints are optional (`auto` means detect); persisted defaults are stored in `UserDefaults` and exposed in Settings
 - One process-wide `STTRuntime` owner manages model lifecycle for the app
 - The default STT topology uses 2 execution slots: reserved dictation + shared meeting/batch
 - One `STTScheduler` owns slot assignment, priority, backpressure, cancellation, and job-scoped progress

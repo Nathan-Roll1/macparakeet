@@ -78,7 +78,7 @@ ArgumentParser's plain-text stderr path with exit code `2`. Downstream
 agents that branch on `errorType` should also handle the parse-error case
 by checking exit code first: `2` = misuse, `1` = runtime, `0` = success.
 
-## [Unreleased]
+## [2.8.0] -- 2026-06-09
 
 ### Added
 

@@ -260,11 +260,15 @@ catalog.
 | `transcription_completed` | `source`, `audio_duration_seconds`, `processing_seconds`, `word_count`, `speaker_count`, `diarization_requested`, `diarization_applied`, `speech_engine`, `engine_variant`, `language` | Real-world performance, speaker-label coverage, language coverage, and STT engine adoption across file, YouTube, and meeting pipelines |
 | `transcription_cancelled` | `source`, `audio_duration_seconds`, `stage` (download, audio_conversion, stt, diarization, post_processing) | Where do users abandon jobs? |
 | `transcription_failed` | `source`, `stage`, `error_type` | What's breaking, and in which pipeline stage? |
-| `transcription_operation` | `operation_id`, `workflow_id`, `parent_operation_id`, `outcome`, `source`, `stage`, `duration_seconds`, `audio_duration_seconds`, `processing_seconds`, `word_count`, `speaker_count`, `diarization_requested`, `diarization_applied`, `input_kind`, `media_extension`, `file_size_bucket`, `speech_engine`, `engine_variant`, `language`, `error_type` | One wide outcome event per file, media URL, or meeting transcription |
+| `transcription_operation` | `operation_id`, `workflow_id`, `parent_operation_id`, `outcome`, `source`, `platform`, `stage`, `duration_seconds`, `audio_duration_seconds`, `processing_seconds`, `word_count`, `speaker_count`, `diarization_requested`, `diarization_applied`, `input_kind`, `media_extension`, `file_size_bucket`, `speech_engine`, `engine_variant`, `language`, `error_type` | One wide outcome event per file, media URL, or meeting transcription |
 
 `transcription_operation` is the broad product-health outcome event. Its
 `stage` values are `preflight`, `download`, `audio_conversion`, `stt`,
-`diarization`, `post_processing`, and `persistence`. `transcription_completed`
+`diarization`, `post_processing`, and `persistence`. `platform` is a
+low-cardinality enum present only on URL ingests — `youtube`, `x`, `vimeo`,
+`facebook`, `tiktok`, `instagram`, `apple_podcasts`, `soundcloud`, `twitch`, or
+`other` for any recognized-but-unlisted `yt-dlp` site — and never carries a raw
+host, so its presence alone marks a URL transcription. `transcription_completed`
 remains the stable success breadcrumb/performance event. For meetings, the app
 always treats the final transcript as fresh batch STT over the recorded source
 artifacts, not reused live-preview metadata. The separate `diarization_*`

@@ -1,6 +1,6 @@
 # Nemotron Beta Engine Plan
 
-> Status: **ACTIVE PLAN**
+> Status: **IMPLEMENTED** — merged to `main`; Nemotron 3.5 Beta shipping in v0.6.22
 > Drafted: 2026-06-08
 > Branch: `plan/nemotron-benchmark`
 > Worktree: `/Users/dmoon/code/macparakeet-worktrees/nemotron-benchmark`
