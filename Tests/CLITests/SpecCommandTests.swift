@@ -52,23 +52,33 @@ final class SpecCommandTests: XCTestCase {
         }
     }
 
-    func testTranscribeSpecDocumentsMediaURLAndSpeakerOptions() throws {
+    func testTranscribeSpecDocumentsCurrentTranscribeSurface() throws {
         let payload = try specPayload()
         let commands = try XCTUnwrap(payload["commands"] as? [[String: Any]])
         let transcribe = try XCTUnwrap(commands.first { ($0["path"] as? [String]) == ["transcribe"] })
 
         XCTAssertEqual(
             transcribe["summary"] as? String,
-            "Transcribe an audio/video file, folder, or media URL."
+            "Transcribe audio/video files, folders, Apple Podcasts links/searches, or media URLs."
         )
 
         let arguments = try XCTUnwrap(transcribe["arguments"] as? [[String: Any]])
+        XCTAssertEqual(arguments.first?["name"] as? String, "input...")
+        XCTAssertEqual(arguments.first?["required"] as? Bool, false)
         XCTAssertTrue(
-            (arguments.first?["summary"] as? String)?.contains("HTTP(S) media URL") == true
+            (arguments.first?["summary"] as? String)?.contains("Apple Podcasts URLs") == true
+        )
+        XCTAssertTrue(
+            (arguments.first?["summary"] as? String)?.contains("HTTP(S) media URLs") == true
         )
 
         let options = try XCTUnwrap(transcribe["options"] as? [[String: Any]])
         let optionNames = Set(options.compactMap { $0["name"] as? String })
+        XCTAssertTrue(optionNames.contains("--podcast"))
+        XCTAssertTrue(optionNames.contains("--output-dir"))
+        XCTAssertTrue(optionNames.contains("--format"))
+        XCTAssertTrue(optionNames.contains("--parakeet-model"))
+        XCTAssertTrue(optionNames.contains("--downloaded-audio"))
         XCTAssertTrue(optionNames.contains("--speaker-count"))
         XCTAssertTrue(optionNames.contains("--speaker-min"))
         XCTAssertTrue(optionNames.contains("--speaker-max"))

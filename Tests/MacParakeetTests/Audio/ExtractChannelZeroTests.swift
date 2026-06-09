@@ -97,6 +97,41 @@ final class ExtractChannelZeroTests: XCTestCase {
         XCTAssertTrue(result === buffer, "Interleaved multi-channel input is passed through unchanged")
     }
 
+    func testRawMicrophoneMultiChannelDownmixesAllChannels() throws {
+        let buffer = try makeNonInterleavedFloatBuffer(channels: 4, frames: 16) { channel, frame in
+            channel == 1 ? Float(frame) + 0.5 : 0
+        }
+
+        let result = try XCTUnwrap(
+            microphoneCaptureMonoBuffer(from: buffer, extractVPIOChannelZero: false)
+        )
+        XCTAssertFalse(result === buffer)
+        XCTAssertEqual(result.format.commonFormat, .pcmFormatFloat32)
+        XCTAssertEqual(result.format.channelCount, 1)
+        XCTAssertEqual(result.format.sampleRate, buffer.format.sampleRate)
+
+        let dst = try XCTUnwrap(result.floatChannelData)
+        for frame in 0..<Int(buffer.frameLength) {
+            XCTAssertEqual(dst[0][frame], (Float(frame) + 0.5) / 4, accuracy: 0.0001)
+        }
+    }
+
+    func testVPIOMicrophoneMultiChannelStillUsesChannelZeroOnly() throws {
+        let buffer = try makeNonInterleavedFloatBuffer(channels: 4, frames: 16) { channel, frame in
+            channel == 0 ? Float(frame) + 0.25 : 10_000
+        }
+
+        let result = try XCTUnwrap(
+            microphoneCaptureMonoBuffer(from: buffer, extractVPIOChannelZero: true)
+        )
+        XCTAssertEqual(result.format.channelCount, 1)
+
+        let dst = try XCTUnwrap(result.floatChannelData)
+        for frame in 0..<Int(buffer.frameLength) {
+            XCTAssertEqual(dst[0][frame], Float(frame) + 0.25, accuracy: 0.0001)
+        }
+    }
+
     func testZeroFrameBufferRoundTrips() throws {
         let buffer = try makeNonInterleavedFloatBuffer(channels: 4, frames: 64) { _, _ in 0 }
         buffer.frameLength = 0

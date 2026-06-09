@@ -389,11 +389,10 @@ public final class MicrophoneCapture: @unchecked Sendable {
     ) {
         markFirstBufferReceived()
         let deliveredBuffer: AVAudioPCMBuffer
-        if extractVPIOChannelZero {
-            deliveredBuffer = extractChannelZero(from: buffer) ?? buffer
-        } else {
-            deliveredBuffer = buffer
-        }
+        deliveredBuffer = microphoneCaptureMonoBuffer(
+            from: buffer,
+            extractVPIOChannelZero: extractVPIOChannelZero
+        ) ?? buffer
         let callback = handlerLock.withLock { bufferHandler }
         callback?(deliveredBuffer, time)
     }

@@ -98,7 +98,7 @@ final class MicrophoneCaptureTests: XCTestCase {
         }
     }
 
-    func testSharedModeRawPreservesMultiChannelBuffers() async throws {
+    func testSharedModeRawDownmixesMultiChannelBuffers() async throws {
         let platform = SharedMicTestPlatform()
         let stream = SharedMicrophoneStream(platform: platform, bufferSize: 1024)
         let capture = MicrophoneCapture(
@@ -115,15 +115,16 @@ final class MicrophoneCaptureTests: XCTestCase {
         defer { capture.stop() }
 
         let buffer = try makeSharedMultiChannelFloatBuffer(channels: 4, frames: 8) { channel, frame in
-            Float((channel + 1) * 100 + frame)
+            channel == 1 ? Float(frame) + 0.5 : 0
         }
         platform.deliverBuffer(buffer, time: AVAudioTime(hostTime: 0))
 
         let snapshot = try XCTUnwrap(snapshotBox.snapshot)
-        XCTAssertEqual(snapshot.channelCount, 4)
-        XCTAssertEqual(snapshot.samplesByChannel.count, 4)
-        XCTAssertEqual(snapshot.samplesByChannel[0][3], 103, accuracy: 0.0001)
-        XCTAssertEqual(snapshot.samplesByChannel[3][3], 403, accuracy: 0.0001)
+        XCTAssertEqual(snapshot.channelCount, 1)
+        XCTAssertEqual(snapshot.samplesByChannel.count, 1)
+        for frame in 0..<8 {
+            XCTAssertEqual(snapshot.samplesByChannel[0][frame], (Float(frame) + 0.5) / 4, accuracy: 0.0001)
+        }
     }
 
     func testSharedModeVPIOPreferredFallsBackToRawWhenSubscribeThrows() async throws {

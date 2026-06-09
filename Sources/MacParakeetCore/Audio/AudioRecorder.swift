@@ -116,10 +116,10 @@ private struct CaptureDiagnosticsTimers {
 
 /// Records dictation audio by subscribing to the process-wide
 /// `SharedMicrophoneStream` and writing converted 16 kHz mono Float32 buffers
-/// to a temporary WAV file. The buffer handler always extracts channel 0 —
-/// when VPIO is engaged anywhere in the process, every subscriber sees a
-/// duplex layout (typically ch=9) where channel 0 is the post-AEC processed
-/// mono and the rest are reference channels.
+/// to a temporary WAV file. VPIO buffers keep the channel-0-only rule because
+/// channel 0 is the post-AEC processed mono. Raw multichannel device buffers
+/// are downmixed so USB interfaces whose microphone lives on channel 2+ do not
+/// record digital silence.
 public actor AudioRecorder {
     private let logger = Logger(subsystem: "com.macparakeet.core", category: "AudioRecorder")
     private let permissionProvider: @Sendable () -> Bool
@@ -366,14 +366,19 @@ public actor AudioRecorder {
         let outputFormatBox = UncheckedSendableAudioFormat(outputFormat)
         let fileBox = UncheckedSendableAudioFile(file)
 
-        let processCopiedBuffer: @Sendable (UncheckedSendableAudioPCMBuffer, AVAudioChannelCount) -> Void = { [weak self] copiedBufferBox, originalChannelCount in
+        let processCopiedBuffer: @Sendable (
+            UncheckedSendableAudioPCMBuffer,
+            AVAudioChannelCount,
+            Bool
+        ) -> Void = { [weak self] copiedBufferBox, originalChannelCount, extractVPIOChannelZero in
             guard let self else { return }
             guard self.sessionGeneration.withLock({ $0 }) == tapGeneration else { return }
             let buffer = copiedBufferBox.buffer
 
-            // ch[0] mono extraction — the design rule that makes dictation
-            // correct under every VPIO state. See `extractChannelZero`.
-            guard let monoBuffer = extractChannelZero(from: buffer) else {
+            guard let monoBuffer = microphoneCaptureMonoBuffer(
+                from: buffer,
+                extractVPIOChannelZero: extractVPIOChannelZero
+            ) else {
                 self.runtimeMetrics.withLock { $0.invalidFormatBufferCount += 1 }
                 return
             }
@@ -471,13 +476,14 @@ public actor AudioRecorder {
             guard let self else { return }
             guard self.sessionGeneration.withLock({ $0 }) == tapGeneration else { return }
             let originalChannelCount = buffer.format.channelCount
+            let extractVPIOChannelZero = self.sharedStream.isVPIOEngaged
             guard let copiedBuffer = copyPCMBufferForAsyncUse(buffer) else {
                 self.runtimeMetrics.withLock { $0.invalidFormatBufferCount += 1 }
                 return
             }
             let copiedBufferBox = UncheckedSendableAudioPCMBuffer(copiedBuffer)
             self.sharedProcessingQueue.async {
-                processCopiedBuffer(copiedBufferBox, originalChannelCount)
+                processCopiedBuffer(copiedBufferBox, originalChannelCount, extractVPIOChannelZero)
             }
         }
 
@@ -702,10 +708,15 @@ public actor AudioRecorder {
             guard let self else { return }
             guard self.preRollAcceptingSamples.withLock({ $0 }) else { return }
             let generation = self.preRollCaptureGeneration.withLock { $0 }
+            let extractVPIOChannelZero = self.sharedStream.isVPIOEngaged
             guard let copiedBuffer = copyPCMBufferForAsyncUse(buffer) else { return }
             let copiedBufferBox = UncheckedSendableAudioPCMBuffer(copiedBuffer)
             self.sharedProcessingQueue.async {
-                self.appendPreRollBuffer(copiedBufferBox.buffer, generation: generation)
+                self.appendPreRollBuffer(
+                    copiedBufferBox.buffer,
+                    generation: generation,
+                    extractVPIOChannelZero: extractVPIOChannelZero
+                )
             }
         }
         let deathHandler: SharedMicrophoneStream.EngineDeathHandler = { [weak self] in
@@ -769,9 +780,16 @@ public actor AudioRecorder {
         }
     }
 
-    nonisolated private func appendPreRollBuffer(_ buffer: AVAudioPCMBuffer, generation: Int) {
+    nonisolated private func appendPreRollBuffer(
+        _ buffer: AVAudioPCMBuffer,
+        generation: Int,
+        extractVPIOChannelZero: Bool
+    ) {
         guard preRollCaptureGeneration.withLock({ $0 }) == generation else { return }
-        guard let monoBuffer = extractChannelZero(from: buffer) else { return }
+        guard let monoBuffer = microphoneCaptureMonoBuffer(
+            from: buffer,
+            extractVPIOChannelZero: extractVPIOChannelZero
+        ) else { return }
         guard monoBuffer.format.sampleRate > 0, monoBuffer.format.channelCount > 0 else { return }
         guard case .converted(let convertedBuffer) = convertDictationBuffer(
             monoBuffer,
@@ -1030,6 +1048,168 @@ func extractChannelZero(from buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
         return extracted
     }
     return nil
+}
+
+/// Converts a microphone tap buffer into the mono buffer downstream consumers
+/// expect. VPIO uses channel 0 only because Core Audio puts the processed mono
+/// signal there. Raw capture downmixes all channels so multichannel USB
+/// interfaces work even when the physical mic is not wired to channel 1.
+func microphoneCaptureMonoBuffer(
+    from buffer: AVAudioPCMBuffer,
+    extractVPIOChannelZero: Bool
+) -> AVAudioPCMBuffer? {
+    if extractVPIOChannelZero {
+        return extractChannelZero(from: buffer)
+    }
+    return downmixChannelsToMono(from: buffer)
+}
+
+func downmixChannelsToMono(from buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+    let inputFormat = buffer.format
+    let channelCount = Int(inputFormat.channelCount)
+    guard channelCount > 0 else { return nil }
+    if channelCount == 1 {
+        return buffer
+    }
+
+    guard let monoFormat = AVAudioFormat(
+        commonFormat: .pcmFormatFloat32,
+        sampleRate: inputFormat.sampleRate,
+        channels: 1,
+        interleaved: false
+    ),
+        let mixed = AVAudioPCMBuffer(
+            pcmFormat: monoFormat,
+            frameCapacity: buffer.frameCapacity
+        ),
+        let destination = mixed.floatChannelData?[0] else {
+        return nil
+    }
+
+    mixed.frameLength = buffer.frameLength
+    let frameCount = Int(buffer.frameLength)
+    guard frameCount > 0 else { return mixed }
+
+    switch inputFormat.commonFormat {
+    case .pcmFormatFloat32:
+        guard fillDownmixedFloat32(
+            from: buffer,
+            channelCount: channelCount,
+            frameCount: frameCount,
+            destination: destination
+        ) else { return nil }
+    case .pcmFormatInt16:
+        guard fillDownmixedInt16(
+            from: buffer,
+            channelCount: channelCount,
+            frameCount: frameCount,
+            destination: destination
+        ) else { return nil }
+    case .pcmFormatInt32:
+        guard fillDownmixedInt32(
+            from: buffer,
+            channelCount: channelCount,
+            frameCount: frameCount,
+            destination: destination
+        ) else { return nil }
+    default:
+        return nil
+    }
+
+    return mixed
+}
+
+private func fillDownmixedFloat32(
+    from buffer: AVAudioPCMBuffer,
+    channelCount: Int,
+    frameCount: Int,
+    destination: UnsafeMutablePointer<Float>
+) -> Bool {
+    if buffer.format.isInterleaved {
+        let audioBuffer = buffer.audioBufferList.pointee.mBuffers
+        guard let sourceData = audioBuffer.mData else { return false }
+        let source = sourceData.assumingMemoryBound(to: Float.self)
+        for frameIndex in 0..<frameCount {
+            var sum: Float = 0
+            for channelIndex in 0..<channelCount {
+                sum += source[(frameIndex * channelCount) + channelIndex]
+            }
+            destination[frameIndex] = sum / Float(channelCount)
+        }
+        return true
+    }
+
+    guard let source = buffer.floatChannelData else { return false }
+    for frameIndex in 0..<frameCount {
+        var sum: Float = 0
+        for channelIndex in 0..<channelCount {
+            sum += source[channelIndex][frameIndex]
+        }
+        destination[frameIndex] = sum / Float(channelCount)
+    }
+    return true
+}
+
+private func fillDownmixedInt16(
+    from buffer: AVAudioPCMBuffer,
+    channelCount: Int,
+    frameCount: Int,
+    destination: UnsafeMutablePointer<Float>
+) -> Bool {
+    if buffer.format.isInterleaved {
+        let audioBuffer = buffer.audioBufferList.pointee.mBuffers
+        guard let sourceData = audioBuffer.mData else { return false }
+        let source = sourceData.assumingMemoryBound(to: Int16.self)
+        for frameIndex in 0..<frameCount {
+            var sum: Float = 0
+            for channelIndex in 0..<channelCount {
+                sum += Float(source[(frameIndex * channelCount) + channelIndex]) / Float(Int16.max)
+            }
+            destination[frameIndex] = sum / Float(channelCount)
+        }
+        return true
+    }
+
+    guard let source = buffer.int16ChannelData else { return false }
+    for frameIndex in 0..<frameCount {
+        var sum: Float = 0
+        for channelIndex in 0..<channelCount {
+            sum += Float(source[channelIndex][frameIndex]) / Float(Int16.max)
+        }
+        destination[frameIndex] = sum / Float(channelCount)
+    }
+    return true
+}
+
+private func fillDownmixedInt32(
+    from buffer: AVAudioPCMBuffer,
+    channelCount: Int,
+    frameCount: Int,
+    destination: UnsafeMutablePointer<Float>
+) -> Bool {
+    if buffer.format.isInterleaved {
+        let audioBuffer = buffer.audioBufferList.pointee.mBuffers
+        guard let sourceData = audioBuffer.mData else { return false }
+        let source = sourceData.assumingMemoryBound(to: Int32.self)
+        for frameIndex in 0..<frameCount {
+            var sum: Float = 0
+            for channelIndex in 0..<channelCount {
+                sum += Float(source[(frameIndex * channelCount) + channelIndex]) / Float(Int32.max)
+            }
+            destination[frameIndex] = sum / Float(channelCount)
+        }
+        return true
+    }
+
+    guard let source = buffer.int32ChannelData else { return false }
+    for frameIndex in 0..<frameCount {
+        var sum: Float = 0
+        for channelIndex in 0..<channelCount {
+            sum += Float(source[channelIndex][frameIndex]) / Float(Int32.max)
+        }
+        destination[frameIndex] = sum / Float(channelCount)
+    }
+    return true
 }
 
 /// Copies a tap buffer so heavier processing can happen off the audio render

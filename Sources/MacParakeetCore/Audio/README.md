@@ -26,7 +26,8 @@ owned by `AppEnvironment`.
 **Mic consumers (each subscribes to the shared stream)**
 - `AudioRecorder.swift` — dictation capture.
   `subscribe(wantsVPIO: false)`. Writes 16 kHz mono Float32 WAVs to
-  `$TMPDIR/macparakeet/`. Owns the dictation diagnostic timers
+  `$TMPDIR/macparakeet/`. VPIO buffers use channel 0; raw multichannel
+  device buffers are downmixed to mono. Owns the dictation diagnostic timers
   (first-buffer watchdog + recording heartbeat). Optional Instant
   Dictation keeps a passive warm subscriber attached while idle,
   stores a 1-second RAM-only 16 kHz mono ring buffer, and prepends up
@@ -75,7 +76,7 @@ owned by `AppEnvironment`.
   and file-conversion entry points behind one injection seam.
 - `AudioDeviceManager.swift` — Core Audio HAL helpers (default
   device, set input on engine, list devices).
-- `extractChannelZero` (in `AudioRecorder.swift`),
+- `extractChannelZero`, `microphoneCaptureMonoBuffer` (in `AudioRecorder.swift`),
   `CMSampleBufferToPCMBuffer.swift`, `PCMBufferToSampleBuffer.swift`,
   `UncheckedSendableAudioPCMBuffer.swift`,
   `ObjCExceptionBridge.swift` — pure utilities.
@@ -124,6 +125,12 @@ post-AEC processed mono and the rest are reference channels. Use
 `extractChannelZero(from:)` — never let `AVAudioConverter`'s default
 channel reduction average across them. This was the bug PR #189
 fixed; do not regress it.
+
+**Raw multichannel device input is different from VPIO.** Interfaces such as
+USB audio boxes may expose several unrelated input channels, and the user's
+active microphone can live on channel 2+. Raw capture paths should use
+`microphoneCaptureMonoBuffer(from:extractVPIOChannelZero:)`, which downmixes
+raw multichannel buffers but still preserves the VPIO channel-0 rule.
 
 **The `AVAudioEngine` is recreated on every teardown.** `tearDownLocked`
 in `MicrophoneEnginePlatform` does `audioEngine = AVAudioEngine()`
