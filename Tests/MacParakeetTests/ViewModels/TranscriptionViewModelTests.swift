@@ -904,7 +904,7 @@ final class TranscriptionViewModelTests: XCTestCase {
         viewModel.currentTranscription = t
         viewModel.selectedTab = .chat
         viewModel.hasConversations = true
-        viewModel.errorMessage = "Stale error"
+        viewModel.setError(message: "Stale error")
 
         viewModel.showInputPortal()
 

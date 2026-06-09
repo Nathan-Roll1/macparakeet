@@ -67,21 +67,30 @@ public final class TranscriptionViewModel {
     public private(set) var progressPhase: ProgressPhase = .preparing
     public private(set) var progressHeadline: String = "Preparing transcription pipeline"
     public private(set) var progressSubline: String? = nil
-    /// Setting a headline invalidates any `errorDetail` built for a *previous*
-    /// failure, so the copy button can never surface a stale URL diagnostic under
-    /// an unrelated error (e.g. a URL failure followed by an unsupported-file
-    /// drop). The URL-failure path assigns `errorDetail` immediately *after*
-    /// `errorMessage`, so its diagnostic survives this reset.
-    public var errorMessage: String? {
-        didSet { errorDetail = nil }
-    }
+    /// The error-banner headline. Mutated only via `setError`/`clearError` so it
+    /// can never drift out of sync with `errorDetail`.
+    public private(set) var errorMessage: String?
     /// Rich, copyable diagnostic for the most recent URL-download failure: the
     /// terse `errorMessage` headline plus the source link and environment. Only
     /// ever shown/copied on explicit user action (the banner's copy button), so —
     /// unlike `errorMessage`, which telemetry classifies — it can safely carry the
     /// URL. `nil` for non-URL failures, where the copy button falls back to
     /// `errorMessage`.
-    public var errorDetail: String?
+    public private(set) var errorDetail: String?
+
+    /// Sets the error-banner state. Headline and its optional rich diagnostic are
+    /// updated together, so a diagnostic built for one failure can never linger
+    /// under a later, unrelated error — the single choke point that keeps the two
+    /// in sync (the copy button reads `errorDetail ?? errorMessage`).
+    public func setError(message: String?, detail: String? = nil) {
+        errorMessage = message
+        errorDetail = detail
+    }
+
+    /// Clears the error banner.
+    public func clearError() {
+        setError(message: nil)
+    }
     public private(set) var transcribingFileName: String = ""
     public var isDragging = false
     public var urlInput: String = ""
@@ -210,7 +219,7 @@ public final class TranscriptionViewModel {
         self.promptResultRepo = promptResultRepo
         self.promptResultsViewModel = promptResultsViewModel
         isConfigured = true
-        errorMessage = nil
+        clearError()
         loadTranscriptions()
     }
 
@@ -267,7 +276,7 @@ public final class TranscriptionViewModel {
         let expansion = AudioFileEnumerator.expand(urls: urls)
         let files = expansion.files
         guard !files.isEmpty else {
-            errorMessage = unsupportedDropMessage
+            setError(message: unsupportedDropMessage)
             return false
         }
 
@@ -289,9 +298,9 @@ public final class TranscriptionViewModel {
             let dropped = expansion.stoppedEarly
                 ? "at least \(expansion.droppedCount)"
                 : "\(expansion.droppedCount)"
-            errorMessage = "Queued the first \(files.count) files; "
+            setError(message: "Queued the first \(files.count) files; "
                 + "\(dropped) more were skipped "
-                + "(\(AudioFileEnumerator.defaultMaxFiles)-file limit)."
+                + "(\(AudioFileEnumerator.defaultMaxFiles)-file limit).")
         }
         return true
     }
@@ -589,7 +598,7 @@ public final class TranscriptionViewModel {
         activeTranscriptionTaskID = nil
         resetBatchState()
         endTranscription()
-        errorMessage = nil
+        clearError()
         loadTranscriptions()
     }
 
@@ -662,7 +671,7 @@ public final class TranscriptionViewModel {
             loadTranscriptions()
         } catch {
             logger.error("Failed to delete transcription: \(error.localizedDescription, privacy: .private)")
-            errorMessage = "Failed to delete transcription: \(error.localizedDescription)"
+            setError(message: "Failed to delete transcription: \(error.localizedDescription)")
         }
     }
 
@@ -698,7 +707,7 @@ public final class TranscriptionViewModel {
             "Missing dependency action=\(action, privacy: .public) dependency=\(dependency, privacy: .public)"
         )
         if errorMessage == nil {
-            errorMessage = Self.configurationError
+            setError(message: Self.configurationError)
         }
     }
 
@@ -802,7 +811,7 @@ public final class TranscriptionViewModel {
     public func showInputPortal() {
         currentTranscription = nil
         selectedTab = .transcript
-        errorMessage = nil
+        clearError()
     }
 
     /// `failedURL` is the link that was being downloaded, when the failure came
@@ -823,10 +832,9 @@ public final class TranscriptionViewModel {
             advanceBatch()
         } else {
             let message = error.localizedDescription
-            errorMessage = message
-            errorDetail = failedURL.map {
+            setError(message: message, detail: failedURL.map {
                 Self.urlFailureDiagnostic(message: message, url: $0, platform: MediaPlatform.recognize($0))
-            }
+            })
             loadTranscriptions()
         }
     }
@@ -855,7 +863,7 @@ public final class TranscriptionViewModel {
         guard activeTranscriptionTaskID == taskID else { return }
         transcriptionTask = nil
         activeTranscriptionTaskID = nil
-        errorMessage = nil
+        clearError()
         endTranscription()
         // Any cancellation ends the whole batch — there is no per-item cancel,
         // so "Cancel all" and a stray single cancel converge to the same reset.
@@ -874,7 +882,7 @@ public final class TranscriptionViewModel {
         progressPhase = .preparing
         progressHeadline = Self.headline(for: .preparing)
         progressSubline = nil
-        errorMessage = nil
+        clearError()
         selectedTab = .transcript
     }
 
