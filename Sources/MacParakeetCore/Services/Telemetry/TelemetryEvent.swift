@@ -156,6 +156,42 @@ public enum TelemetryTranscriptionSource: String, Sendable, Equatable {
     case dragDrop = "drag_drop"
 }
 
+/// The recognized origin platform of a URL-ingest transcription, as a low-
+/// cardinality, non-identifying enum. Orthogonal to `TelemetryTranscriptionSource`:
+/// that names *how* the audio arrived (file/url/meeting), this names *which site*
+/// when it arrived by URL. `other` covers any yt-dlp-supported site we have no brand
+/// mapping for — we never emit the raw host, which could be identifying. Absent on
+/// non-URL (file/meeting) events, so the prop's presence alone marks a URL ingest.
+public enum TelemetryURLPlatform: String, Sendable, Equatable {
+    case youtube
+    case x
+    case vimeo
+    case facebook
+    case tiktok
+    case instagram
+    case applePodcasts = "apple_podcasts"
+    case soundcloud
+    case twitch
+    case other
+
+    /// Maps a recognized `MediaPlatform` (or `nil`, for a transcribable but
+    /// unrecognized link) to its telemetry bucket.
+    public init(_ platform: MediaPlatform?) {
+        switch platform {
+        case .youtube: self = .youtube
+        case .x: self = .x
+        case .vimeo: self = .vimeo
+        case .facebook: self = .facebook
+        case .tiktok: self = .tiktok
+        case .instagram: self = .instagram
+        case .applePodcasts: self = .applePodcasts
+        case .soundcloud: self = .soundcloud
+        case .twitch: self = .twitch
+        case .none: self = .other
+        }
+    }
+}
+
 public enum TelemetryTranscriptionStage: String, Sendable, Equatable {
     case preflight
     case download
@@ -514,7 +550,8 @@ public enum TelemetryEventSpec: Sendable {
         speechEngine: String? = nil,
         engineVariant: String? = nil,
         language: String? = nil,
-        errorType: String?
+        errorType: String?,
+        platform: TelemetryURLPlatform? = nil
     )
     case diarizationStarted(source: TelemetryTranscriptionSource)
     case diarizationCompleted(source: TelemetryTranscriptionSource, speakerCount: Int, durationSeconds: Double)
@@ -1069,7 +1106,8 @@ extension TelemetryEventSpec {
             let speechEngine,
             let engineVariant,
             let language,
-            let errorType
+            let errorType,
+            let platform
         ):
             return Self.compactProps(
                 ("operation_id", operationID),
@@ -1077,6 +1115,7 @@ extension TelemetryEventSpec {
                 ("parent_operation_id", operationContext?.parentOperationID),
                 ("outcome", outcome.rawValue),
                 ("source", source.rawValue),
+                ("platform", platform?.rawValue),
                 ("stage", stage?.rawValue),
                 ("duration_seconds", Self.format(durationSeconds)),
                 ("audio_duration_seconds", audioDurationSeconds.map(Self.format)),

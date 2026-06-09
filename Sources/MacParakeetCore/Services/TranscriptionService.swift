@@ -187,12 +187,16 @@ private struct TranscriptionOperationContext: Sendable {
     let inputKind: ObservabilityInputKind?
     let mediaExtension: String?
     let fileSizeBucket: String?
+    /// Recognized origin platform for a URL ingest (youtube/vimeo/.../other);
+    /// `nil` for file and meeting lanes, where platform has no meaning.
+    let urlPlatform: TelemetryURLPlatform?
 
     init(
         source: TelemetryTranscriptionSource,
         inputKind: ObservabilityInputKind?,
         mediaExtension: String?,
         fileSizeBucket: String?,
+        urlPlatform: TelemetryURLPlatform? = nil,
         operationContext: ObservabilityOperationContext = Observability.childOperationContext()
     ) {
         self.operationContext = operationContext
@@ -200,6 +204,7 @@ private struct TranscriptionOperationContext: Sendable {
         self.inputKind = inputKind
         self.mediaExtension = mediaExtension
         self.fileSizeBucket = fileSizeBucket
+        self.urlPlatform = urlPlatform
     }
 }
 
@@ -612,7 +617,8 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
             source: .youtube,
             inputKind: YouTubeURLValidator.isYouTubeURL(inputURL) ? .youtube : .media,
             mediaExtension: nil,
-            fileSizeBucket: nil
+            fileSizeBucket: nil,
+            urlPlatform: TelemetryURLPlatform(MediaPlatform.recognize(inputURL))
         )
         return try await Observability.withOperationContext(operation.operationContext) {
             guard youtubeDownloader != nil else {
@@ -742,7 +748,8 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
             source: .podcast,
             inputKind: .podcast,
             mediaExtension: nil,
-            fileSizeBucket: nil
+            fileSizeBucket: nil,
+            urlPlatform: .applePodcasts
         )
     }
 
@@ -1703,7 +1710,8 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
             speechEngine: speechEngine,
             engineVariant: engineVariant,
             language: language,
-            errorType: errorType
+            errorType: errorType,
+            platform: operation.urlPlatform
         ))
     }
 

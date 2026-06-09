@@ -563,6 +563,62 @@ final class TelemetryServiceTests: XCTestCase {
         XCTAssertNil(props["file_path"])
         XCTAssertNil(props["file_name"])
         XCTAssertNil(props["source_url"])
+        // File ingest has no platform — the prop is absent, which is itself the
+        // "this was a local file, not a URL" signal.
+        XCTAssertNil(props["platform"])
+    }
+
+    func testCanonicalOperationSerializesURLPlatform() throws {
+        let event = TelemetryEvent(
+            spec: .transcriptionOperation(
+                operationID: "op-url",
+                outcome: .success,
+                source: .youtube,
+                stage: .postProcessing,
+                durationSeconds: 9.0,
+                audioDurationSeconds: 40,
+                processingSeconds: 7.0,
+                wordCount: 120,
+                speakerCount: nil,
+                diarizationRequested: false,
+                diarizationApplied: false,
+                inputKind: .media,
+                mediaExtension: nil,
+                fileSizeBucket: nil,
+                speechEngine: "parakeet",
+                engineVariant: nil,
+                language: "en",
+                errorType: nil,
+                platform: .tiktok
+            ),
+            appVer: "0.6.21",
+            osVer: "26.5",
+            locale: "en-US",
+            chip: "Apple M4 Pro",
+            session: "test-session"
+        )
+
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        let data = try encoder.encode(event)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let props = try XCTUnwrap(json["props"] as? [String: String])
+
+        // `source` stays the yt-dlp lineage; `platform` is the new sub-dimension
+        // that distinguishes the actual site within URL ingests.
+        XCTAssertEqual(props["source"], "youtube")
+        XCTAssertEqual(props["platform"], "tiktok")
+        // Privacy: only the low-cardinality bucket, never the raw link.
+        XCTAssertNil(props["source_url"])
+    }
+
+    func testURLPlatformBucketsRecognizedHostsAndTail() {
+        XCTAssertEqual(TelemetryURLPlatform(.tiktok), .tiktok)
+        XCTAssertEqual(TelemetryURLPlatform(.youtube), .youtube)
+        // Snake-case for the multi-word brand, matching the telemetry convention.
+        XCTAssertEqual(TelemetryURLPlatform(.applePodcasts).rawValue, "apple_podcasts")
+        // A transcribable-but-unrecognized link (yt-dlp's long tail) → `other`.
+        XCTAssertEqual(TelemetryURLPlatform(nil), .other)
     }
 
     func testCanonicalOperationBucketsUnknownEngineVariant() throws {
