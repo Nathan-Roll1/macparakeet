@@ -546,7 +546,10 @@ public final class PromptResultsViewModel {
     /// the new generation's ID so the caller can keep its tab selected.
     @discardableResult
     public func retryGeneration(id: UUID) -> UUID? {
-        guard let index = pendingGenerations.firstIndex(where: { $0.id == id }),
+        // llmService gates enqueueGeneration; checking it before removal
+        // keeps the failed card (and its error) when retry can't start.
+        guard llmService != nil,
+              let index = pendingGenerations.firstIndex(where: { $0.id == id }),
               case .failed = pendingGenerations[index].state
         else { return nil }
         let failed = pendingGenerations.remove(at: index)

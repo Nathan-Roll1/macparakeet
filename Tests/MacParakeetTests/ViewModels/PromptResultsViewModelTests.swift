@@ -369,6 +369,34 @@ final class PromptResultsViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.errorMessage)
     }
 
+    func testRetryGenerationKeepsFailedEntryWhenLLMServiceIsGone() async throws {
+        viewModel.configure(
+            llmService: llm,
+            promptRepo: promptRepo,
+            promptResultRepo: promptResultRepo
+        )
+        llm.streamTokens = []
+
+        let generationID = try XCTUnwrap(
+            viewModel.generatePromptResult(transcript: "Transcript", transcriptionId: UUID())
+        )
+        try await Task.sleep(for: .milliseconds(200))
+        guard case .failed = viewModel.pendingGeneration(id: generationID)?.state else {
+            return XCTFail("Expected generation to be marked failed")
+        }
+
+        viewModel.configure(
+            llmService: nil,
+            promptRepo: promptRepo,
+            promptResultRepo: promptResultRepo
+        )
+
+        // Retry can't start without a service — the failed card (and its
+        // error message) must survive instead of being silently removed.
+        XCTAssertNil(viewModel.retryGeneration(id: generationID))
+        XCTAssertNotNil(viewModel.pendingGeneration(id: generationID))
+    }
+
     func testRetryGenerationIgnoresActiveGenerations() throws {
         viewModel.configure(
             llmService: llm,
@@ -500,6 +528,30 @@ final class PromptResultsViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.hasPendingGenerations)
         XCTAssertEqual(viewModel.queuedGenerationCount, 0)
         XCTAssertNil(viewModel.streamingPromptResultID)
+    }
+
+    func testLoadPromptResultsClearsFailedGenerationsWhenSwitchingTranscriptions() async throws {
+        viewModel.configure(
+            llmService: llm,
+            promptRepo: promptRepo,
+            promptResultRepo: promptResultRepo
+        )
+        llm.streamTokens = []
+
+        let generationID = try XCTUnwrap(
+            viewModel.generatePromptResult(transcript: "Transcript", transcriptionId: UUID())
+        )
+        try await Task.sleep(for: .milliseconds(200))
+        guard case .failed = viewModel.pendingGeneration(id: generationID)?.state else {
+            return XCTFail("Expected generation to be marked failed")
+        }
+
+        // Failure feedback is scoped to the visit, like every other pending
+        // generation: navigating to another transcription drops it rather
+        // than resurfacing a stale error on the next visit.
+        viewModel.loadPromptResults(transcriptionId: UUID())
+
+        XCTAssertTrue(viewModel.pendingGenerations.isEmpty)
     }
 
     func testAutoGeneratePromptResultsDoesNothingWhenNoAutoRunPromptsAreEnabled() {
