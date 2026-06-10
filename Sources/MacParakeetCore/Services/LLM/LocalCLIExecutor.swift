@@ -9,7 +9,13 @@ public struct LocalCLIConfig: Codable, Sendable, Equatable {
     public let timeoutSeconds: Double
 
     public static let minimumTimeout: Double = 5
-    public static let defaultTimeout: Double = 45
+    /// CLI agents (`claude -p`, `codex exec`) routinely need minutes for
+    /// long-transcript generations — meeting summaries over ~1h of audio
+    /// were killed by the previous 45s default (#478).
+    public static let defaultTimeout: Double = 300
+    /// Default before 2026-06 (#478). Stored configs carrying this exact
+    /// value are migrated once to `defaultTimeout` by `LocalCLIConfigStore`.
+    public static let legacyDefaultTimeout: Double = 45
 
     public init(commandTemplate: String, timeoutSeconds: Double = Self.defaultTimeout) {
         self.commandTemplate = commandTemplate
@@ -96,6 +102,7 @@ public enum LocalCLIError: Error, LocalizedError, Sendable {
 // @unchecked Sendable: UserDefaults is internally thread-safe
 public final class LocalCLIConfigStore: @unchecked Sendable {
     private static let configKey = "local_cli_config"
+    private static let timeoutMigrationKey = "local_cli_timeout_migrated_to_300"
     private let defaults: UserDefaults
 
     public init(defaults: UserDefaults = .standard) {
@@ -103,8 +110,24 @@ public final class LocalCLIConfigStore: @unchecked Sendable {
     }
 
     public func load() -> LocalCLIConfig? {
-        guard let data = defaults.data(forKey: Self.configKey) else { return nil }
-        return try? JSONDecoder().decode(LocalCLIConfig.self, from: data)
+        // One-shot migration: every config saved before #478 carries the old
+        // 45s default (the settings UI persisted it even when untouched), so
+        // an exact 45 on first post-update load is treated as "never chosen"
+        // and bumped. The flag is set on the first load regardless, so a 45
+        // explicitly entered afterwards sticks.
+        let needsTimeoutMigration = !defaults.bool(forKey: Self.timeoutMigrationKey)
+        if needsTimeoutMigration {
+            defaults.set(true, forKey: Self.timeoutMigrationKey)
+        }
+        guard let data = defaults.data(forKey: Self.configKey),
+              let config = try? JSONDecoder().decode(LocalCLIConfig.self, from: data)
+        else { return nil }
+        guard needsTimeoutMigration,
+              config.timeoutSeconds == LocalCLIConfig.legacyDefaultTimeout
+        else { return config }
+        let migrated = LocalCLIConfig(commandTemplate: config.commandTemplate)
+        try? save(migrated)
+        return migrated
     }
 
     public func save(_ config: LocalCLIConfig) throws {
@@ -237,12 +260,23 @@ public final class LocalCLIExecutor: Sendable {
         )
     }
 
+    /// Connection tests use a trivial prompt, so a hung command should not
+    /// pin the settings UI for the full (now minutes-long) generation timeout.
+    static let testConnectionTimeoutCap: Double = 45
+
+    static func testConnectionConfig(for config: LocalCLIConfig) -> LocalCLIConfig {
+        LocalCLIConfig(
+            commandTemplate: config.commandTemplate,
+            timeoutSeconds: min(config.timeoutSeconds, testConnectionTimeoutCap)
+        )
+    }
+
     /// Quick test: runs the configured command with a minimal prompt.
     public func testConnection(config: LocalCLIConfig) async throws {
         let output = try await execute(
             systemPrompt: "You are a helpful assistant.",
             userPrompt: "Reply with OK",
-            config: config
+            config: Self.testConnectionConfig(for: config)
         )
         guard !output.isEmpty else {
             throw LocalCLIError.emptyOutput

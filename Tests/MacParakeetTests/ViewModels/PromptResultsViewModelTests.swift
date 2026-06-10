@@ -130,7 +130,15 @@ final class PromptResultsViewModelTests: XCTestCase {
 
         XCTAssertTrue(promptResultRepo.saveCalls.isEmpty)
         XCTAssertTrue(viewModel.promptResults.isEmpty)
-        XCTAssertTrue(viewModel.pendingGenerations.isEmpty)
+        // The failed generation stays visible so its tab can show the error
+        // with Retry/Dismiss instead of silently disappearing (#478).
+        XCTAssertEqual(viewModel.pendingGenerations.count, 1)
+        guard case .failed(let message) = viewModel.pendingGenerations.first?.state else {
+            return XCTFail("Expected generation to be marked failed")
+        }
+        XCTAssertTrue(message.contains("empty response"))
+        XCTAssertFalse(viewModel.hasActiveGenerations)
+        XCTAssertTrue(viewModel.hasPendingGenerations)
         XCTAssertTrue(viewModel.errorMessage?.contains("empty response") == true)
     }
 
@@ -170,6 +178,11 @@ final class PromptResultsViewModelTests: XCTestCase {
         XCTAssertEqual(promptResultRepo.saveCalls.first?.promptName, "Decisions")
         XCTAssertEqual(promptResultRepo.saveCalls.first?.content, "Recovered")
         XCTAssertNil(viewModel.errorMessage)
+        // The first generation's failure must not block the queued second
+        // one, and it remains visible as a failed entry afterwards.
+        XCTAssertEqual(viewModel.pendingGenerations.count, 1)
+        XCTAssertEqual(viewModel.pendingGenerations.first?.promptName, "Action Items")
+        XCTAssertFalse(viewModel.hasActiveGenerations)
     }
 
     func testUnreadPromptResultsTrackMultipleCompletedResults() async throws {
@@ -257,7 +270,7 @@ final class PromptResultsViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.promptResults.first?.id, generationID)
     }
 
-    func testRegenerateEmptyStreamKeepsExistingResultAndReportsFailedGeneration() async throws {
+    func testRegenerateEmptyStreamKeepsExistingResultAndMarksGenerationFailed() async throws {
         let transcriptionID = UUID()
         let existing = PromptResult(
             transcriptionId: transcriptionID,
@@ -274,10 +287,6 @@ final class PromptResultsViewModelTests: XCTestCase {
         )
         viewModel.loadPromptResults(transcriptionId: transcriptionID)
         llm.streamTokens = []
-        var failedGeneration: (UUID, UUID?)?
-        viewModel.onGenerationFailed = { generationID, replacingPromptResultID in
-            failedGeneration = (generationID, replacingPromptResultID)
-        }
 
         let generationID = try XCTUnwrap(viewModel.regeneratePromptResult(existing, transcript: "Transcript"))
 
@@ -290,9 +299,111 @@ final class PromptResultsViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.promptResults.count, 1)
         XCTAssertEqual(viewModel.promptResults.first?.id, existing.id)
         XCTAssertEqual(viewModel.promptResults.first?.content, "Old summary")
-        XCTAssertEqual(failedGeneration?.0, generationID)
-        XCTAssertEqual(failedGeneration?.1, existing.id)
+        let failed = try XCTUnwrap(viewModel.pendingGeneration(id: generationID))
+        guard case .failed(let message) = failed.state else {
+            return XCTFail("Expected regeneration to be marked failed")
+        }
+        XCTAssertTrue(message.contains("empty response"))
+        XCTAssertEqual(failed.replacingPromptResultID, existing.id)
         XCTAssertTrue(viewModel.errorMessage?.contains("empty response") == true)
+    }
+
+    func testStreamErrorMarksGenerationFailedWithProviderMessage() async throws {
+        viewModel.configure(
+            llmService: llm,
+            promptRepo: promptRepo,
+            promptResultRepo: promptResultRepo
+        )
+        llm.errorToThrow = LLMError.cliError(
+            "Timed out after 45s. Verify the command runs successfully in a terminal and is logged in if required."
+        )
+
+        let generationID = try XCTUnwrap(
+            viewModel.generatePromptResult(transcript: "Transcript", transcriptionId: UUID())
+        )
+
+        try await Task.sleep(for: .milliseconds(200))
+
+        let failed = try XCTUnwrap(viewModel.pendingGeneration(id: generationID))
+        guard case .failed(let message) = failed.state else {
+            return XCTFail("Expected generation to be marked failed")
+        }
+        XCTAssertTrue(message.contains("Timed out after 45s"))
+        XCTAssertTrue(promptResultRepo.saveCalls.isEmpty)
+    }
+
+    func testRetryGenerationReEnqueuesFailedGenerationWithSameInputs() async throws {
+        let transcriptionID = UUID()
+        let existing = PromptResult(
+            transcriptionId: transcriptionID,
+            promptName: "General Summary",
+            promptContent: Prompt.defaultPrompt.content,
+            content: "Old summary"
+        )
+        promptResultRepo.promptResults = [existing]
+
+        viewModel.configure(
+            llmService: llm,
+            promptRepo: promptRepo,
+            promptResultRepo: promptResultRepo
+        )
+        viewModel.loadPromptResults(transcriptionId: transcriptionID)
+        llm.streamTokenBatches = [[], ["Recovered"]]
+
+        let failedID = try XCTUnwrap(viewModel.regeneratePromptResult(existing, transcript: "Transcript"))
+        try await Task.sleep(for: .milliseconds(200))
+        guard case .failed = viewModel.pendingGeneration(id: failedID)?.state else {
+            return XCTFail("Expected first attempt to fail")
+        }
+
+        let retriedID = try XCTUnwrap(viewModel.retryGeneration(id: failedID))
+        XCTAssertNotEqual(retriedID, failedID)
+        XCTAssertNil(viewModel.pendingGeneration(id: failedID))
+
+        try await Task.sleep(for: .milliseconds(200))
+
+        XCTAssertTrue(viewModel.pendingGenerations.isEmpty)
+        XCTAssertEqual(promptResultRepo.replaceCalls.count, 1)
+        XCTAssertEqual(promptResultRepo.replaceCalls[0].deletingExistingID, existing.id)
+        XCTAssertEqual(viewModel.promptResults.first?.content, "Recovered")
+        XCTAssertNil(viewModel.errorMessage)
+    }
+
+    func testRetryGenerationIgnoresActiveGenerations() throws {
+        viewModel.configure(
+            llmService: llm,
+            promptRepo: promptRepo,
+            promptResultRepo: promptResultRepo
+        )
+        llm.streamDelayNs = 1_000_000_000
+
+        let generationID = try XCTUnwrap(
+            viewModel.generatePromptResult(transcript: "Transcript", transcriptionId: UUID())
+        )
+
+        XCTAssertNil(viewModel.retryGeneration(id: generationID))
+        XCTAssertEqual(viewModel.pendingGenerations.count, 1)
+    }
+
+    func testCancelGenerationRemovesFailedGeneration() async throws {
+        viewModel.configure(
+            llmService: llm,
+            promptRepo: promptRepo,
+            promptResultRepo: promptResultRepo
+        )
+        llm.streamTokens = []
+
+        let generationID = try XCTUnwrap(
+            viewModel.generatePromptResult(transcript: "Transcript", transcriptionId: UUID())
+        )
+        try await Task.sleep(for: .milliseconds(200))
+        guard case .failed = viewModel.pendingGeneration(id: generationID)?.state else {
+            return XCTFail("Expected generation to be marked failed")
+        }
+
+        viewModel.cancelGeneration(id: generationID)
+
+        XCTAssertTrue(viewModel.pendingGenerations.isEmpty)
     }
 
     func testDeletePromptResultRemovesResultAndKeepsRemainingPromptResults() throws {

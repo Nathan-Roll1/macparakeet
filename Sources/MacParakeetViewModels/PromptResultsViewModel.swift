@@ -9,6 +9,18 @@ public final class PromptResultsViewModel {
         public enum State: Equatable, Sendable {
             case queued
             case streaming
+            /// Terminal: the generation errored. The entry stays in
+            /// `pendingGenerations` so its tab can show the error with
+            /// Retry/Dismiss — removing it on failure made errors look
+            /// like a silent revert to the Transcript tab (#478).
+            case failed(message: String)
+
+            public var isActive: Bool {
+                switch self {
+                case .queued, .streaming: return true
+                case .failed: return false
+                }
+            }
         }
 
         public var id: UUID
@@ -69,7 +81,6 @@ public final class PromptResultsViewModel {
     public var onModelChanged: (() -> Void)?
     public var onPromptResultsChanged: ((UUID, Bool) -> Void)?
     public var onGenerationCompleted: ((UUID, UUID) -> Void)?
-    public var onGenerationFailed: ((UUID, UUID?) -> Void)?
     public var onDeletedPromptResult: ((UUID) -> Void)?
     public var shouldMarkPromptResultUnread: ((UUID) -> Bool)?
 
@@ -103,6 +114,13 @@ public final class PromptResultsViewModel {
 
     public var hasPendingGenerations: Bool {
         !pendingGenerations.isEmpty
+    }
+
+    /// Queued or streaming — excludes failed entries, which only wait for
+    /// the user to retry or dismiss and should not block model switching
+    /// or read as in-flight work.
+    public var hasActiveGenerations: Bool {
+        pendingGenerations.contains { $0.state.isActive }
     }
 
     public var isStreaming: Bool {
@@ -190,7 +208,7 @@ public final class PromptResultsViewModel {
     }
 
     public func selectModel(_ modelName: String) {
-        guard let configStore, currentProviderID != .localCLI, !hasPendingGenerations else { return }
+        guard let configStore, currentProviderID != .localCLI, !hasActiveGenerations else { return }
         do {
             try configStore.updateModelName(modelName)
             currentModelName = modelName
@@ -265,6 +283,7 @@ public final class PromptResultsViewModel {
     public func hasPendingGeneration(promptName: String, transcriptionId: UUID) -> Bool {
         pendingGenerations.contains {
             $0.transcriptionId == transcriptionId && $0.promptName == promptName
+                && $0.state.isActive
         }
     }
 
@@ -514,16 +533,36 @@ public final class PromptResultsViewModel {
 
     private func finishFailedGeneration(id generationID: UUID, error: Error) {
         logger.error("Failed to generate prompt result error=\(error.localizedDescription, privacy: .public)")
-        let replacingPromptResultID = pendingGenerations
-            .first(where: { $0.id == generationID })?
-            .replacingPromptResultID
         if let index = pendingGenerations.firstIndex(where: { $0.id == generationID }) {
-            pendingGenerations.remove(at: index)
+            pendingGenerations[index].state = .failed(message: error.localizedDescription)
         }
         streamingTask = nil
         errorMessage = error.localizedDescription
-        onGenerationFailed?(generationID, replacingPromptResultID)
         processNextQueuedGeneration()
+    }
+
+    /// Re-enqueue a failed generation with the same inputs it was originally
+    /// captured with (transcript, notes snapshot, replace target). Returns
+    /// the new generation's ID so the caller can keep its tab selected.
+    @discardableResult
+    public func retryGeneration(id: UUID) -> UUID? {
+        guard let index = pendingGenerations.firstIndex(where: { $0.id == id }),
+              case .failed = pendingGenerations[index].state
+        else { return nil }
+        let failed = pendingGenerations.remove(at: index)
+        return enqueueGeneration(
+            transcript: failed.transcript,
+            transcriptionId: failed.transcriptionId,
+            prompt: Prompt(
+                name: failed.promptName,
+                content: failed.promptContent,
+                isBuiltIn: false,
+                sortOrder: 0
+            ),
+            extraInstructions: failed.extraInstructions,
+            userNotes: failed.userNotes,
+            replacingPromptResultID: failed.replacingPromptResultID
+        )
     }
 
     private func assembledSystemPrompt(

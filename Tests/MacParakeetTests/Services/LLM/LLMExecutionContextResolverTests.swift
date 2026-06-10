@@ -35,7 +35,7 @@ final class LLMExecutionContextResolverTests: XCTestCase {
         try cliConfigStore.save(
             LocalCLIConfig(
                 commandTemplate: "codex exec --skip-git-repo-check --model gpt-5.4-mini",
-                timeoutSeconds: 45
+                timeoutSeconds: 90
             )
         )
 
@@ -50,6 +50,6 @@ final class LLMExecutionContextResolverTests: XCTestCase {
             context?.localCLIConfig?.commandTemplate,
             "codex exec --skip-git-repo-check --model gpt-5.4-mini"
         )
-        XCTAssertEqual(context?.localCLIConfig?.timeoutSeconds, 45)
+        XCTAssertEqual(context?.localCLIConfig?.timeoutSeconds, 90)
     }
 }

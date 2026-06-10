@@ -1392,10 +1392,14 @@ struct TranscriptResultView: View {
         case .result:
             return "sparkles"
         case .generation(let id):
-            if promptResultsViewModel.pendingGeneration(id: id)?.state == .queued {
+            switch promptResultsViewModel.pendingGeneration(id: id)?.state {
+            case .queued:
                 return "clock"
+            case .failed:
+                return "exclamationmark.triangle"
+            default:
+                return "sparkles"
             }
-            return "sparkles"
         case .chat:
             return "bubble.left.and.text.bubble.right"
         }
@@ -1524,28 +1528,40 @@ struct TranscriptResultView: View {
     private func generationPane(_ generation: PromptResultsViewModel.PendingGeneration) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: DesignSystem.Spacing.md) {
-                HStack {
-                    Spacer()
-                    Button {
-                        showingCancelGenerationAlert = generation.id
-                    } label: {
-                        HStack(spacing: DesignSystem.Spacing.xs) {
-                            Image(systemName: generation.state == .queued ? "minus.circle" : "xmark")
-                            Text(generation.state == .queued ? "Remove" : "Cancel")
-                        }
-                        .font(DesignSystem.Typography.caption)
-                    }
-                    .parakeetAction(.secondary)
-                    .controlSize(.small)
-                }
+                if case .failed(let message) = generation.state {
+                    failedGenerationCard(generation, message: message)
 
-                if generation.state == .queued {
-                    queuedGenerationCard
-                } else if generation.content.isEmpty {
-                    SummarySkeletonView()
+                    // Partial content streamed before the failure is still
+                    // worth reading; dimmed so it reads as incomplete.
+                    if !generation.content.isEmpty {
+                        MarkdownContentView(generation.content, font: DesignSystem.Typography.bodyLarge)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .opacity(0.6)
+                    }
                 } else {
-                    MarkdownContentView(generation.content, font: DesignSystem.Typography.bodyLarge)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    HStack {
+                        Spacer()
+                        Button {
+                            showingCancelGenerationAlert = generation.id
+                        } label: {
+                            HStack(spacing: DesignSystem.Spacing.xs) {
+                                Image(systemName: generation.state == .queued ? "minus.circle" : "xmark")
+                                Text(generation.state == .queued ? "Remove" : "Cancel")
+                            }
+                            .font(DesignSystem.Typography.caption)
+                        }
+                        .parakeetAction(.secondary)
+                        .controlSize(.small)
+                    }
+
+                    if generation.state == .queued {
+                        queuedGenerationCard
+                    } else if generation.content.isEmpty {
+                        SummarySkeletonView()
+                    } else {
+                        MarkdownContentView(generation.content, font: DesignSystem.Typography.bodyLarge)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1576,6 +1592,50 @@ struct TranscriptResultView: View {
                  ? "This will remove the prompt from the generation queue."
                  : "This will stop the AI from generating the result.")
         }
+    }
+
+    private func failedGenerationCard(
+        _ generation: PromptResultsViewModel.PendingGeneration,
+        message: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: DesignSystem.Spacing.sm) {
+            Label("Generation failed", systemImage: "exclamationmark.triangle.fill")
+                .font(DesignSystem.Typography.caption.weight(.semibold))
+                .foregroundStyle(DesignSystem.Colors.errorRed)
+
+            Text(message)
+                .font(DesignSystem.Typography.body)
+                .foregroundStyle(DesignSystem.Colors.textSecondary)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack(spacing: DesignSystem.Spacing.sm) {
+                Button {
+                    if let newID = promptResultsViewModel.retryGeneration(id: generation.id) {
+                        viewModel.selectedTab = .generation(id: newID)
+                    }
+                } label: {
+                    Label("Retry", systemImage: "arrow.clockwise")
+                }
+                .parakeetAction(.primary)
+                .controlSize(.regular)
+
+                Button("Dismiss") {
+                    let replacingID = generation.replacingPromptResultID
+                    promptResultsViewModel.cancelGeneration(id: generation.id)
+                    viewModel.selectedTab = replacingID.map { .result(id: $0) } ?? .transcript
+                }
+                .parakeetAction(.secondary)
+                .controlSize(.regular)
+            }
+            .padding(.top, DesignSystem.Spacing.xs)
+        }
+        .padding(DesignSystem.Spacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: DesignSystem.Layout.rowCornerRadius)
+                .fill(DesignSystem.Colors.surfaceElevated.opacity(0.7))
+        )
     }
 
     private var queuedGenerationCard: some View {
@@ -1615,7 +1675,7 @@ struct TranscriptResultView: View {
                     currentModel: promptResultsViewModel.currentModelName,
                     displayName: promptResultsViewModel.modelDisplayName,
                     availableModels: promptResultsViewModel.availableModels,
-                    disabled: promptResultsViewModel.hasPendingGenerations,
+                    disabled: promptResultsViewModel.hasActiveGenerations,
                     onSelect: { promptResultsViewModel.selectModel($0) }
                 )
             }
@@ -1625,7 +1685,7 @@ struct TranscriptResultView: View {
                 .textFieldStyle(.roundedBorder)
                 .font(DesignSystem.Typography.body)
 
-            if promptResultsViewModel.hasPendingGenerations {
+            if promptResultsViewModel.hasActiveGenerations {
                 Text(queueStatusText)
                     .font(DesignSystem.Typography.caption)
                     .foregroundStyle(DesignSystem.Colors.textSecondary)
