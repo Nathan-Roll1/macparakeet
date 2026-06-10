@@ -80,6 +80,15 @@ by checking exit code first: `2` = misuse, `1` = runtime, `0` = success.
 
 ## [Unreleased]
 
+### Changed
+
+- The Local CLI provider's default timeout is now **300 seconds** (was 45).
+  Long transcripts routed through CLI agents (`claude -p`, `codex exec`)
+  regularly exceed 45 s, which killed `llm`/`prompts run` generations
+  mid-flight (#478). Stored configs still carrying the old 45 s default are
+  migrated to 300 s once on first load; any value entered after that — 45
+  included — is preserved. Connection tests remain capped at 45 s.
+
 ## [2.8.0] -- 2026-06-09
 
 ### Added

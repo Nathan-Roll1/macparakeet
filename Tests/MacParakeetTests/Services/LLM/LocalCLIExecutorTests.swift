@@ -62,11 +62,72 @@ final class LocalCLIExecutorTests: XCTestCase {
     }
 
     func testDefaultTimeoutAndTimeoutDescription() {
-        XCTAssertEqual(LocalCLIConfig.defaultTimeout, 45)
+        XCTAssertEqual(LocalCLIConfig.defaultTimeout, 300)
+        XCTAssertEqual(LocalCLIConfig.legacyDefaultTimeout, 45)
         XCTAssertEqual(
             LocalCLIError.timeout(seconds: LocalCLIConfig.defaultTimeout).errorDescription,
-            "Timed out after 45s. Verify the command runs successfully in a terminal and is logged in if required."
+            "Timed out after 300s. Verify the command runs successfully in a terminal and is logged in if required."
         )
+    }
+
+    func testConfigStoreMigratesLegacyDefaultTimeoutOnFirstLoad() throws {
+        let defaults = UserDefaults(suiteName: "test.localcli.\(UUID().uuidString)")!
+        let store = LocalCLIConfigStore(defaults: defaults)
+
+        // Simulate a pre-#478 store: a config saved with the old 45s default,
+        // never loaded under the new version.
+        try store.save(
+            LocalCLIConfig(commandTemplate: "codex exec --skip-git-repo-check", timeoutSeconds: 45)
+        )
+
+        let migrated = store.load()
+        XCTAssertEqual(migrated?.timeoutSeconds, LocalCLIConfig.defaultTimeout)
+        XCTAssertEqual(migrated?.commandTemplate, "codex exec --skip-git-repo-check")
+
+        // The migrated value is persisted, not just returned.
+        XCTAssertEqual(store.load()?.timeoutSeconds, LocalCLIConfig.defaultTimeout)
+
+        // 45 entered after the migration is an explicit choice and sticks.
+        try store.save(
+            LocalCLIConfig(commandTemplate: "codex exec --skip-git-repo-check", timeoutSeconds: 45)
+        )
+        XCTAssertEqual(store.load()?.timeoutSeconds, 45)
+    }
+
+    func testConfigStoreDoesNotMigrateNonDefaultLegacyTimeout() throws {
+        let defaults = UserDefaults(suiteName: "test.localcli.\(UUID().uuidString)")!
+        let store = LocalCLIConfigStore(defaults: defaults)
+
+        try store.save(
+            LocalCLIConfig(commandTemplate: "claude -p --model haiku", timeoutSeconds: 60)
+        )
+
+        XCTAssertEqual(store.load()?.timeoutSeconds, 60)
+    }
+
+    func testConfigStoreEmptyLoadConsumesMigrationWindow() throws {
+        let defaults = UserDefaults(suiteName: "test.localcli.\(UUID().uuidString)")!
+        let store = LocalCLIConfigStore(defaults: defaults)
+
+        // A load with no stored config marks the store as post-#478: a 45
+        // saved afterwards was typed under the new default and is preserved.
+        XCTAssertNil(store.load())
+        try store.save(
+            LocalCLIConfig(commandTemplate: "claude -p --model haiku", timeoutSeconds: 45)
+        )
+        XCTAssertEqual(store.load()?.timeoutSeconds, 45)
+    }
+
+    func testTestConnectionConfigCapsTimeout() {
+        let slow = LocalCLIConfig(commandTemplate: "codex exec", timeoutSeconds: 300)
+        XCTAssertEqual(
+            LocalCLIExecutor.testConnectionConfig(for: slow).timeoutSeconds,
+            LocalCLIExecutor.testConnectionTimeoutCap
+        )
+
+        let fast = LocalCLIConfig(commandTemplate: "codex exec", timeoutSeconds: 10)
+        XCTAssertEqual(LocalCLIExecutor.testConnectionConfig(for: fast).timeoutSeconds, 10)
+        XCTAssertEqual(LocalCLIExecutor.testConnectionConfig(for: fast).commandTemplate, "codex exec")
     }
 
     // MARK: - Templates
