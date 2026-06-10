@@ -74,6 +74,10 @@ line-259 drain only covers a switch *already in flight* — not one that
 before the first `await` (insert a placeholder ID, then resolve the
 selection), or re-validate `speechEngineSwitchTask == nil` after resume and
 loop until stable.
+**Status: FIXED** — PR #476 (`59548faa1`, merged 2026-06-10). The session ID
+is now reserved synchronously before the first `await`; two regression tests
+(engine switch + variant swap blocked while a session begin is suspended
+mid-selection-read) were verified to fail against the unfixed scheduler.
 
 **AUDIT-072 — Transforms re-trigger races the deliberately-uncancellable
 replace phase**
@@ -94,6 +98,11 @@ Transform in another app. **Fix:** `handleTrigger` should `await` the old
 task's completion after cancelling (it terminates quickly once in the replace
 phase) before the new executor's capture begins; alternatively serialize
 executors through a single gate.
+**Status: FIXED** — PR #475 (`067664d2d`, merged 2026-06-10). New
+`TransformRunSerializer` (@MainActor, generation-guarded) defers each run's
+body until the cancelled predecessor fully winds down; review round
+additionally fixed `cancel()` nil-ing the task reference (which would have
+let a cancel-then-retrigger skip the wind-down wait).
 
 **AUDIT-073 — `snippet_edited` missing from website telemetry allowlist
 (live data loss since 2026-05-23)**
@@ -116,13 +125,13 @@ rejection still HTTP 400).
 
 | ID | Title | Detail / fix |
 |---|---|---|
-| AUDIT-074 | yt-dlp `fetchMetadata` missing `--` separator | `YouTubeDownloader.swift:197-202` lacks the `--` that `downloadAudioArguments` has (line ~417). Unreachable today — `DownloadableMediaURLValidator` requires an `http(s)://` prefix with no whitespace, so a leading-dash string cannot reach argv — but it is a latent defect for any future caller that skips validation. One-line fix for parity. |
-| AUDIT-075 | Whisper engine creation lacks Nemotron's busy-guard | `STTRuntime.swift:~154` creates/assigns `WhisperEngine` on nil without the `activeTranscriptionCount <= 1` guard the Nemotron path has (~line 891). Unreachable today because the scheduler's single background slot serializes Whisper jobs; asymmetric latent hazard. Mirror the guard. |
-| AUDIT-076 | `scrubAPIKeyArtifacts` regex gaps | `LLMClient.swift:1146` — `key=` pattern requires 20+ chars and the char class `[A-Za-z0-9._\-]` excludes `%`, so URL-encoded tokens and short keys escape scrubbing. Widen patterns conservatively. |
+| AUDIT-074 | yt-dlp `fetchMetadata` missing `--` separator | `YouTubeDownloader.swift:197-202` lacks the `--` that `downloadAudioArguments` has (line ~417). Unreachable today — `DownloadableMediaURLValidator` requires an `http(s)://` prefix with no whitespace, so a leading-dash string cannot reach argv — but it is a latent defect for any future caller that skips validation. One-line fix for parity. **FIXED** — PR #477 (`bcf2e5905`). |
+| AUDIT-075 | Whisper engine creation lacks Nemotron's busy-guard | `STTRuntime.swift:~154` creates/assigns `WhisperEngine` on nil without the `activeTranscriptionCount <= 1` guard the Nemotron path has (~line 891). Unreachable today because the scheduler's single background slot serializes Whisper jobs; asymmetric latent hazard. Mirror the guard. **FIXED** — PR #477 (`98f9c6a4a`; `d901af512` documents why warmUp/switch stay inline). |
+| AUDIT-076 | `scrubAPIKeyArtifacts` regex gaps | `LLMClient.swift:1146` — `key=` pattern requires 20+ chars and the char class `[A-Za-z0-9._\-]` excludes `%`, so URL-encoded tokens and short keys escape scrubbing. Widen patterns conservatively. **FIXED** — PR #477 (`65a9b922b`; `56b6781bf` extends coverage to raw Base64 tokens after review). |
 | AUDIT-077 | yt-dlp auto-update trusts same-origin checksum (TOFU) | `BinaryBootstrap.swift:210-238` downloads the binary and its SHA2-256SUMS from the same GitHub release over TLS; integrity-against-corruption only, no protection from a compromised release. Same class as deferred AUDIT-070 (Node SHASUMS). Revisit if yt-dlp ever ships signed releases. |
 | AUDIT-078 | Podcast feed parser retains unbounded episodes | `PodcastFeedParser.swift:83-92` — XMLParser streams, but every `<item>` is retained; feed URL is user-pasted (attacker-choosable). Practical exhaustion needs millions of items; add a generous cap (e.g. 10k) for hygiene. |
 | AUDIT-079 | Speech-boundary chunker's serialization contract is comment-only | `SpeechBoundaryMeetingLiveAudioChunker.swift:40-51` documents that it is externally serialized by `MeetingRecordingService`; nothing enforces it. Add a debug precondition / assertion so a future parallel-ingest refactor fails loudly. |
-| AUDIT-080 | Batch + `--format json` failure envelope undocumented | `TranscribeCommand.swift:533` emits the standard failure envelope to stdout when a batch run ends with `CLIBatchError.someFailed`. This is *consistent* with the general envelope contract (CHANGELOG §`--json` failure envelope) but the batch section documents only the stderr `✗` lines + non-zero exit. Add one sentence to the CHANGELOG batch section. |
+| AUDIT-080 | Batch + `--format json` failure envelope undocumented | `TranscribeCommand.swift:533` emits the standard failure envelope to stdout when a batch run ends with `CLIBatchError.someFailed`. This is *consistent* with the general envelope contract (CHANGELOG §`--json` failure envelope) but the batch section documents only the stderr `✗` lines + non-zero exit. Add one sentence to the CHANGELOG batch section. **FIXED** — PR #477 (`ab3925444`). |
 | AUDIT-081 | Stale website allowlist entries | RESOLVED AS RETAIN (2026-06-09): `llm_summary_used/failed` were emitted by shipped builds 2026-03-13 → 2026-04-04 (removed in `95abeb4e3`), so pre-v0.5.5 stragglers still send them — removal would recreate the AUDIT-073 batch-rejection bug. `app_updated`/`paywall_viewed` were never emitted; removal is optional and valueless. No action. |
 | AUDIT-082 | Audio downmix diagnostics polish | Pass-1 audio P2 cluster: log which downmix path (VPIO channel-0 vs raw multichannel) was attempted when `microphoneCaptureMonoBuffer()` returns nil (`AudioRecorder.swift:378-384`); add a comment documenting the normalize-then-average invariant in `fillDownmixedInt16/32`; first-buffer watchdog re-arms can log spuriously on sub-2s stop/start cycles (`MicrophoneCapture.swift:400-418`). |
 
@@ -229,13 +238,20 @@ rejection still HTTP 400).
 1. **AUDIT-073** — ~~one-line website allowlist fix + deploy~~ **DONE**
    (`macparakeet-website@af776c9`, verified live). The CI cross-repo diff
    guard (theme 3) remains open.
-2. **AUDIT-072** — await the cancelled executor before starting the next
-   (small, user-visible correctness on a shipping feature).
-3. **AUDIT-071** — reserve the lease before the first suspension point in
-   `beginSpeechEngineSession` (+ same review for `setParakeetModelVariant`).
-4. **AUDIT-074/-075/-076** — three small hardening one-liners, bundle into
-   one hygiene PR.
-5. **AUDIT-077 through -082** — opportunistic; none urgent.
+2. **AUDIT-072** — ~~await the cancelled executor before starting the next~~
+   **DONE** (PR #475 `067664d2d`).
+3. **AUDIT-071** — ~~reserve the lease before the first suspension point in
+   `beginSpeechEngineSession`~~ **DONE** (PR #476 `59548faa1`; the
+   `setParakeetModelVariant` window is covered by the same reservation).
+4. **AUDIT-074/-075/-076** — ~~three small hardening one-liners, bundle into
+   one hygiene PR~~ **DONE** (PR #477, which also covers AUDIT-080).
+5. **AUDIT-077 through -079, -082** — opportunistic; none urgent.
+6. Noted during PR #476's final review (pre-existing, deferred): the quiesce
+   paths (`clearModelCache`/`shutdown`) don't check
+   `activeSpeechEngineSessionIDs`, and `beginSpeechEngineSession` doesn't
+   check `acceptsNewJobs` — so a lease can be granted during quiesce and a
+   cache clear can run under an active meeting lease. Candidate AUDIT item
+   for the next audit pass.
 
 ---
 
