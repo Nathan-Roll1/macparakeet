@@ -307,7 +307,12 @@ public enum AudioDeviceManager {
         var subDeviceIDs = [AudioDeviceID](repeating: 0, count: count)
         status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &dataSize, &subDeviceIDs)
         guard status == noErr else { return [] }
-        return subDeviceIDs
+        // The fetch updates dataSize to the bytes actually written, which can
+        // shrink if the aggregate's topology changed since the size query.
+        // Trim so trailing zeroed slots (kAudioObjectUnknown) are never
+        // treated as devices.
+        let writtenCount = Int(dataSize) / MemoryLayout<AudioDeviceID>.size
+        return Array(subDeviceIDs.prefix(writtenCount))
     }
 
     // MARK: - Private
