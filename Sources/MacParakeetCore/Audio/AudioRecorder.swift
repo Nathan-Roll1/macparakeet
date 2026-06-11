@@ -137,7 +137,7 @@ public actor AudioRecorder {
     /// and each refresh restarts the warm engine — which itself can trigger
     /// the next notification. The debounce collapses a burst into one
     /// restart. Zero disables the debounce (tests, CLI).
-    private let warmCaptureRefreshDebounceNanoseconds: UInt64
+    private let warmCaptureRefreshDebounce: Duration
     /// Supersession counter for debounced refreshes: each call bumps it, and
     /// a sleeper whose captured value is stale bails out without touching
     /// engine or pre-roll state.
@@ -242,9 +242,7 @@ public actor AudioRecorder {
         self.sharedStream = sharedStream
         self.permissionProvider = permissionProvider
         self.isBluetoothInputProvider = isBluetoothInputProvider
-        self.warmCaptureRefreshDebounceNanoseconds = UInt64(
-            max(0, warmCaptureRefreshDebounce) * 1_000_000_000
-        )
+        self.warmCaptureRefreshDebounce = .seconds(max(0, warmCaptureRefreshDebounce))
     }
 
     public var audioLevel: Float {
@@ -297,13 +295,13 @@ public actor AudioRecorder {
         guard instantDictationEnabled else { return }
         warmRefreshGeneration += 1
         let myGeneration = warmRefreshGeneration
-        if warmCaptureRefreshDebounceNanoseconds > 0 {
+        if warmCaptureRefreshDebounce > .zero {
             // Trailing debounce. The sleep suspends the actor, so a burst of
             // refresh calls each enters, bumps the generation, and sleeps;
             // only the last one survives the guard below. No state is touched
             // before this point, so superseded and cancelled sleepers leave
             // pre-roll and engine state exactly as they found it.
-            try? await Task.sleep(nanoseconds: warmCaptureRefreshDebounceNanoseconds)
+            try? await Task.sleep(for: warmCaptureRefreshDebounce)
             guard !Task.isCancelled,
                   myGeneration == warmRefreshGeneration,
                   instantDictationEnabled else { return }
