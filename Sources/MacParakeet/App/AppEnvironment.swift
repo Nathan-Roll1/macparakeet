@@ -114,7 +114,11 @@ final class AppEnvironment {
         // Bluetooth inputs are suppressed: an idle open mic pins the headset
         // in HFP/SCO and degrades playback the whole time (issue #481).
         let warmCaptureInputIsBluetooth: @Sendable () -> Bool = {
-            guard let deviceID = attemptsBuilder().first?.deviceID else { return false }
+            // Fail closed: an unresolvable input (mid device transition —
+            // exactly when Bluetooth headsets are settling) skips the warm
+            // hold for this round. The hold is an opt-in optimization;
+            // the next refresh or post-dictation restart retries.
+            guard let deviceID = attemptsBuilder().first?.deviceID else { return true }
             return AudioDeviceManager.isBluetoothInput(deviceID)
         }
         audioProcessor = AudioProcessor(

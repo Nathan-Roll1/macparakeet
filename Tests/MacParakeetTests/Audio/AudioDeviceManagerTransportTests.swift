@@ -27,4 +27,61 @@ final class AudioDeviceManagerTransportTests: XCTestCase {
         )
         XCTAssertFalse(AudioDeviceManager.isBluetoothTransportType(0))
     }
+
+    func testDirectBluetoothInputClassifiesAsBluetooth() {
+        XCTAssertTrue(
+            AudioDeviceManager.isBluetoothInput(
+                transport: kAudioDeviceTransportTypeBluetooth,
+                activeSubDeviceTransports: []
+            )
+        )
+        XCTAssertTrue(
+            AudioDeviceManager.isBluetoothInput(
+                transport: kAudioDeviceTransportTypeBluetoothLE,
+                activeSubDeviceTransports: []
+            )
+        )
+    }
+
+    func testAggregateWithAnyBluetoothSubDeviceClassifiesAsBluetooth() {
+        // The Bluetooth member need not be first: an aggregate holds every
+        // sub-device's input stream open, so any Bluetooth member pins the
+        // headset in HFP/SCO.
+        XCTAssertTrue(
+            AudioDeviceManager.isBluetoothInput(
+                transport: kAudioDeviceTransportTypeAggregate,
+                activeSubDeviceTransports: [
+                    kAudioDeviceTransportTypeBuiltIn,
+                    kAudioDeviceTransportTypeBluetooth,
+                ]
+            )
+        )
+    }
+
+    func testAggregateWithoutBluetoothSubDevicesDoesNotClassifyAsBluetooth() {
+        XCTAssertFalse(
+            AudioDeviceManager.isBluetoothInput(
+                transport: kAudioDeviceTransportTypeAggregate,
+                activeSubDeviceTransports: [
+                    kAudioDeviceTransportTypeBuiltIn,
+                    kAudioDeviceTransportTypeUSB,
+                ]
+            )
+        )
+        XCTAssertFalse(
+            AudioDeviceManager.isBluetoothInput(
+                transport: kAudioDeviceTransportTypeAggregate,
+                activeSubDeviceTransports: []
+            )
+        )
+    }
+
+    func testNonAggregateNonBluetoothIgnoresSubDeviceTransports() {
+        XCTAssertFalse(
+            AudioDeviceManager.isBluetoothInput(
+                transport: kAudioDeviceTransportTypeUSB,
+                activeSubDeviceTransports: [kAudioDeviceTransportTypeBluetooth]
+            )
+        )
+    }
 }

@@ -245,15 +245,28 @@ public enum AudioDeviceManager {
     }
 
     /// True when the device captures over Bluetooth. For aggregate devices,
-    /// resolves the first active sub-device's transport — Bluetooth headsets
-    /// can surface behind a CoreAudio aggregate.
+    /// scans every active sub-device — Bluetooth headsets can surface behind
+    /// a CoreAudio aggregate, and an aggregate holds all of its sub-devices'
+    /// input streams open, so any Bluetooth member pins the headset.
     public static func isBluetoothInput(_ deviceID: AudioDeviceID) -> Bool {
-        var transport = transportType(deviceID)
-        if transport == kAudioDeviceTransportTypeAggregate,
-           let subTransport = subDeviceTransport(deviceID) {
-            transport = subTransport
-        }
-        return isBluetoothTransportType(transport)
+        let transport = transportType(deviceID)
+        let subTransports = transport == kAudioDeviceTransportTypeAggregate
+            ? activeSubDeviceIDs(deviceID).map(transportType)
+            : []
+        return isBluetoothInput(
+            transport: transport,
+            activeSubDeviceTransports: subTransports
+        )
+    }
+
+    /// Pure decision behind `isBluetoothInput(_:)` — exposed for tests.
+    static func isBluetoothInput(
+        transport: UInt32,
+        activeSubDeviceTransports: [UInt32]
+    ) -> Bool {
+        if isBluetoothTransportType(transport) { return true }
+        guard transport == kAudioDeviceTransportTypeAggregate else { return false }
+        return activeSubDeviceTransports.contains(where: isBluetoothTransportType)
     }
 
     /// Returns an InputDevice descriptor for a given device ID, or nil if not a valid input device.
@@ -270,7 +283,16 @@ public enum AudioDeviceManager {
     public static func subDeviceTransport(_ deviceID: AudioDeviceID) -> UInt32? {
         // Only applies to aggregate devices
         guard transportType(deviceID) == kAudioDeviceTransportTypeAggregate else { return nil }
+        guard let firstID = activeSubDeviceIDs(deviceID).first else { return nil }
 
+        let subTransport = transportType(firstID)
+        guard subTransport != 0 else { return nil }
+        return subTransport
+    }
+
+    /// Active sub-device IDs of an aggregate device, or `[]` when the device
+    /// is not aggregate / the property is unavailable.
+    private static func activeSubDeviceIDs(_ deviceID: AudioDeviceID) -> [AudioDeviceID] {
         var address = AudioObjectPropertyAddress(
             mSelector: kAudioAggregateDevicePropertyActiveSubDeviceList,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -279,16 +301,13 @@ public enum AudioDeviceManager {
 
         var dataSize: UInt32 = 0
         var status = AudioObjectGetPropertyDataSize(deviceID, &address, 0, nil, &dataSize)
-        guard status == noErr, dataSize > 0 else { return nil }
+        guard status == noErr, dataSize > 0 else { return [] }
 
         let count = Int(dataSize) / MemoryLayout<AudioDeviceID>.size
         var subDeviceIDs = [AudioDeviceID](repeating: 0, count: count)
         status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &dataSize, &subDeviceIDs)
-        guard status == noErr, let firstID = subDeviceIDs.first else { return nil }
-
-        let subTransport = transportType(firstID)
-        guard subTransport != 0 else { return nil }
-        return subTransport
+        guard status == noErr else { return [] }
+        return subDeviceIDs
     }
 
     // MARK: - Private
