@@ -496,11 +496,17 @@ struct LLMSettingsView: View {
             .disabled(!viewModel.aiFormatterSmartDefaultsEnabled)
             .opacity(viewModel.aiFormatterSmartDefaultsEnabled ? 1 : 0.55)
 
+            // The preview stays readable for individually-disabled categories
+            // (so a prompt can be read before deciding to enable it) — the
+            // footer copy switches to reflect the off state instead of giving
+            // stale "turn this type off" advice.
             if viewModel.aiFormatterSmartDefaultsEnabled,
                let selected = selectedSmartDefaultCategory,
-               viewModel.isAIFormatterSmartDefaultEnabled(selected),
                let categoryDefault = AIFormatterSmartDefaults.categoryDefault(for: selected) {
-                smartDefaultPromptPreview(categoryDefault)
+                smartDefaultPromptPreview(
+                    categoryDefault,
+                    isCategoryEnabled: viewModel.isAIFormatterSmartDefaultEnabled(selected)
+                )
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -561,13 +567,22 @@ struct LLMSettingsView: View {
     }
 
     private func smartDefaultPromptPreview(
-        _ categoryDefault: AIFormatterSmartDefaults.CategoryDefault
+        _ categoryDefault: AIFormatterSmartDefaults.CategoryDefault,
+        isCategoryEnabled: Bool
     ) -> some View {
         VStack(alignment: .leading, spacing: DesignSystem.Spacing.sm) {
             HStack {
                 Text("\(categoryDefault.name) prompt")
                     .font(DesignSystem.Typography.caption.weight(.medium))
                     .foregroundStyle(DesignSystem.Colors.textPrimary)
+                if !isCategoryEnabled {
+                    Text("Off")
+                        .font(DesignSystem.Typography.micro.weight(.semibold))
+                        .foregroundStyle(DesignSystem.Colors.textSecondary)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(DesignSystem.Colors.background))
+                }
                 Spacer()
                 Button {
                     selectedSmartDefaultCategory = nil
@@ -594,7 +609,11 @@ struct LLMSettingsView: View {
             .background(DesignSystem.Colors.background)
             .clipShape(RoundedRectangle(cornerRadius: DesignSystem.Layout.rowCornerRadius))
 
-            Text("To format \(categoryDefault.name) apps differently, turn this type off or add a custom profile below — custom profiles always win.")
+            Text(
+                isCategoryEnabled
+                    ? "To format \(categoryDefault.name) apps differently, turn this type off or add a custom profile below — custom profiles always win."
+                    : "This type is off — dictation into \(categoryDefault.name) apps uses your fallback prompt unless a custom profile matches."
+            )
                 .font(DesignSystem.Typography.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
