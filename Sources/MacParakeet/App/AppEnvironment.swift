@@ -108,7 +108,23 @@ final class AppEnvironment {
         sharedMicStream = SharedMicrophoneStream(
             platform: AVAudioEngineMicrophonePlatform(deviceAttemptsBuilder: attemptsBuilder)
         )
-        audioProcessor = AudioProcessor(sharedMicStream: sharedMicStream)
+        // The Instant Dictation warm lease asks this before holding the mic
+        // open while idle. First attempt in the chain = the device the engine
+        // will start on (selected if resolvable, else system default).
+        // Bluetooth inputs are suppressed: an idle open mic pins the headset
+        // in HFP/SCO and degrades playback the whole time (issue #481).
+        let warmCaptureInputIsBluetooth: @Sendable () -> Bool = {
+            guard let deviceID = attemptsBuilder().first?.deviceID else { return false }
+            return AudioDeviceManager.isBluetoothInput(deviceID)
+        }
+        audioProcessor = AudioProcessor(
+            sharedMicStream: sharedMicStream,
+            isBluetoothInputProvider: warmCaptureInputIsBluetooth,
+            // Default-input-change notifications arrive in bursts during
+            // Bluetooth profile transitions; one trailing window collapses a
+            // burst into a single warm-engine restart (issue #481).
+            warmCaptureRefreshDebounce: 0.5
+        )
         meetingRecordingService = MeetingRecordingService(
             micProcessingMode: meetingMicProcessingMode,
             audioCaptureService: MeetingAudioCaptureService(

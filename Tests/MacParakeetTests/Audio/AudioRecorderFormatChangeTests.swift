@@ -635,6 +635,194 @@ final class AudioRecorderFormatChangeTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(samples.first), 0.3, accuracy: 0.0001)
     }
 
+    // MARK: - Bluetooth warm-capture suppression (issue #481)
+
+    func testWarmCaptureSuppressedOnBluetoothInput() async throws {
+        let platform = AudioRecorderBlockingPlatform()
+        let stream = SharedMicrophoneStream(platform: platform, bufferSize: 1024)
+        let recorder = AudioRecorder(
+            sharedStream: stream,
+            permissionProvider: { true },
+            isBluetoothInputProvider: { true }
+        )
+
+        await recorder.setInstantDictationEnabled(true)
+        XCTAssertFalse(stream.diagnostics.engineRunning, "warm hold must not start on a Bluetooth input")
+        XCTAssertEqual(stream.diagnostics.subscriberCount, 0)
+
+        // Dictation itself still works — cold start, no pre-roll.
+        try await recorder.start()
+        platform.deliverBuffer(try makeMonoFloatBuffer(frameCount: 4_800, sampleValue: 0.2))
+        let url = try await recorder.stop()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let samples = try readFloatSamples(from: url)
+        XCTAssertEqual(samples.count, 4_800)
+        XCTAssertEqual(try XCTUnwrap(samples.first), 0.2, accuracy: 0.0001)
+
+        // The post-stop warm restart must also skip, releasing the engine.
+        let released = await pollUntil(timeout: .seconds(2)) {
+            stream.diagnostics.subscriberCount == 0 && !stream.diagnostics.engineRunning
+        }
+        XCTAssertTrue(released, "engine must stop after dictation when the warm hold is suppressed")
+
+        await recorder.setInstantDictationEnabled(false)
+    }
+
+    func testWarmCaptureStopsWhenInputBecomesBluetoothOnRefresh() async throws {
+        let platform = AudioRecorderBlockingPlatform()
+        let stream = SharedMicrophoneStream(platform: platform, bufferSize: 1024)
+        let bluetoothInput = OSAllocatedUnfairLock(initialState: false)
+        let recorder = AudioRecorder(
+            sharedStream: stream,
+            permissionProvider: { true },
+            isBluetoothInputProvider: { bluetoothInput.withLock { $0 } }
+        )
+
+        await recorder.setInstantDictationEnabled(true)
+        XCTAssertTrue(stream.diagnostics.engineRunning)
+        XCTAssertEqual(stream.diagnostics.passiveSubscriberCount, 1)
+
+        bluetoothInput.withLock { $0 = true }
+        await recorder.refreshInstantDictationWarmCapture()
+
+        let released = await pollUntil(timeout: .seconds(2)) {
+            stream.diagnostics.subscriberCount == 0 && !stream.diagnostics.engineRunning
+        }
+        XCTAssertTrue(released, "refresh must drop the warm hold once the input is Bluetooth")
+
+        await recorder.setInstantDictationEnabled(false)
+    }
+
+    func testWarmCaptureResumesWhenBluetoothInputClears() async throws {
+        let platform = AudioRecorderBlockingPlatform()
+        let stream = SharedMicrophoneStream(platform: platform, bufferSize: 1024)
+        let bluetoothInput = OSAllocatedUnfairLock(initialState: true)
+        let recorder = AudioRecorder(
+            sharedStream: stream,
+            permissionProvider: { true },
+            isBluetoothInputProvider: { bluetoothInput.withLock { $0 } }
+        )
+
+        await recorder.setInstantDictationEnabled(true)
+        XCTAssertEqual(stream.diagnostics.subscriberCount, 0)
+
+        bluetoothInput.withLock { $0 = false }
+        await recorder.refreshInstantDictationWarmCapture()
+
+        let resumed = await pollUntil(timeout: .seconds(2)) {
+            stream.diagnostics.subscriberCount == 1
+                && stream.diagnostics.passiveSubscriberCount == 1
+                && stream.diagnostics.engineRunning
+        }
+        XCTAssertTrue(resumed, "warm capture should resume once the input is no longer Bluetooth")
+
+        await recorder.setInstantDictationEnabled(false)
+    }
+
+    /// Regression sentinel for the revival gap: if the refresh only deferred
+    /// (instead of dropping the warm subscriber), the shared stream's
+    /// passive restart would revive the warm engine on the Bluetooth input
+    /// the moment the active subscriber leaves.
+    func testRefreshDropsWarmLeaseOnBluetoothDuringActiveSubscriber() async throws {
+        let platform = AudioRecorderBlockingPlatform()
+        let stream = SharedMicrophoneStream(platform: platform, bufferSize: 1024)
+        let bluetoothInput = OSAllocatedUnfairLock(initialState: false)
+        let recorder = AudioRecorder(
+            sharedStream: stream,
+            permissionProvider: { true },
+            isBluetoothInputProvider: { bluetoothInput.withLock { $0 } }
+        )
+
+        await recorder.setInstantDictationEnabled(true)
+        let active = try await stream.subscribe(wantsVPIO: false) { _, _ in }
+        XCTAssertEqual(stream.diagnostics.subscriberCount, 2)
+
+        bluetoothInput.withLock { $0 = true }
+        await recorder.refreshInstantDictationWarmCapture()
+
+        XCTAssertEqual(stream.diagnostics.subscriberCount, 1, "warm subscriber must be dropped, not deferred")
+        XCTAssertEqual(stream.diagnostics.passiveSubscriberCount, 0)
+        XCTAssertTrue(stream.diagnostics.engineRunning, "active capture keeps its engine")
+
+        await stream.unsubscribe(active)
+
+        let released = await pollUntil(timeout: .seconds(2)) {
+            stream.diagnostics.subscriberCount == 0 && !stream.diagnostics.engineRunning
+        }
+        XCTAssertTrue(released, "no warm engine may be revived on the Bluetooth input after the active session ends")
+        XCTAssertEqual(
+            platform.configureAndStartCallCount, 1,
+            "engine must not restart for a dropped warm lease"
+        )
+
+        await recorder.setInstantDictationEnabled(false)
+    }
+
+    // MARK: - Warm refresh debounce (issue #481)
+
+    func testRefreshDebounceCoalescesBurstsIntoOneRestart() async throws {
+        let platform = AudioRecorderBlockingPlatform()
+        let stream = SharedMicrophoneStream(platform: platform, bufferSize: 1024)
+        let recorder = AudioRecorder(
+            sharedStream: stream,
+            permissionProvider: { true },
+            warmCaptureRefreshDebounce: 0.5
+        )
+
+        await recorder.setInstantDictationEnabled(true)
+        XCTAssertEqual(platform.configureAndStartCallCount, 1)
+
+        var refreshTasks: [Task<Void, Never>] = []
+        for _ in 0..<5 {
+            refreshTasks.append(Task { await recorder.refreshInstantDictationWarmCapture() })
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        for task in refreshTasks {
+            await task.value
+        }
+
+        let settled = await pollUntil(timeout: .seconds(2)) {
+            stream.diagnostics.subscriberCount == 1
+                && stream.diagnostics.passiveSubscriberCount == 1
+                && stream.diagnostics.engineRunning
+        }
+        XCTAssertTrue(settled, "warm capture should be running again after the coalesced refresh")
+        XCTAssertEqual(
+            platform.configureAndStartCallCount, 2,
+            "a burst of refreshes must collapse into a single engine restart"
+        )
+
+        await recorder.setInstantDictationEnabled(false)
+    }
+
+    func testRefreshDebounceCancelledTaskLeavesStateUntouched() async throws {
+        let platform = AudioRecorderBlockingPlatform()
+        let stream = SharedMicrophoneStream(platform: platform, bufferSize: 1024)
+        let recorder = AudioRecorder(
+            sharedStream: stream,
+            permissionProvider: { true },
+            warmCaptureRefreshDebounce: 0.1
+        )
+
+        await recorder.setInstantDictationEnabled(true)
+        XCTAssertEqual(platform.configureAndStartCallCount, 1)
+
+        let refreshTask = Task { await recorder.refreshInstantDictationWarmCapture() }
+        refreshTask.cancel()
+        await refreshTask.value
+
+        try await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(
+            platform.configureAndStartCallCount, 1,
+            "a cancelled debounced refresh must not restart the engine"
+        )
+        XCTAssertEqual(stream.diagnostics.subscriberCount, 1)
+        XCTAssertTrue(stream.diagnostics.engineRunning)
+
+        await recorder.setInstantDictationEnabled(false)
+    }
+
     private func pollUntil(
         timeout: Duration,
         condition: @Sendable () -> Bool

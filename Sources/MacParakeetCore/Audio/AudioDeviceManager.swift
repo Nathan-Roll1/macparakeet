@@ -236,6 +236,26 @@ public enum AudioDeviceManager {
         return transport
     }
 
+    /// True when the transport type is Bluetooth (classic or LE). Pure
+    /// classification, exposed separately from `isBluetoothInput` so it can
+    /// be unit-tested without HAL access.
+    public static func isBluetoothTransportType(_ transport: UInt32) -> Bool {
+        transport == kAudioDeviceTransportTypeBluetooth
+            || transport == kAudioDeviceTransportTypeBluetoothLE
+    }
+
+    /// True when the device captures over Bluetooth. For aggregate devices,
+    /// resolves the first active sub-device's transport — Bluetooth headsets
+    /// can surface behind a CoreAudio aggregate.
+    public static func isBluetoothInput(_ deviceID: AudioDeviceID) -> Bool {
+        var transport = transportType(deviceID)
+        if transport == kAudioDeviceTransportTypeAggregate,
+           let subTransport = subDeviceTransport(deviceID) {
+            transport = subTransport
+        }
+        return isBluetoothTransportType(transport)
+    }
+
     /// Returns an InputDevice descriptor for a given device ID, or nil if not a valid input device.
     public static func deviceInfo(_ deviceID: AudioDeviceID) -> InputDevice? {
         guard hasInputChannels(deviceID) else { return nil }

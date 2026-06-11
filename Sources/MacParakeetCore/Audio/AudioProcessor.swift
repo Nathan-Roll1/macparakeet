@@ -5,8 +5,16 @@ public actor AudioProcessor: AudioProcessorProtocol {
     private let recorder: AudioRecorder
     private let converter: AudioFileConverter
 
-    public init(sharedMicStream: SharedMicrophoneStream) {
-        self.recorder = AudioRecorder(sharedStream: sharedMicStream)
+    public init(
+        sharedMicStream: SharedMicrophoneStream,
+        isBluetoothInputProvider: @escaping @Sendable () -> Bool = { false },
+        warmCaptureRefreshDebounce: TimeInterval = 0
+    ) {
+        self.recorder = AudioRecorder(
+            sharedStream: sharedMicStream,
+            isBluetoothInputProvider: isBluetoothInputProvider,
+            warmCaptureRefreshDebounce: warmCaptureRefreshDebounce
+        )
         self.converter = AudioFileConverter()
     }
 

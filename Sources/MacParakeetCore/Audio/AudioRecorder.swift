@@ -123,6 +123,25 @@ private struct CaptureDiagnosticsTimers {
 public actor AudioRecorder {
     private let logger = Logger(subsystem: "com.macparakeet.core", category: "AudioRecorder")
     private let permissionProvider: @Sendable () -> Bool
+    /// True when the input device the shared engine would resolve to right
+    /// now captures over Bluetooth. The Instant Dictation warm lease must
+    /// never hold (or be revived onto) a Bluetooth input: an open Bluetooth
+    /// microphone forces the headset into HFP/SCO, degrading playback for as
+    /// long as the engine runs (issue #481). Active dictation sessions are
+    /// unaffected — recording from a Bluetooth mic the user chose is fine;
+    /// only the idle warm hold is suppressed.
+    private let isBluetoothInputProvider: @Sendable () -> Bool
+    /// Trailing debounce applied to `refreshInstantDictationWarmCapture`.
+    /// Default-input-change notifications arrive in bursts (Core Audio fires
+    /// duplicates, and Bluetooth profile transitions flap the default input),
+    /// and each refresh restarts the warm engine — which itself can trigger
+    /// the next notification. The debounce collapses a burst into one
+    /// restart. Zero disables the debounce (tests, CLI).
+    private let warmCaptureRefreshDebounceNanoseconds: UInt64
+    /// Supersession counter for debounced refreshes: each call bumps it, and
+    /// a sleeper whose captured value is stale bails out without touching
+    /// engine or pre-roll state.
+    private var warmRefreshGeneration = 0
     private let sharedStream: SharedMicrophoneStream
     private var audioFile: AVAudioFile?
     private var sharedSubscriberToken: SharedMicrophoneStream.SubscriberToken?
@@ -216,10 +235,16 @@ public actor AudioRecorder {
         sharedStream: SharedMicrophoneStream,
         permissionProvider: @escaping @Sendable () -> Bool = {
             AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
-        }
+        },
+        isBluetoothInputProvider: @escaping @Sendable () -> Bool = { false },
+        warmCaptureRefreshDebounce: TimeInterval = 0
     ) {
         self.sharedStream = sharedStream
         self.permissionProvider = permissionProvider
+        self.isBluetoothInputProvider = isBluetoothInputProvider
+        self.warmCaptureRefreshDebounceNanoseconds = UInt64(
+            max(0, warmCaptureRefreshDebounce) * 1_000_000_000
+        )
     }
 
     public var audioLevel: Float {
@@ -270,12 +295,37 @@ public actor AudioRecorder {
 
     public func refreshInstantDictationWarmCapture() async {
         guard instantDictationEnabled else { return }
+        warmRefreshGeneration += 1
+        let myGeneration = warmRefreshGeneration
+        if warmCaptureRefreshDebounceNanoseconds > 0 {
+            // Trailing debounce. The sleep suspends the actor, so a burst of
+            // refresh calls each enters, bumps the generation, and sleeps;
+            // only the last one survives the guard below. No state is touched
+            // before this point, so superseded and cancelled sleepers leave
+            // pre-roll and engine state exactly as they found it.
+            try? await Task.sleep(nanoseconds: warmCaptureRefreshDebounceNanoseconds)
+            guard !Task.isCancelled,
+                  myGeneration == warmRefreshGeneration,
+                  instantDictationEnabled else { return }
+        }
         warmCaptureLifecycleGeneration += 1
         preRollAcceptingSamples.withLock { $0 = false }
         preRollCaptureGeneration.withLock { $0 += 1 }
         sharedProcessingQueue.sync {}
         preRollConverterCache.reset()
         preRollBuffer.withLock { $0.clear() }
+        if isBluetoothInputProvider() {
+            // Drop the warm lease outright instead of deferring: leaving the
+            // subscriber registered would let the shared stream's deferred
+            // passive restart revive the warm engine on the Bluetooth input
+            // after the active session ends. Active capture (dictation or
+            // meeting mic) owns its own subscription and is unaffected.
+            AudioCaptureDiagnostics.append(
+                "dictation_warm_capture_suppressed reason=\"bluetooth_input\" \(AudioCaptureDiagnostics.defaultInputDeviceSummary())"
+            )
+            await stopWarmCapture()
+            return
+        }
         if recording || starting {
             await sharedStream.restartPassiveSubscribers()
             return
@@ -814,6 +864,17 @@ public actor AudioRecorder {
         guard permissionProvider() else {
             preRollAcceptingSamples.withLock { $0 = false }
             AudioCaptureDiagnostics.append("dictation_warm_capture_start_skipped reason=\"permission_denied\"")
+            return
+        }
+        guard !isBluetoothInputProvider() else {
+            // Holding a Bluetooth input open while idle forces the headset
+            // into HFP/SCO and degrades playback the entire time (issue
+            // #481). Skip the warm hold; dictation falls back to a normal
+            // cold start with no pre-roll.
+            preRollAcceptingSamples.withLock { $0 = false }
+            AudioCaptureDiagnostics.append(
+                "dictation_warm_capture_suppressed reason=\"bluetooth_input\" \(AudioCaptureDiagnostics.defaultInputDeviceSummary())"
+            )
             return
         }
 
