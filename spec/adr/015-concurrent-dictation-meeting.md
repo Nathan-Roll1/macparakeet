@@ -9,6 +9,7 @@
 > Amendment note (2026-04-30): the original "independent AVAudioEngine instances" decision was incompatible with VPIO. coreaudiod attaches the VPAU aggregate device to the **process**, not the engine, so once meeting recording engaged VPIO, every other `AVAudioEngine` in the process inherited the multi-channel duplex layout — and dictation read silence on channel 0 of the wrong layout. Section 1 is rewritten below to describe the shared-engine architecture that ships in v0.6 (PR #189). The rest of the ADR (STT scheduler, menu bar priority, UI layers, hotkey, audio semantics) is unchanged.
 > Amendment note (2026-05-14): shipped meeting mic capture returns to raw by default after live-call testing showed VPIO can muffle the user's outgoing mic for other participants. The shared-engine architecture and VPIO arbitration remain for explicit VPIO experiments.
 > Amendment note (2026-06-02): optional Instant Dictation keeps a passive warm subscriber on `SharedMicrophoneStream` while dictation is idle and stores only a bounded in-memory pre-roll. Passive subscribers do not block VPIO promotion; active dictation and raw meeting capture still do.
+> Amendment note (2026-06-10): Instant Dictation suppresses that idle warm subscriber while the resolved input device is Bluetooth, so AirPods/headsets are not pinned in HFP/SCO mode while idle. Microphone-selection/default-input refreshes are trailing-debounced before warm-engine restart to collapse route-change notification bursts.
 
 ## Context
 
@@ -29,7 +30,7 @@ Microphone capture is owned by a process-wide `SharedMicrophoneStream`. Both flo
 | Flow | Audio Source | Subscription |
 |------|--------------|--------------|
 | Dictation | `SharedMicrophoneStream` | `subscribe(wantsVPIO: false)` |
-| Instant Dictation warm lease | `SharedMicrophoneStream` | `subscribe(wantsVPIO: false, blocksVPIOPromotion: false)` while enabled and idle |
+| Instant Dictation warm lease | `SharedMicrophoneStream` | `subscribe(wantsVPIO: false, blocksVPIOPromotion: false)` while enabled, idle, and the resolved input is not Bluetooth |
 | Meeting (mic) | `SharedMicrophoneStream` | `subscribe(wantsVPIO: false)` by default; explicit VPIO requests still use shared arbitration |
 | Meeting (system) | `SystemAudioStream` (ScreenCaptureKit `SCStream`) | independent of mic engine |
 
@@ -45,10 +46,16 @@ Two independent `AVAudioEngine` instances cannot escape this — VPIO state is p
 
 Instant Dictation keeps that same topology. Its idle warm lease is passive:
 it can keep the engine running and maintain a small RAM-only pre-roll, but it
-is not a user-visible capture session. If an explicit VPIO subscriber arrives
-while only the warm lease is present, the shared stream may promote to VPIO
-immediately. If active raw dictation or raw meeting capture is present, the
-existing deferral rule still protects that live session from a mid-stream
+is not a user-visible capture session. The warm lease is suppressed when the
+resolved input is Bluetooth, because holding an idle Bluetooth microphone open
+pins the headset in HFP/SCO and degrades playback; active dictation or meeting
+capture on that Bluetooth mic is still allowed and simply starts cold. When
+microphone-selection/default-input changes require a warm-capture refresh, the
+app debounces the refresh before restarting the passive subscriber so route
+change bursts collapse into one engine restart. If an explicit VPIO subscriber
+arrives while only the warm lease is present, the shared stream may promote to
+VPIO immediately. If active raw dictation or raw meeting capture is present,
+the existing deferral rule still protects that live session from a mid-stream
 format flip.
 
 ### 2. Shared STT runtime with explicit scheduling

@@ -32,7 +32,9 @@ owned by `AppEnvironment`.
   Dictation keeps a passive warm subscriber attached while idle,
   stores a 1-second RAM-only 16 kHz mono ring buffer, and prepends up
   to 0.45 seconds when the user starts dictation. It does not run STT
-  while idle. When the Pause Media round-trip confirms media was
+  while idle. The warm hold is suppressed while the resolved input is
+  Bluetooth, and warm-capture refreshes are debounced (issue #481 —
+  see "What to know" below). When the Pause Media round-trip confirms media was
   playing at press time, `discardPreRollForActiveRecording()` marks
   the session and `stop()` trims the prepended pre-roll from the WAV —
   pre-press media audio that no pause can silence (issue #474).
@@ -158,6 +160,27 @@ bounded to the private ring in `AudioRecorder`, cleared when recording
 starts/stops, when the setting is disabled, and when the warm engine
 dies. The only persisted audio remains the normal dictation WAV after
 the user starts dictation.
+
+**The warm hold must never pin a Bluetooth input (issue #481).** An
+idle open Bluetooth microphone forces the headset into HFP/SCO, which
+degrades playback the entire time and can flap the default input.
+`AudioRecorder` consults `isBluetoothInputProvider` (wired in
+`AppEnvironment` to the first device-attempt in the engine's chain)
+before every warm start, and `refreshInstantDictationWarmCapture`
+*drops* the warm subscriber outright — rather than deferring — when
+the input is Bluetooth, so the shared stream's deferred passive
+restart cannot revive a warm engine on the Bluetooth device after an
+active session ends. Active dictation and meeting capture on a
+Bluetooth mic are unaffected; only the idle hold is suppressed.
+
+**Warm-capture refreshes are debounced (issue #481).** Default-input
+changes arrive in bursts (Core Audio fires duplicate notifications,
+and Bluetooth profile transitions flap the default input), and each
+refresh restarts the warm engine — which itself can trigger the next
+notification. `refreshInstantDictationWarmCapture` applies a trailing
+debounce (0.5 s in `AppEnvironment`, 0 = disabled for direct
+constructions) keyed by a supersession generation; superseded or
+cancelled sleepers exit before touching any engine or pre-roll state.
 
 **Diagnostic logging is observability-only.** The first-buffer
 watchdog and recording heartbeat in `AudioRecorder` log to
