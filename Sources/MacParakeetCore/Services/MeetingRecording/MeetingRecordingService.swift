@@ -162,7 +162,7 @@ public actor MeetingRecordingService: MeetingRecordingServiceProtocol {
     /// per-construction. Production (`AppEnvironment`) wires the real
     /// `AppFeatures.meetingVadLiveChunkingEnabled`; the conservative `{ false }`
     /// default gives tests deterministic fixed chunking. See
-    /// `plans/active/2026-05-meeting-vad-guided-live-chunking.md`.
+    /// `plans/completed/2026-05-meeting-vad-guided-live-chunking.md`.
     private let isVadLiveChunkingEnabled: @Sendable () -> Bool
     private let requestedMicProcessingMode: MeetingMicProcessingMode
     private let liveChunkTranscriber: LiveChunkTranscriber
@@ -949,7 +949,7 @@ public actor MeetingRecordingService: MeetingRecordingServiceProtocol {
     /// byte-identical to the prior `AudioChunker` behavior. When enabled and
     /// the Silero VAD model is cached, Parakeet sessions cut both sources at
     /// speech boundaries; WhisperKit sessions and uncached VAD stay on fixed.
-    /// See `plans/active/2026-05-meeting-vad-guided-live-chunking.md` §4.
+    /// See `plans/completed/2026-05-meeting-vad-guided-live-chunking.md` §4.
     private func configureLiveChunkers(for session: Session) async {
         func useFixed(reason: String) async {
             await captureOrchestrator.configureChunkers(
