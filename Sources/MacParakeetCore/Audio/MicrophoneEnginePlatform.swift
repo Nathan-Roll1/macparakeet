@@ -46,6 +46,8 @@ public protocol MicrophoneEnginePlatform: AnyObject, Sendable {
 /// engine-lifecycle invariants from `MicrophoneCapture` (PR #186):
 ///
 /// - VPIO ducking is suppressed so other apps' audio isn't ~50% attenuated.
+/// - VPIO AGC is disabled so it cannot write the shared hardware input gain
+///   that other apps capturing the same mic (a live Zoom call) inherit.
 /// - The engine is destroyed and recreated on stop so coreaudiod releases
 ///   the VPAU aggregate device. A long-lived engine keeps the VPAU alive
 ///   indefinitely, which inherits the duplex layout into other engines.
@@ -326,6 +328,20 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
                 let errorType = AudioCaptureDiagnostics.errorType(error)
                 logger.debug(
                     "shared_mic_engine_ducking_config_failed error_type=\(errorType, privacy: .public) error_detail=\(error.localizedDescription, privacy: .private)"
+                )
+            }
+            do {
+                // VPIO's AGC can write the shared hardware input gain of the
+                // physical device, which every other app capturing the same
+                // mic (e.g. a live Zoom call) inherits. Keep the experimental
+                // VPIO path's side effects inside this process.
+                try catchingObjCException {
+                    inputNode.isVoiceProcessingAGCEnabled = false
+                }
+            } catch {
+                let errorType = AudioCaptureDiagnostics.errorType(error)
+                logger.debug(
+                    "shared_mic_engine_agc_config_failed error_type=\(errorType, privacy: .public) error_detail=\(error.localizedDescription, privacy: .private)"
                 )
             }
         }
