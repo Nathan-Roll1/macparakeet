@@ -25,7 +25,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-blue.svg" alt="GPL-3.0 License"></a>
   <img src="https://img.shields.io/badge/macOS-14.2%2B-000000.svg" alt="macOS 14.2+">
   <img src="https://img.shields.io/badge/Swift-6.0-F05138.svg" alt="Swift 6">
-  <img src="https://img.shields.io/badge/tests-passing-brightgreen.svg" alt="Tests passing">
+  <a href="https://github.com/moona3k/macparakeet/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/moona3k/macparakeet/ci.yml?branch=main&label=CI" alt="CI status"></a>
   <img src="https://img.shields.io/badge/Apple%20Silicon-only-333333.svg" alt="Apple Silicon only">
 </p>
 
@@ -239,6 +239,7 @@ All speech recognition runs locally. Parakeet uses the Neural Engine; optional N
 - **Discuss new work first** — For features or behavior changes, open an issue before starting a PR so we can agree on scope and product fit.
 - **Submit scoped PRs** — Once the issue direction is clear, fork, make the scoped changes, run `swift test`, and link the issue in the PR.
 - **Read the specs** — Architecture decisions and feature specs live in `spec/`
+- **Using a coding agent?** Point it at [`AGENTS.md`](AGENTS.md) — build/test commands, code style, and repo conventions for Claude Code, Codex, and friends. Deeper project context is in [`CLAUDE.md`](CLAUDE.md).
 
 ## Support
 
