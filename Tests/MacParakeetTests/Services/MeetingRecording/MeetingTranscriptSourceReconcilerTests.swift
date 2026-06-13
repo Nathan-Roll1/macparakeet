@@ -1,39 +1,148 @@
 import XCTest
 @testable import MacParakeetCore
 
-final class MeetingTranscriptNoiseFilterTests: XCTestCase {
-    func testFinalizeDropsFillerOnlyMicrophoneRuns() {
-        let finalized = MeetingTranscriptFinalizer.finalize(sourceTranscripts: [
-            .init(
-                source: .microphone,
-                result: STTResult(
-                    text: "Uh uh",
-                    words: [
-                        TimestampedWord(word: "Uh", startMs: 0, endMs: 120, confidence: 0.92),
-                        TimestampedWord(word: "uh", startMs: 180, endMs: 300, confidence: 0.90),
-                    ]
-                ),
-                startOffsetMs: 0
-            ),
-            .init(
-                source: .system,
-                result: STTResult(
-                    text: "lecture content",
-                    words: [
-                        TimestampedWord(word: "lecture", startMs: 0, endMs: 240, confidence: 0.95),
-                        TimestampedWord(word: "content", startMs: 280, endMs: 560, confidence: 0.95),
-                    ]
-                ),
-                startOffsetMs: 0
-            ),
-        ])
+final class MeetingTranscriptSourceReconcilerTests: XCTestCase {
+    func testReconcilerReportsHighConfidenceEchoReason() {
+        let microphoneWords = [
+            word("Let's", 200, 480, confidence: 0.92, speakerId: "microphone"),
+            word("finalize", 500, 900, confidence: 0.91, speakerId: "microphone"),
+            word("the", 920, 1_040, confidence: 0.93, speakerId: "microphone"),
+            word("budget", 1_060, 1_400, confidence: 0.90, speakerId: "microphone"),
+            word("numbers", 1_420, 1_780, confidence: 0.88, speakerId: "microphone"),
+            word("tomorrow", 1_800, 2_300, confidence: 0.92, speakerId: "microphone"),
+        ]
+        let systemWords = [
+            word("Let's", 0, 280, speakerId: "system"),
+            word("finalize", 300, 700, speakerId: "system"),
+            word("the", 720, 840, speakerId: "system"),
+            word("budget", 860, 1_200, speakerId: "system"),
+            word("number", 1_220, 1_580, speakerId: "system"),
+            word("tomorrow", 1_600, 2_100, speakerId: "system"),
+        ]
 
-        XCTAssertEqual(finalized.words.map(\.word), ["lecture", "content"])
-        XCTAssertEqual(finalized.words.map(\.speakerId), ["system", "system"])
-        XCTAssertEqual(finalized.speakers, [
-            SpeakerInfo(id: "system", label: "Others"),
+        let result = MeetingTranscriptSourceReconciler.reconcile(
+            microphoneWords: microphoneWords,
+            systemWords: systemWords
+        )
+
+        XCTAssertTrue(result.microphoneWords.isEmpty)
+        XCTAssertEqual(result.removedMicrophoneWordCount, 6)
+        XCTAssertEqual(result.removals.map(\.reason), [.simultaneousSystemEcho])
+    }
+
+    func testReconcilerPreservesUnmatchedMicrophoneWordsInsideEchoRun() {
+        let microphoneWords = [
+            word("Let's", 200, 480, confidence: 0.92, speakerId: "microphone"),
+            word("finalize", 500, 900, confidence: 0.91, speakerId: "microphone"),
+            word("the", 920, 1_040, confidence: 0.93, speakerId: "microphone"),
+            word("budget", 1_060, 1_400, confidence: 0.90, speakerId: "microphone"),
+            word("numbers", 1_420, 1_780, confidence: 0.88, speakerId: "microphone"),
+            word("tomorrow", 1_800, 2_300, confidence: 0.92, speakerId: "microphone"),
+            word("yeah", 2_320, 2_480, confidence: 0.91, speakerId: "microphone"),
+        ]
+        let systemWords = [
+            word("Let's", 0, 280, speakerId: "system"),
+            word("finalize", 300, 700, speakerId: "system"),
+            word("the", 720, 840, speakerId: "system"),
+            word("budget", 860, 1_200, speakerId: "system"),
+            word("number", 1_220, 1_580, speakerId: "system"),
+            word("tomorrow", 1_600, 2_100, speakerId: "system"),
+        ]
+
+        let result = MeetingTranscriptSourceReconciler.reconcile(
+            microphoneWords: microphoneWords,
+            systemWords: systemWords
+        )
+
+        XCTAssertEqual(result.microphoneWords.map(\.word), ["yeah"])
+        XCTAssertEqual(result.removedMicrophoneWordCount, 6)
+        XCTAssertEqual(result.removals.map(\.reason), [.simultaneousSystemEcho])
+        XCTAssertEqual(result.removals.first?.words.map(\.word), [
+            "Let's",
+            "finalize",
+            "the",
+            "budget",
+            "numbers",
+            "tomorrow",
         ])
-        XCTAssertEqual(finalized.rawTranscript, "lecture content")
+    }
+
+    func testReconcilerPreservesMiddleInterjectionInsideEchoRun() {
+        let microphoneWords = [
+            word("Let's", 200, 480, confidence: 0.92, speakerId: "microphone"),
+            word("finalize", 500, 900, confidence: 0.91, speakerId: "microphone"),
+            word("the", 920, 1_040, confidence: 0.93, speakerId: "microphone"),
+            word("yeah", 1_060, 1_220, confidence: 0.91, speakerId: "microphone"),
+            word("budget", 1_240, 1_580, confidence: 0.90, speakerId: "microphone"),
+            word("numbers", 1_600, 1_960, confidence: 0.88, speakerId: "microphone"),
+            word("tomorrow", 1_980, 2_480, confidence: 0.92, speakerId: "microphone"),
+        ]
+        let systemWords = [
+            word("Let's", 0, 280, speakerId: "system"),
+            word("finalize", 300, 700, speakerId: "system"),
+            word("the", 720, 840, speakerId: "system"),
+            word("budget", 860, 1_200, speakerId: "system"),
+            word("number", 1_220, 1_580, speakerId: "system"),
+            word("tomorrow", 1_600, 2_100, speakerId: "system"),
+            word("yeah", 2_600, 2_760, speakerId: "system"),
+        ]
+
+        let result = MeetingTranscriptSourceReconciler.reconcile(
+            microphoneWords: microphoneWords,
+            systemWords: systemWords
+        )
+
+        XCTAssertEqual(result.microphoneWords.map(\.word), ["yeah"])
+        XCTAssertEqual(result.removedMicrophoneWordCount, 6)
+        XCTAssertEqual(result.removals.map(\.reason), [.simultaneousSystemEcho])
+        XCTAssertEqual(result.removals.first?.words.map(\.word), [
+            "Let's",
+            "finalize",
+            "the",
+            "budget",
+            "numbers",
+            "tomorrow",
+        ])
+    }
+
+    func testReconcilerUsesOnlyTemporallyOverlappingWordsForEchoThreshold() {
+        let microphoneWords = [
+            word("okay", 0, 120, confidence: 0.93, speakerId: "microphone"),
+            word("quick", 220, 360, confidence: 0.92, speakerId: "microphone"),
+            word("note", 460, 580, confidence: 0.91, speakerId: "microphone"),
+            word("first", 700, 840, confidence: 0.90, speakerId: "microphone"),
+            word("Let's", 1_400, 1_660, confidence: 0.92, speakerId: "microphone"),
+            word("finalize", 1_700, 2_000, confidence: 0.91, speakerId: "microphone"),
+            word("the", 2_020, 2_140, confidence: 0.93, speakerId: "microphone"),
+            word("budget", 2_160, 2_500, confidence: 0.90, speakerId: "microphone"),
+            word("numbers", 2_520, 2_880, confidence: 0.88, speakerId: "microphone"),
+            word("tomorrow", 2_900, 3_280, confidence: 0.92, speakerId: "microphone"),
+        ]
+        let systemWords = [
+            word("Let's", 2_000, 2_280, speakerId: "system"),
+            word("finalize", 2_300, 2_700, speakerId: "system"),
+            word("the", 2_720, 2_840, speakerId: "system"),
+            word("budget", 2_860, 3_200, speakerId: "system"),
+            word("number", 3_220, 3_580, speakerId: "system"),
+            word("tomorrow", 3_600, 4_100, speakerId: "system"),
+        ]
+
+        let result = MeetingTranscriptSourceReconciler.reconcile(
+            microphoneWords: microphoneWords,
+            systemWords: systemWords
+        )
+
+        XCTAssertEqual(result.microphoneWords.map(\.word), ["okay", "quick", "note", "first"])
+        XCTAssertEqual(result.removedMicrophoneWordCount, 6)
+        XCTAssertEqual(result.removals.map(\.reason), [.simultaneousSystemEcho])
+        XCTAssertEqual(result.removals.first?.words.map(\.word), [
+            "Let's",
+            "finalize",
+            "the",
+            "budget",
+            "numbers",
+            "tomorrow",
+        ])
     }
 
     func testFinalizeDropsLowConfidenceMicDuplicateOfSystemRun() {
@@ -228,6 +337,22 @@ final class MeetingTranscriptNoiseFilterTests: XCTestCase {
             finalized.words.filter { $0.speakerId == "microphone" }.count,
             7,
             "cross-talk with different words must never be treated as echo"
+        )
+    }
+
+    private func word(
+        _ word: String,
+        _ startMs: Int,
+        _ endMs: Int,
+        confidence: Double = 0.95,
+        speakerId: String
+    ) -> WordTimestamp {
+        WordTimestamp(
+            word: word,
+            startMs: startMs,
+            endMs: endMs,
+            confidence: confidence,
+            speakerId: speakerId
         )
     }
 }
