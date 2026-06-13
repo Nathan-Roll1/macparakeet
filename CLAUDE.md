@@ -149,7 +149,7 @@ All ADRs are in `spec/adr/`. These are locked decisions -- don't second-guess th
 **v0.6 series** — meeting recording (ADR-014/015/016/019/020), multi-platform
 video/podcast URL transcription (any `yt-dlp` site plus Apple Podcasts and
 freetext podcast search), Parakeet v3/v2 model selection, optional Nemotron
-3.5 Beta and WhisperKit engines (ADR-021), opt-in instant dictation (warm-mic
+3.5 Beta (ADR-001 amendment) and WhisperKit (ADR-021) engines, opt-in instant dictation (warm-mic
 pre-roll), app-aware AI Formatter profiles (REQ-LLM-004, `main`-only flag),
 and productized Transforms with `Polish`/`Distill`/`Decide` built-ins on
 Control-Option hotkeys (ADR-022). Calendar auto-start is ADR-017 Phases 1 + 2
@@ -224,7 +224,7 @@ code bypasses ADR-016's process-wide scheduler.
 **Two-chip architecture:**
 ```
 CPU:  MacParakeet app (UI, hotkeys, clipboard, history)
-ANE:  Parakeet STT (via FluidAudio/CoreML) -- dedicated ML chip
+ANE:  Parakeet / Nemotron STT (via FluidAudio/CoreML) -- dedicated ML chip
 CPU/GPU/CoreML as selected by WhisperKit: optional multilingual STT
 ```
 
@@ -469,7 +469,7 @@ open Package.swift  # Select MacParakeet scheme
 |------|------|
 | App bundle | `/Applications/MacParakeet.app` |
 | Database | `~/Library/Application Support/MacParakeet/macparakeet.db` |
-| Parakeet / Nemotron STT models | FluidAudio default cache, `~/Library/Application Support/FluidAudio/Models/` (CoreML; ~465 MB per Parakeet build, ~1.5 GB Nemotron) |
+| Parakeet / Nemotron STT models | FluidAudio default cache, `~/Library/Application Support/FluidAudio/Models/` (Parakeet: `parakeet-*/`; Nemotron: `nemotron-multilingual/`; CoreML; ~465 MB per Parakeet build, ~1.5 GB Nemotron) |
 | Whisper STT models | `~/Library/Application Support/MacParakeet/models/stt/whisper/` |
 | yt-dlp binary | `~/Library/Application Support/MacParakeet/bin/yt-dlp` |
 | FFmpeg binary | `~/Library/Application Support/MacParakeet/bin/ffmpeg` |
@@ -552,10 +552,11 @@ repeat them.
   `waitUntil` races a ~60 ms transient state, so the same commit can pass and
   fail seconds apart. Re-run the failed job; don't "fix" the test unless the
   flake rate justifies a harness refactor.
-- **Blame across the 2026-06-11 line-ending renormalization** -- run
+- **Mixed line endings flip whole files on edit** -- keep text files LF;
+  never commit CRLF. If the repo has `.git-blame-ignore-revs` (added with
+  the repo-wide LF renormalization), run
   `git config blame.ignoreRevsFile .git-blame-ignore-revs` once locally so
-  repo-wide mechanical commits don't bury real history. `.gitattributes`
-  normalizes all text files to LF; don't commit CRLF.
+  mechanical commits don't bury real history.
 
 ### Swift Language Gotchas
 

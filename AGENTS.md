@@ -71,8 +71,7 @@ This repo runs many parallel worktrees. Two rules that save real time:
   wrong tree. `swift build` / `swift test` from inside the worktree are
   always safe.
 
-More git/CI gotchas (flaky-test policy, blame across the line-ending
-renormalization): [`CLAUDE.md`](./CLAUDE.md) → "Known Pitfalls".
+More git/CI gotchas (flaky-test policy, line-ending rules): [`CLAUDE.md`](./CLAUDE.md) → "Known Pitfalls".
 
 ## Code Style
 
@@ -143,7 +142,7 @@ READMEs today: `Audio/`, `STT/`, `TextProcessing/`, `Database/`,
 |------|------|
 | App bundle | `/Applications/MacParakeet.app` |
 | Database | `~/Library/Application Support/MacParakeet/macparakeet.db` |
-| Parakeet / Nemotron CoreML STT models (~465 MB per Parakeet build, ~1.5 GB Nemotron) | FluidAudio default cache, `~/Library/Application Support/FluidAudio/Models/` |
+| Parakeet / Nemotron CoreML STT models (~465 MB per Parakeet build, ~1.5 GB Nemotron) | FluidAudio default cache, `~/Library/Application Support/FluidAudio/Models/` (Parakeet: `parakeet-*/`; Nemotron: `nemotron-multilingual/`) |
 | WhisperKit STT models | `~/Library/Application Support/MacParakeet/models/stt/whisper/` |
 | yt-dlp / FFmpeg helper binaries | `~/Library/Application Support/MacParakeet/bin/` |
 | Settings | `~/Library/Preferences/com.macparakeet.plist` |
