@@ -424,7 +424,8 @@ final class OnboardingViewModelTests: XCTestCase {
             message.contains("longer than expected"),
             "stall message should prompt a network check + retry, got: \(message)"
         )
-        XCTAssertFalse(vm.isBusy, "isBusy must clear so the Retry button is actionable")
+        XCTAssertFalse(vm.engineBusy, "engineBusy must clear so the Retry button is actionable")
+        XCTAssertFalse(vm.isBusy, "warm-up must never have touched the permission isBusy flag")
         XCTAssertFalse(vm.canContinueFromCurrentStep(), "a stalled engine must not gate open")
     }
 
@@ -456,6 +457,193 @@ final class OnboardingViewModelTests: XCTestCase {
         let called = await stt.wasWarmUpCalled()
         XCTAssertTrue(called)
         XCTAssertTrue(vm.canContinueFromCurrentStep())
+    }
+
+    // MARK: - Part B: model-download head-start
+
+    /// Guard 1 (§5.1): the head-start download starts while the user is still on
+    /// an early step, so it must NOT hold the permission `isBusy` flag (which
+    /// disables the Microphone/Accessibility grant buttons). It uses `engineBusy`.
+    func testHeadStartWarmUpDoesNotHoldPermissionIsBusy() async throws {
+        let perms = MockPermissionService()
+        let stt = MockSTTClient()
+        await stt.configureWarmUpHangIndefinitely()
+        let suite = "com.macparakeet.tests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+
+        let vm = makeViewModel(permissionService: perms, sttClient: stt, defaults: defaults)
+        XCTAssertEqual(vm.step, .welcome, "head-start fires while still on Welcome")
+
+        vm.startEngineWarmUp()
+        try await Task.sleep(for: .milliseconds(100)) // let the background warm-up churn
+
+        XCTAssertTrue(vm.engineBusy, "warm-up should track its own engineBusy")
+        XCTAssertFalse(vm.isBusy, "the head-start download must not hold the permission isBusy flag")
+    }
+
+    /// Guard 1 (§5.1) regression (Gemini review): cancelling the warm-up
+    /// observation — e.g. the onboarding window closing mid-download via
+    /// `stopObservingWarmUp()` — must clear `engineBusy`. The cancelled task's
+    /// `clearObservationIfCurrent` defer bails on the nilled observation token
+    /// and so never reaches a busy-clearing terminal state; without the explicit
+    /// reset in `cancelWarmUpObservation()` the flag leaks `true` forever,
+    /// breaking its "true while a warm-up is in flight" contract.
+    func testCancellingWarmUpObservationClearsEngineBusy() async throws {
+        let perms = MockPermissionService()
+        let stt = MockSTTClient()
+        await stt.configureWarmUpHangIndefinitely()
+        let suite = "com.macparakeet.tests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+
+        let vm = makeViewModel(permissionService: perms, sttClient: stt, defaults: defaults)
+        vm.startEngineWarmUp()
+        try await Task.sleep(for: .milliseconds(100)) // let the warm-up reach in-flight
+        XCTAssertTrue(vm.engineBusy, "warm-up in flight should set engineBusy")
+
+        // Window close mid-download tears observation down without a terminal state.
+        vm.stopObservingWarmUp()
+        XCTAssertFalse(vm.engineBusy, "cancelling observation must clear engineBusy (no leak)")
+    }
+
+    /// Guard 1 / idempotency (§5.1): the early head-start call plus the engine
+    /// step's `.onAppear` fallback call must result in exactly one download.
+    func testEngineStepRetriggerAfterHeadStartDoesNotDoubleDownload() async throws {
+        let perms = MockPermissionService()
+        let stt = MockSTTClient()
+        await stt.configureWarmUpHangIndefinitely()
+        let suite = "com.macparakeet.tests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+
+        let vm = makeViewModel(permissionService: perms, sttClient: stt, defaults: defaults)
+
+        // Head-start at onboarding open (Welcome).
+        vm.startEngineWarmUp()
+        var firstCalled = false
+        for _ in 0..<100 where !firstCalled {
+            firstCalled = await stt.wasWarmUpCalled()
+            if !firstCalled { try await Task.sleep(for: .milliseconds(10)) }
+        }
+        XCTAssertTrue(firstCalled, "head-start warm-up should reach the engine")
+
+        // Reaching the engine step re-triggers the fallback call.
+        vm.jump(to: .engine)
+        vm.startEngineWarmUp()
+        try await Task.sleep(for: .milliseconds(50)) // window for an erroneous 2nd download
+
+        // Assert on backgroundWarmUp call-count, which the ViewModel uniquely
+        // controls: warmUpCallCount alone is masked by the mock's own dedup
+        // (removing the VM's `warmUpObserverTask != nil` guard would still leave
+        // warmUpCallCount == 1), so it would not catch a VM idempotency regression.
+        let bgCount = await stt.backgroundWarmUpCallCountSnapshot()
+        XCTAssertEqual(bgCount, 1, "the engine-step retrigger must not re-enter the warm-up")
+        let callCount = await stt.warmUpCallCountSnapshot()
+        XCTAssertEqual(callCount, 1, "the engine-step retrigger must not start a second download")
+    }
+
+    /// Engine-step boundary race (review): `startEngineWarmUp()` must NOT
+    /// auto-restart from a surfaced `.failed` — only the explicit Retry does.
+    /// Otherwise a head-start failure that surfaces just as the engine step
+    /// appears would silently kick off a second attempt instead of showing Retry.
+    func testStartEngineWarmUpDoesNotAutoRestartFromFailedState() async throws {
+        let perms = MockPermissionService()
+        let stt = MockSTTClient()
+        await stt.configureWarmUp(error: STTError.engineStartFailed("boom"))
+        let suite = "com.macparakeet.tests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+
+        let vm = makeViewModel(permissionService: perms, sttClient: stt, defaults: defaults)
+        vm.jump(to: .engine)
+        vm.startEngineWarmUp()
+        try await waitUntil(timeout: .seconds(2)) {
+            if case .failed = vm.engineState { return true }
+            return false
+        }
+        let bgAfterFail = await stt.backgroundWarmUpCallCountSnapshot()
+
+        // A plain re-trigger (e.g. the engine step's .onAppear firing again) must
+        // be a no-op while `.failed` — no new attempt.
+        vm.startEngineWarmUp()
+        try await Task.sleep(for: .milliseconds(50))
+        let bgAfterRetrigger = await stt.backgroundWarmUpCallCountSnapshot()
+        XCTAssertEqual(bgAfterRetrigger, bgAfterFail, "must not auto-restart from .failed")
+        guard case .failed = vm.engineState else { return XCTFail("should remain .failed") }
+
+        // The explicit Retry path resets to .idle first, so it DOES restart.
+        vm.retryEngineWarmUp()
+        try await Task.sleep(for: .milliseconds(50))
+        let bgAfterRetry = await stt.backgroundWarmUpCallCountSnapshot()
+        XCTAssertGreaterThan(bgAfterRetry, bgAfterRetrigger, "explicit Retry should start a new attempt")
+    }
+
+    /// Guard 3 (§5.3): a warm-up failure that lands before the user reaches the
+    /// Speech Model step must NOT surface a terminal `.failed`; it resets to
+    /// `.idle` so the engine step can retry. Once on the engine step, the failure
+    /// is allowed to surface.
+    func testWarmUpFailureBeforeEngineStepIsSuppressedUntilEngineStep() async throws {
+        let perms = MockPermissionService()
+        let stt = MockSTTClient()
+        await stt.configureWarmUp(error: STTError.engineStartFailed("boom"))
+        let suite = "com.macparakeet.tests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+
+        let vm = makeViewModel(permissionService: perms, sttClient: stt, defaults: defaults)
+        XCTAssertEqual(vm.step, .welcome)
+
+        // Head-start fails while the user is still on Welcome.
+        vm.startEngineWarmUp()
+        for _ in 0..<100 where vm.engineBusy {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        if case .failed = vm.engineState {
+            XCTFail("a warm-up failure before the engine step must not surface as .failed")
+        }
+        XCTAssertEqual(vm.engineState, .idle, "suppressed failure resets to .idle so the engine step can retry")
+        XCTAssertFalse(vm.engineBusy)
+
+        // Reaching the engine step retries; now the failure is allowed to surface.
+        vm.jump(to: .engine)
+        vm.startEngineWarmUp()
+        try await waitUntil(timeout: .seconds(2)) {
+            if case .failed = vm.engineState { return true }
+            return false
+        }
+        guard case .failed = vm.engineState else {
+            return XCTFail("the engine-step retry should surface the failure, got \(vm.engineState)")
+        }
+    }
+
+    /// Guard 2 (§5.2): the head-start must honor the Whisper fork for a CJK
+    /// locale even when fired before the engine step — `whisperRecommendation`
+    /// resolves synchronously in `init`, so the fork is already decided.
+    func testHeadStartTakesWhisperPathForCJKLocaleBeforeEngineStep() async throws {
+        let perms = MockPermissionService()
+        let stt = MockSTTClient()
+        let suite = "com.macparakeet.tests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+
+        let vm = makeViewModel(
+            permissionService: perms,
+            sttClient: stt,
+            defaults: defaults,
+            isWhisperModelDownloaded: { true },
+            preferredLanguages: { ["ko-KR"] }
+        )
+        XCTAssertNotNil(vm.whisperRecommendation, "CJK locale should yield a Whisper recommendation")
+        XCTAssertEqual(vm.step, .welcome)
+
+        // Head-start at onboarding open should take the Whisper fork, not Parakeet.
+        vm.startEngineWarmUp()
+        try await waitUntil(timeout: .seconds(2)) { vm.engineState == .ready }
+
+        let switches = await stt.speechEngineSwitchesSnapshot()
+        XCTAssertTrue(switches.contains(.whisper), "head-start should set up Whisper for a CJK locale")
     }
 
     func testEngineWarmUpDownloadRemainsOnPath() async throws {

@@ -71,6 +71,13 @@ struct OnboardingFlowView: View {
         .background(DesignSystem.Colors.background)
         .onAppear {
             viewModel.startPermissionPolling()
+            // Part B: kick the ~465 MB speech-model download off at onboarding
+            // open so it overlaps the permission + hotkey steps. The Parakeet-vs-
+            // Whisper fork is already decided (whisperRecommendation resolves in
+            // the VM init), and startEngineWarmUp() is idempotent — the engine
+            // step's .onAppear call below is a fallback, and any failure before
+            // the engine step is suppressed until that step is shown (§5.1–5.3).
+            viewModel.startEngineWarmUp()
         }
         .onDisappear {
             viewModel.stopPermissionPolling()

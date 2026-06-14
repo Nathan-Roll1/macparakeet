@@ -68,4 +68,13 @@ While onboarding is visible, permission state is polled so changes made in Syste
 
 Accessibility is still granted during onboarding for all users, which also covers the meeting recording global hotkey's `CGEvent` session tap.
 
-**Part B (not yet done):** A separate planned change will move the speech-model download to start at onboarding open rather than at the Speech Model step. See `plans/active/2026-05-dictation-first-onboarding.md`.
+## Amendment — 2026-06-14: Model-download head-start (Part B)
+
+**Decision:** Start the speech-model warm-up when onboarding *opens* rather than when the user reaches the Speech Model step, so the ~465 MB download overlaps the Microphone / Accessibility / Hotkey steps. This changes download **timing**, not contents — on a fast connection the Speech Model step is already `.ready` and the user does not wait.
+
+**Implementation guards** (`OnboardingViewModel` / `OnboardingFlowView`):
+- The warm-up tracks its own `engineBusy` flag, separate from the permission `isBusy`, so the head-start download never disables the Microphone/Accessibility grant buttons.
+- `startEngineWarmUp()` is idempotent (generation + observation-token guards): the early trigger starts it; the Speech Model step's `.onAppear` call is a no-op fallback. No second download.
+- The Parakeet-vs-Whisper fork is preserved for CJK locales — `whisperRecommendation` resolves synchronously in `init`, before any trigger.
+- A warm-up failure that occurs before the user reaches the Speech Model step is suppressed (state resets to `.idle`); the terminal `.failed` only surfaces once that step is shown, so an early/transient failure never flashes a failed card on an earlier step.
+- `modelDownloadStarted` now fires at onboarding open; the start→ready duration still measures real download time (the background download is independent of the user's step).
