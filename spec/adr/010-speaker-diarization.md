@@ -113,7 +113,7 @@ If diarization fails (e.g. `noSpeechDetected`, model error, timeout), the ASR re
 - Per-speaker analytics (speaking time, word count)
 - All export formats include speaker labels when available
 - Progress: "Identifying speakers..." sublabel with time estimate during diarization phase
-- Settings toggle to enable/disable diarization (on by default)
+- Settings toggle to enable/disable diarization (on by default in the original decision; **shipped default is off** — see the 2026-06-14 amendment)
 
 ### Always-on vs opt-in
 
@@ -129,9 +129,35 @@ If diarization fails (e.g. `noSpeechDetected`, model error, timeout), the ASR re
 
 Skip diarization for: dictation (single speaker by design), or when the Settings toggle is off.
 
-**CLI:** `macparakeet-cli transcribe` runs diarization by default (backward compatibility). Use `--no-diarize` to skip. Text output shows speaker labels at turn changes; JSON output includes all speaker data via Codable.
+**CLI:** `macparakeet-cli transcribe` ~~runs diarization by default (backward compatibility)~~ does **not** diarize by default (corrected — see the 2026-06-14 amendment). Use `--no-diarize` to skip, or `--speaker-detection on` / a speaker-count constraint to force it on. Text output shows speaker labels at turn changes; JSON output includes all speaker data via Codable.
 
 **Readiness contract:** Diarization remains a separate service from the STT scheduler, but when speaker detection is enabled by default the onboarding/ready-state path must account for diarization-model readiness before claiming file transcription is fully ready.
+
+> **Amendment (2026-06-14):** Two corrections to keep this ADR faithful to the
+> shipped code.
+>
+> **1. The shipped default is OFF, not on.** The "Speaker detection" toggle
+> defaults to off across the app — Settings, runtime preferences
+> (`AppRuntimePreferences.speakerDiarization`), and the CLI all resolve to off
+> unless the user opts in. The default was deliberately flipped on→off in commit
+> `4a1d25133` ("Polish AI settings defaults"); the Settings copy reflects it
+> ("Optional. Adds speaker labels when audio is clear; leave off if labels are
+> unreliable."). Consequences: (a) `macparakeet-cli transcribe` does **not**
+> diarize by default — it diarizes only when the stored preference is on, when
+> `--speaker-detection on` is passed, or when a speaker-count constraint
+> (`--speaker-count` / `--speaker-min` / `--speaker-max`) is given; `--no-diarize`
+> forces it off. (b) The readiness contract above applies only when the user has
+> enabled speaker detection — default onboarding does not fetch the ~130 MB
+> diarization assets.
+>
+> **2. The FluidAudio dependency surface has grown.** The core decision below
+> still stands — MacParakeet ships only the offline batch pipeline and uses
+> neither Sortformer nor streaming diarization. But the pinned FluidAudio now
+> also exposes streaming diarizers (`LSEENDDiarizer`, `SortformerDiarizer`) and
+> speaker-enrollment APIs. None are shipped. They are surveyed as a *future*
+> tentative-live / speaker-memory option in
+> `docs/research/speaker-diarization-frontier-2026-06.md` and
+> `docs/plans/2026-06-14-002-speaker-diarization-world-class-architecture.md`.
 
 ## Rationale
 
