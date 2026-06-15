@@ -221,6 +221,11 @@ struct DictationOverlayView: View {
     /// + "more audio please" label fade in. Reset whenever the pill state changes.
     @State private var noSpeechExpanded: Bool = false
 
+    /// Natural (unclamped) height of the live-transcript text, measured off the
+    /// rendered `Text`. Lets the readout card hug short content instead of
+    /// stranding the first words at the bottom of a fixed three-line box.
+    @State private var liveTranscriptContentHeight: CGFloat = 0
+
     /// Align tooltip above the hovered button: leading for cancel, trailing for stop.
     private var tooltipAlignment: Alignment {
         if isCancelHovered { return .leading }
@@ -473,12 +478,21 @@ struct DictationOverlayView: View {
     private var liveTranscriptPreviewPanel: some View {
         if let liveTranscriptPreview {
             let metrics = previewMetrics
-            // Bottom-anchored rolling readout: newest words sit at the bottom,
-            // older lines rise and fade out at the top edge via the gradient
-            // mask — no hard mid-word truncation. Programmatic scroll-to-bottom
-            // (no animation) keeps the newest line pinned without jitter from the
-            // frequent updates; the panel is display-only so it never steals
-            // events from the pill below.
+            // Content-hugging, bottom-anchored rolling readout. A short
+            // transcript shows in a snug card (height == its own text) so the
+            // first few words never sit stranded at the bottom of a tall empty
+            // box; once the text grows past ~three lines the card caps at
+            // `visibleHeight`, scrolls to keep the newest line pinned, and fades
+            // older lines at the top. The whole stack is bottom-anchored, so the
+            // animated height change reads as the card growing upward while the
+            // newest line stays put. Display-only — never steals events from the
+            // pill below.
+            let measured = liveTranscriptContentHeight
+            let viewportHeight = min(
+                measured > 0 ? measured : metrics.font * 1.4,
+                metrics.visibleHeight
+            )
+            let isOverflowing = measured > metrics.visibleHeight + 1
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
                     Text(liveTranscriptPreview)
@@ -486,17 +500,24 @@ struct DictationOverlayView: View {
                         .foregroundStyle(.white.opacity(0.92))
                         .lineSpacing(metrics.lineSpacing)
                         .multilineTextAlignment(.leading)
-                        // Pin a short transcript to the bottom of the viewport so
-                        // the newest line sits below the top fade; taller content
-                        // overflows upward and scrolls to the bottom as usual.
-                        .frame(
-                            maxWidth: .infinity,
-                            minHeight: metrics.visibleHeight,
-                            alignment: .bottomLeading
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        // Measure the text's natural height so the card can hug
+                        // it. Reported height is independent of the (clamped)
+                        // viewport, so there is no layout feedback loop.
+                        .background(
+                            GeometryReader { geo in
+                                Color.clear.preference(
+                                    key: LiveTranscriptHeightKey.self,
+                                    value: geo.size.height
+                                )
+                            }
                         )
                         .id(Self.liveTranscriptBottomAnchor)
                 }
-                .frame(width: 252, height: metrics.visibleHeight)
+                .frame(width: 252, height: viewportHeight)
+                .onPreferenceChange(LiveTranscriptHeightKey.self) { height in
+                    liveTranscriptContentHeight = height
+                }
                 .onChange(of: liveTranscriptPreview) {
                     proxy.scrollTo(Self.liveTranscriptBottomAnchor, anchor: .bottom)
                 }
@@ -507,7 +528,10 @@ struct DictationOverlayView: View {
             .mask(
                 LinearGradient(
                     stops: [
-                        .init(color: .clear, location: 0),
+                        // Fade the top edge only once the text overflows the cap,
+                        // so a snug one- or two-line readout never dims its own
+                        // first line.
+                        .init(color: isOverflowing ? .clear : .black, location: 0),
                         .init(color: .black, location: 0.22),
                         .init(color: .black, location: 1)
                     ],
@@ -529,8 +553,9 @@ struct DictationOverlayView: View {
             .allowsHitTesting(false)
             .accessibilityLabel(liveTranscriptPreview)
             .padding(.bottom, 2)
-            // Smoothly grow/shrink the card when the size changes live
-            // (Settings picker) instead of snapping between presets.
+            // Grow/shrink the card smoothly as lines arrive (or the size
+            // changes live in Settings) instead of snapping between heights.
+            .animation(.easeInOut(duration: 0.18), value: viewportHeight)
             .animation(.easeInOut(duration: 0.2), value: viewModel.previewTextSize)
             .transition(.move(edge: .bottom).combined(with: .opacity).animation(.easeInOut(duration: 0.16)))
         }
@@ -540,6 +565,15 @@ struct DictationOverlayView: View {
     private static let liveTranscriptBottomAnchor = "liveTranscriptBottom"
     private static let liveTranscriptPreviewWordLimit = 45
     private static let liveTranscriptPreviewCharacterBudget = 1_200
+
+    /// Carries the live-transcript text's natural height up to the panel so the
+    /// readout card can hug short content and cap tall content.
+    private struct LiveTranscriptHeightKey: PreferenceKey {
+        static let defaultValue: CGFloat = 0
+        static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+            value = max(value, nextValue())
+        }
+    }
 
     private static func wordBoundedSuffix(of text: String, maxCharacters: Int) -> Substring {
         guard maxCharacters > 0 else { return text[text.endIndex...] }
