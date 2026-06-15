@@ -493,52 +493,56 @@ struct DictationOverlayView: View {
                 metrics.visibleHeight
             )
             let isOverflowing = measured > metrics.visibleHeight + 1
-            ScrollViewReader { proxy in
-                ScrollView(.vertical, showsIndicators: false) {
-                    Text(liveTranscriptPreview)
-                        .font(.system(size: metrics.font, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.92))
-                        .lineSpacing(metrics.lineSpacing)
-                        .multilineTextAlignment(.leading)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        // Measure the text's natural height so the card can hug
-                        // it. Reported height is independent of the (clamped)
-                        // viewport, so there is no layout feedback loop.
-                        .background(
-                            GeometryReader { geo in
-                                Color.clear.preference(
-                                    key: LiveTranscriptHeightKey.self,
-                                    value: geo.size.height
-                                )
-                            }
+            // Bottom-anchored clipped readout — deliberately NOT a ScrollView.
+            // The text is measured at its natural height, then clipped to
+            // `viewportHeight` with bottom alignment: the newest line stays
+            // pinned to the bottom while older lines slide up and past the top
+            // edge. A ScrollView scrolled to its bottom can strand short text
+            // against the bottom of an over-tall viewport — and because its
+            // scroll offset is independent state, it "doesn't recover." A fixed
+            // bottom-aligned frame is a pure function of (content, viewport) and
+            // cannot reach that stuck state.
+            Text(liveTranscriptPreview)
+                .font(.system(size: metrics.font, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.92))
+                .lineSpacing(metrics.lineSpacing)
+                .multilineTextAlignment(.leading)
+                // Pin the width and force full vertical height *before* measuring
+                // so the text wraps at 252 and reports its true multi-line height.
+                // (Without this the text would lay out on one infinite-width line
+                // and the viewport frame below would simply truncate it.)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(width: 252, alignment: .leading)
+                // Measure the text's natural (unclamped) height so the card can
+                // hug it; the reported height is independent of the clamped
+                // viewport below, so there is no layout feedback loop.
+                .background(
+                    GeometryReader { geo in
+                        Color.clear.preference(
+                            key: LiveTranscriptHeightKey.self,
+                            value: geo.size.height
                         )
-                        .id(Self.liveTranscriptBottomAnchor)
-                }
-                .frame(width: 252, height: viewportHeight)
+                    }
+                )
+                .frame(width: 252, height: viewportHeight, alignment: .bottom)
+                .clipped()
                 .onPreferenceChange(LiveTranscriptHeightKey.self) { height in
                     liveTranscriptContentHeight = height
                 }
-                .onChange(of: liveTranscriptPreview) {
-                    proxy.scrollTo(Self.liveTranscriptBottomAnchor, anchor: .bottom)
-                }
-                .onAppear {
-                    proxy.scrollTo(Self.liveTranscriptBottomAnchor, anchor: .bottom)
-                }
-            }
-            .mask(
-                LinearGradient(
-                    stops: [
-                        // Fade the top edge only once the text overflows the cap,
-                        // so a snug one- or two-line readout never dims its own
-                        // first line.
-                        .init(color: isOverflowing ? .clear : .black, location: 0),
-                        .init(color: .black, location: 0.22),
-                        .init(color: .black, location: 1)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
+                .mask(
+                    LinearGradient(
+                        stops: [
+                            // Fade the top edge only once the text overflows the
+                            // cap, so a snug one- or two-line readout never dims
+                            // its own first line.
+                            .init(color: isOverflowing ? .clear : .black, location: 0),
+                            .init(color: .black, location: 0.22),
+                            .init(color: .black, location: 1)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
                 )
-            )
             .padding(.horizontal, 12)
             .padding(.vertical, metrics.verticalPadding)
             .background(
@@ -552,6 +556,11 @@ struct DictationOverlayView: View {
             )
             .allowsHitTesting(false)
             .accessibilityLabel(liveTranscriptPreview)
+            // Drop the measured height when the readout leaves the screen so the
+            // next dictation starts snug from one line rather than inheriting the
+            // previous session's tall viewport (which would strand the first
+            // words at the bottom for a frame).
+            .onDisappear { liveTranscriptContentHeight = 0 }
             .padding(.bottom, 2)
             // Grow/shrink the card smoothly as lines arrive (or the size
             // changes live in Settings) instead of snapping between heights.
@@ -561,8 +570,6 @@ struct DictationOverlayView: View {
         }
     }
 
-    /// Stable identity for the readout's bottom anchor used by `scrollTo`.
-    private static let liveTranscriptBottomAnchor = "liveTranscriptBottom"
     private static let liveTranscriptPreviewWordLimit = 45
     private static let liveTranscriptPreviewCharacterBudget = 1_200
 
