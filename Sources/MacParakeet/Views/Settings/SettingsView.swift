@@ -1224,6 +1224,7 @@ struct SettingsView: View {
                 settingsToggleRow(
                     title: "Stop recording automatically",
                     detail: "Stop after a meeting app quits, or both channels stay quiet for a few minutes. A countdown lets you keep recording first.",
+                    isBeta: true,
                     isOn: $viewModel.meetingAutoStopEnabled
                 )
             }
