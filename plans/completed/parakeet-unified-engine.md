@@ -1,8 +1,24 @@
 # Plan: Parakeet Unified (English) as a selectable Parakeet model
 
-> Status: **ACTIVE**
-> Issue: #520 (feature request). Branch: `feat/parakeet-unified`.
-> Owner-agent: orchestrated by Claude. Living handoff doc — update as work lands.
+> Status: **IMPLEMENTED** — Phase 1 shipped in PR #552
+> (`656031f11`, 2026-06-18). Archived from `plans/active` on 2026-06-18.
+> Issue: #520 (feature request). Branch: `feat/parakeet-unified` (merged).
+> Owner-agent: orchestrated by Claude. Historical handoff doc — retained as the
+> implementation record.
+
+## Post-Implementation Status (2026-06-18)
+
+Parakeet Unified is now a selectable English-only Parakeet model in Settings and
+the CLI. The shipped Phase 1 routes `.unified` through `ParakeetUnifiedEngine`
+and FluidAudio's offline `UnifiedAsrManager`, keeps v3 as the default, preserves
+v2/v3 TDT routing, and treats Unified offline output like Nemotron output for
+word timings (`STTResult.words = []`).
+
+One implementation detail differs from the draft scope below: Unified does not
+reuse the display-only Parakeet tail-window preview in Phase 1. `STTRuntime`
+returns an empty Unified preview so active dictation avoids repeated offline
+batch work; the final paste/transcript still comes from stop-time Unified
+transcription. Native Unified streaming remains a Phase 2 follow-up.
 
 ## 1. Context & motivation
 
