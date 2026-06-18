@@ -2136,22 +2136,25 @@ struct SettingsView: View {
         [GridItem(.adaptive(minimum: 260), spacing: DesignSystem.Spacing.md, alignment: .top)]
     }
 
-    /// Parakeet build picker (multilingual `v3` vs English-only `v2`). Only
-    /// shown when Parakeet is the active engine — symmetric to the Whisper
-    /// Language card. English-only fixes the v3 auto-detect mis-firing English
-    /// as another language (issues #311, #398).
+    /// Parakeet build picker (multilingual `v3`, English-only `v2`, and the
+    /// English-only Unified build). Only shown when Parakeet is the active
+    /// engine — symmetric to the Whisper Language card. English-only builds fix
+    /// the v3 auto-detect mis-firing English as another language (issues #311,
+    /// #398); Unified is the punctuated English offline build (issue #520).
     @ViewBuilder
     private var engineParakeetModelCard: some View {
         if viewModel.engine.speechEnginePreference == .parakeet {
             SettingsCard(
                 title: "Parakeet Model",
-                subtitle: "Pick how Parakeet handles language. English-only is a touch faster and never mistakes English for another language.",
+                subtitle: "Pick how Parakeet handles language. The English-only builds are a touch faster and never mistake English for another language; Unified adds punctuation and capitalization.",
                 icon: "character.book.closed"
             ) {
                 VStack(alignment: .leading, spacing: DesignSystem.Spacing.xs) {
                     parakeetModelOptionRow(.v3)
                     Divider()
                     parakeetModelOptionRow(.v2)
+                    Divider()
+                    parakeetModelOptionRow(.unified)
                 }
             }
             .transition(.opacity)
