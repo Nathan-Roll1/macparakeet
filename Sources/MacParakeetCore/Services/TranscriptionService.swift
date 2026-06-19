@@ -16,6 +16,17 @@ public protocol TranscriptionServiceProtocol: Sendable {
         recording: MeetingRecordingOutput,
         onProgress: (@Sendable (TranscriptionProgress) -> Void)?
     ) async throws -> Transcription
+    /// Creates and persists the pre-STT meeting row. Must not run speech-to-text.
+    func prepareMeetingTranscription(
+        recording: MeetingRecordingOutput
+    ) async throws -> Transcription
+    /// Finalizes the existing meeting row. Must update `transcriptionID`
+    /// rather than inserting another row.
+    func finalizeMeetingTranscription(
+        recording: MeetingRecordingOutput,
+        updating transcriptionID: UUID,
+        onProgress: (@Sendable (TranscriptionProgress) -> Void)?
+    ) async throws -> Transcription
     func retranscribe(
         existing transcription: Transcription,
         fileURL: URL,
@@ -343,14 +354,7 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
         recording: MeetingRecordingOutput,
         onProgress: (@Sendable (TranscriptionProgress) -> Void)? = nil
     ) async throws -> Transcription {
-        let fileSize = (try? FileManager.default.attributesOfItem(atPath: recording.mixedAudioURL.path)[.size] as? Int)
-            .flatMap { $0 }
-        let operation = TranscriptionOperationContext(
-            source: .meeting,
-            inputKind: .meeting,
-            mediaExtension: Observability.mediaExtension(for: recording.mixedAudioURL),
-            fileSizeBucket: Observability.fileSizeBucket(bytes: fileSize)
-        )
+        let operation = meetingOperationContext(for: recording)
 
         return try await Observability.withOperationContext(operation.operationContext) {
             try await assertCanTranscribeOrEmitPreflight(
@@ -358,15 +362,7 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
                 audioDurationSeconds: recording.durationSeconds
             )
 
-            var transcription = Transcription(
-                fileName: recording.displayName,
-                filePath: recording.mixedAudioURL.path,
-                fileSizeBytes: fileSize,
-                language: nil,
-                status: .processing,
-                sourceType: .meeting,
-                userNotes: recording.userNotes
-            )
+            var transcription = makeMeetingTranscriptionStub(recording: recording)
             do {
                 try transcriptionRepo.save(transcription)
             } catch {
@@ -379,6 +375,57 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
                 )
                 throw error
             }
+            Telemetry.send(.transcriptionStarted(
+                source: .meeting,
+                audioDurationSeconds: recording.durationSeconds
+            ))
+
+            return try await transcribeMeetingAudio(
+                recording: recording,
+                transcription: &transcription,
+                operation: operation,
+                onProgress: onProgress
+            )
+        }
+    }
+
+    public func prepareMeetingTranscription(
+        recording: MeetingRecordingOutput
+    ) async throws -> Transcription {
+        let transcription = makeMeetingTranscriptionStub(recording: recording)
+        try transcriptionRepo.save(transcription)
+        return transcription
+    }
+
+    public func finalizeMeetingTranscription(
+        recording: MeetingRecordingOutput,
+        updating transcriptionID: UUID,
+        onProgress: (@Sendable (TranscriptionProgress) -> Void)? = nil
+    ) async throws -> Transcription {
+        let operation = meetingOperationContext(for: recording)
+
+        return try await Observability.withOperationContext(operation.operationContext) {
+            try await assertCanTranscribeOrEmitPreflight(
+                operation,
+                audioDurationSeconds: recording.durationSeconds
+            )
+
+            guard var transcription = try transcriptionRepo.fetch(id: transcriptionID) else {
+                throw STTError.transcriptionFailed("Missing queued meeting transcription row.")
+            }
+            transcription.fileName = transcription.fileName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? recording.displayName
+                : transcription.fileName
+            transcription.filePath = transcription.filePath ?? recording.mixedAudioURL.path
+            transcription.fileSizeBytes = transcription.fileSizeBytes ?? meetingFileSize(for: recording)
+            transcription.durationMs = transcription.durationMs ?? Int((recording.durationSeconds * 1000).rounded())
+            transcription.sourceType = .meeting
+            transcription.status = .processing
+            transcription.errorMessage = nil
+            transcription.userNotes = transcription.userNotes ?? recording.userNotes
+            transcription.updatedAt = Date()
+            try transcriptionRepo.save(transcription)
+
             Telemetry.send(.transcriptionStarted(
                 source: .meeting,
                 audioDurationSeconds: recording.durationSeconds
@@ -988,6 +1035,35 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
     }
 
     // MARK: - Private
+
+    private func meetingFileSize(for recording: MeetingRecordingOutput) -> Int? {
+        (try? FileManager.default.attributesOfItem(atPath: recording.mixedAudioURL.path)[.size] as? Int)
+            .flatMap { $0 }
+    }
+
+    private func meetingOperationContext(for recording: MeetingRecordingOutput) -> TranscriptionOperationContext {
+        let fileSize = meetingFileSize(for: recording)
+        return TranscriptionOperationContext(
+            source: .meeting,
+            inputKind: .meeting,
+            mediaExtension: Observability.mediaExtension(for: recording.mixedAudioURL),
+            fileSizeBucket: Observability.fileSizeBucket(bytes: fileSize)
+        )
+    }
+
+    private func makeMeetingTranscriptionStub(recording: MeetingRecordingOutput) -> Transcription {
+        Transcription(
+            fileName: recording.displayName,
+            filePath: recording.mixedAudioURL.path,
+            fileSizeBytes: meetingFileSize(for: recording),
+            durationMs: Int((recording.durationSeconds * 1000).rounded()),
+            language: nil,
+            status: .processing,
+            sourceType: .meeting,
+            userNotes: recording.userNotes,
+            engine: recording.speechEngine.engine.rawValue
+        )
+    }
 
     private func transcribeMeetingAudio(
         recording: MeetingRecordingOutput,

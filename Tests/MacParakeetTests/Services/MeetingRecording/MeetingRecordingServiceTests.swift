@@ -231,6 +231,45 @@ final class MeetingRecordingServiceTests: XCTestCase {
         XCTAssertEqual(lockStore.deletes, [output.folderURL])
     }
 
+    func testStopRecordingFailsIfAwaitingTranscriptionLockWriteFails() async throws {
+        let captureService = MockMeetingAudioCaptureService()
+        let lockStore = RecordingLockFileStore()
+        let service = MeetingRecordingService(
+            audioCaptureService: captureService,
+            audioConverter: MockMeetingAudioFileConverter(),
+            sttTranscriber: CountingMeetingSTTClient(),
+            lockFileStore: lockStore
+        )
+
+        try await service.startRecording()
+        let originalFolder = try XCTUnwrap(lockStore.writes.first?.folderURL)
+        defer { try? FileManager.default.removeItem(at: originalFolder) }
+        let microphoneBuffer = try XCTUnwrap(makeMonoFloatBuffer(frameCount: 80_000, sampleValue: 0.25))
+        await captureService.yield(.microphoneBuffer(
+            microphoneBuffer,
+            AVAudioTime(hostTime: AVAudioTime.hostTime(forSeconds: 100.0))
+        ))
+
+        lockStore.errorToThrow = TestError.lockWriteFailed
+        do {
+            _ = try await service.stopRecording()
+            XCTFail("Expected awaiting-transcription lock write failure")
+        } catch let error as MeetingAudioError {
+            guard case .storageFailed = error else {
+                return XCTFail("Expected storageFailed, got \(error)")
+            }
+        }
+
+        XCTAssertEqual(lockStore.writeAttempts.last?.file.state, .awaitingTranscription)
+        XCTAssertEqual(lockStore.writes.last?.file.state, .recording)
+        let isRecordingAfterFailure = await service.isRecording
+        XCTAssertFalse(isRecordingAfterFailure)
+
+        lockStore.errorToThrow = nil
+        try await service.startRecording()
+        await service.cancelRecording()
+    }
+
     func testRecordingCapturesSpeechEngineSelectionAtStart() async throws {
         let captureService = MockMeetingAudioCaptureService()
         let lockStore = RecordingLockFileStore()
@@ -262,14 +301,14 @@ final class MeetingRecordingServiceTests: XCTestCase {
         XCTAssertEqual(metadata.speechEngine, SpeechEngineSelection(engine: .whisper, language: "ko"))
         XCTAssertEqual(lockStore.writes.last?.file.speechEngine, SpeechEngineSelection(engine: .whisper, language: "ko"))
         let activeLeaseCountAfterStop = await sttClient.activeLeaseCount
-        XCTAssertEqual(activeLeaseCountAfterStop, 1)
+        XCTAssertEqual(activeLeaseCountAfterStop, 0)
 
         await service.completeTranscription(for: output)
         let activeLeaseCountAfterCompletion = await sttClient.activeLeaseCount
         XCTAssertEqual(activeLeaseCountAfterCompletion, 0)
     }
 
-    func testFailedTranscriptionAttemptReleasesRetainedSpeechEngineLeaseWithoutDeletingLock() async throws {
+    func testFailedTranscriptionAttemptDoesNotDeleteAwaitingTranscriptionLock() async throws {
         let captureService = MockMeetingAudioCaptureService()
         let lockStore = RecordingLockFileStore()
         let speechEngine = SpeechEngineSelection(engine: .whisper, language: "KO")
@@ -292,7 +331,7 @@ final class MeetingRecordingServiceTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: output.folderURL) }
 
         let activeLeaseCountAfterStop = await sttClient.activeLeaseCount
-        XCTAssertEqual(activeLeaseCountAfterStop, 1)
+        XCTAssertEqual(activeLeaseCountAfterStop, 0)
 
         await service.finishTranscriptionAttempt(for: output)
         let activeLeaseCountAfterFailure = await sttClient.activeLeaseCount
@@ -300,11 +339,86 @@ final class MeetingRecordingServiceTests: XCTestCase {
         XCTAssertTrue(lockStore.deletes.isEmpty)
     }
 
-    func testDiscardStoppedRecordingDeletesFolderAndLockAndReleasesLease() async throws {
+    func testQueuedTranscriptionCleanupDoesNotReleaseActiveNextRecordingLease() async throws {
+        let captureService = MockMeetingAudioCaptureService()
+        let lockStore = RecordingLockFileStore()
+        let speechEngine = SpeechEngineSelection(engine: .whisper, language: "KO")
+        let sttClient = LeasingMeetingSTTClient(selection: speechEngine)
+        let service = MeetingRecordingService(
+            audioCaptureService: captureService,
+            audioConverter: MockMeetingAudioFileConverter(),
+            sttTranscriber: sttClient,
+            lockFileStore: lockStore
+        )
+
+        try await service.startRecording()
+        let microphoneBuffer = try XCTUnwrap(makeMonoFloatBuffer(frameCount: 80_000, sampleValue: 0.25))
+        await captureService.yield(.microphoneBuffer(
+            microphoneBuffer,
+            AVAudioTime(hostTime: AVAudioTime.hostTime(forSeconds: 100.0))
+        ))
+        let firstOutput = try await service.stopRecording()
+        defer { try? FileManager.default.removeItem(at: firstOutput.folderURL) }
+
+        try await service.startRecording()
+        let activeLeaseCountAfterSecondStart = await sttClient.activeLeaseCount
+        XCTAssertEqual(activeLeaseCountAfterSecondStart, 1)
+
+        await service.finishTranscriptionAttempt(for: firstOutput)
+        let activeLeaseCountAfterFailedFinalize = await sttClient.activeLeaseCount
+        XCTAssertEqual(activeLeaseCountAfterFailedFinalize, 1)
+
+        await service.completeTranscription(for: firstOutput)
+        let activeLeaseCountAfterSuccessfulFinalize = await sttClient.activeLeaseCount
+        XCTAssertEqual(activeLeaseCountAfterSuccessfulFinalize, 1)
+        XCTAssertEqual(lockStore.deletes, [firstOutput.folderURL])
+
+        await service.cancelRecording()
+        let activeLeaseCountAfterSecondCancel = await sttClient.activeLeaseCount
+        XCTAssertEqual(activeLeaseCountAfterSecondCancel, 0)
+    }
+
+    func testDiscardStoppedRecordingDoesNotReleaseActiveNextRecordingLease() async throws {
+        let captureService = MockMeetingAudioCaptureService()
+        let lockStore = RecordingLockFileStore()
+        let speechEngine = SpeechEngineSelection(engine: .whisper, language: "KO")
+        let sttClient = LeasingMeetingSTTClient(selection: speechEngine)
+        let service = MeetingRecordingService(
+            audioCaptureService: captureService,
+            audioConverter: MockMeetingAudioFileConverter(),
+            sttTranscriber: sttClient,
+            lockFileStore: lockStore
+        )
+
+        try await service.startRecording()
+        let microphoneBuffer = try XCTUnwrap(makeMonoFloatBuffer(frameCount: 80_000, sampleValue: 0.25))
+        await captureService.yield(.microphoneBuffer(
+            microphoneBuffer,
+            AVAudioTime(hostTime: AVAudioTime.hostTime(forSeconds: 100.0))
+        ))
+        let firstOutput = try await service.stopRecording()
+
+        try await service.startRecording()
+        let activeLeaseCountAfterSecondStart = await sttClient.activeLeaseCount
+        XCTAssertEqual(activeLeaseCountAfterSecondStart, 1)
+
+        await service.discardStoppedRecording(firstOutput)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: firstOutput.folderURL.path))
+        XCTAssertEqual(lockStore.deletes, [firstOutput.folderURL])
+        let activeLeaseCountAfterDiscard = await sttClient.activeLeaseCount
+        XCTAssertEqual(activeLeaseCountAfterDiscard, 1)
+
+        await service.cancelRecording()
+        let activeLeaseCountAfterSecondCancel = await sttClient.activeLeaseCount
+        XCTAssertEqual(activeLeaseCountAfterSecondCancel, 0)
+    }
+
+    func testDiscardStoppedRecordingDeletesFolderAndLock() async throws {
         // Delete arm of the stop-transcription flow (issue #487): after an
         // aborted final transcription, discarding must remove the session
-        // folder + recovery lock and release the retained engine lease so
-        // nothing resurrects the recording at next launch.
+        // folder + recovery lock so nothing resurrects the recording at next
+        // launch. The engine lease is already released at durable stop.
         let captureService = MockMeetingAudioCaptureService()
         let lockStore = RecordingLockFileStore()
         let speechEngine = SpeechEngineSelection(engine: .whisper, language: "KO")
