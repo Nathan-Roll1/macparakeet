@@ -12,6 +12,12 @@ import Foundation
 /// "Save Audio As…") and that on-disk layout, so future changes to the
 /// folder structure only ripple through one file.
 public enum MeetingAudioFile {
+    public enum State: Equatable, Sendable {
+        case notMeeting
+        case saved
+        case removed
+        case missing
+    }
 
     // MARK: - URL resolution
 
@@ -28,24 +34,36 @@ public enum MeetingAudioFile {
         return URL(fileURLWithPath: path)
     }
 
-    /// Whether the mixed-track audio file is reachable on disk. Returns
-    /// false for non-meeting transcriptions or when the recorded file is
-    /// missing (deleted, moved, or recovery still in progress).
-    ///
-    /// **Status-agnostic by design.** Returns true for `.processing`,
-    /// `.error`, or `.cancelled` meetings as long as the file is on
-    /// disk. The audio is written incrementally as fragmented MP4 (see
-    /// ADR-019), so a user looking at a failed-transcription row can
-    /// still grab the captured audio. Don't add a status gate here
-    /// without an explicit product reason.
+    /// Whether finalized meeting audio is reachable on disk. Returns false for
+    /// non-meeting rows, actively processing rows, and missing audio files.
     public static func isAvailable(
         for transcription: Transcription,
         fileManager: FileManager = .default
     ) -> Bool {
-        guard let url = mixedAudioURL(for: transcription) else { return false }
+        state(for: transcription, fileManager: fileManager) == .saved
+    }
+
+    /// User-facing availability state for a meeting's stored audio.
+    ///
+    /// `removed` means the DB no longer points at meeting audio, usually
+    /// because the user chose audio-only cleanup or a retention policy removed
+    /// it after final transcription. `missing` means the DB still points at a
+    /// path, but that path is no longer a file on disk.
+    public static func state(
+        for transcription: Transcription,
+        fileManager: FileManager = .default
+    ) -> State {
+        guard transcription.sourceType == .meeting,
+              transcription.status != .processing else {
+            return .notMeeting
+        }
+        guard let url = mixedAudioURL(for: transcription) else { return .removed }
         var isDirectory: ObjCBool = false
         let exists = fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory)
-        return exists && !isDirectory.boolValue
+        if exists && !isDirectory.boolValue {
+            return .saved
+        }
+        return .missing
     }
 
     // MARK: - Safe copy
