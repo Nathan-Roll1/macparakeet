@@ -130,7 +130,7 @@ CREATE TABLE transcriptions (
     channelName TEXT,                                   -- v0.5: YouTube channel name
     videoDescription TEXT,                              -- v0.5: YouTube video description
     isFavorite INTEGER NOT NULL DEFAULT 0,              -- v0.5: User favorite marker
-    sourceType TEXT NOT NULL DEFAULT 'file',            -- v0.6: 'file', 'youtube', or 'meeting'
+    sourceType TEXT NOT NULL DEFAULT 'file',            -- v0.6: 'file', 'youtube', 'meeting'; 'podcast' added 2026-06
     recoveredFromCrash INTEGER NOT NULL DEFAULT 0,       -- v0.7.5: recovered interrupted meeting flag
     isTranscriptEdited INTEGER NOT NULL DEFAULT 0,       -- v0.7.7: user-edited transcript flag
     userNotes TEXT,                                      -- v0.8: meeting notes used to steer prompt results
@@ -158,7 +158,7 @@ CREATE INDEX idx_transcriptions_status_created_at ON transcriptions(status, crea
 - `sourceURL` distinguishes URL-sourced transcriptions (YouTube) from local file transcriptions. Added in v0.3.
 - `thumbnailURL`, `channelName`, `videoDescription` store YouTube metadata fetched during download. Local file imports also reuse `channelName` / `videoDescription` for embedded author / description metadata when present. Added in v0.5.
 - `isFavorite` enables user-marked favorites with filtered library view. Added in v0.5.
-- `sourceType` distinguishes the origin of a transcription: `'file'` (drag-drop), `'youtube'` (URL), or `'meeting'` (meeting recording). Added in v0.6. Default `'file'` for backward compatibility. Existing rows with `sourceURL IS NOT NULL` are backfilled to `'youtube'`.
+- `sourceType` distinguishes the origin of a transcription: `'file'` (drag-drop), `'youtube'` (URL), `'podcast'` (Apple Podcasts URL or freetext search), or `'meeting'` (meeting recording). `sourceType` added in v0.6; `'podcast'` added 2026-06. Default `'file'` for backward compatibility. Existing rows with `sourceURL IS NOT NULL` are backfilled to `'youtube'`.
 - `recoveredFromCrash` marks meeting recordings recovered from an interrupted session. Added in v0.7.5.
 - `isTranscriptEdited` marks transcript text changed by the user after automatic processing. Added in v0.7.7.
 - `userNotes` stores free-form meeting notes typed during recording; prompt generation snapshots this value on `summaries.userNotesSnapshot`. Added in v0.8.
@@ -600,7 +600,7 @@ struct Transcription: Codable, Identifiable {
     var errorMessage: String?
     var exportPath: String?
     var sourceURL: String?              // YouTube/web URL (v0.3, nullable)
-    var sourceType: SourceType          // v0.6 — file | youtube | meeting
+    var sourceType: SourceType          // v0.6 — file | youtube | podcast | meeting
     var thumbnailURL: String?           // v0.5 — YouTube video thumbnail URL
     var channelName: String?            // v0.5 — YouTube channel name
     var videoDescription: String?       // v0.5 — YouTube video description
@@ -643,6 +643,7 @@ struct Transcription: Codable, Identifiable {
     enum SourceType: String, Codable {
         case file
         case youtube
+        case podcast
         case meeting
     }
 }
@@ -1141,7 +1142,7 @@ migrator.registerMigration("v0.7-prompts-and-summaries") { db in
 | `transcriptions.channelName` | v0.5 | YouTube channel name |
 | `transcriptions.videoDescription` | v0.5 | YouTube video description |
 | `transcriptions.isFavorite` | v0.5 | User favorite marker |
-| `transcriptions.sourceType` | v0.6 | Origin of transcription: `file`, `youtube`, or `meeting` |
+| `transcriptions.sourceType` | v0.6 | Origin of transcription: `file`, `youtube`, `podcast`, or `meeting` |
 | `text_snippets.action` | v0.7 | Keystroke action type for snippet |
 | `prompts` | v0.7 | Reusable prompt templates (built-in + custom) |
 | `summaries` | v0.7 | Prompt results per transcription (FK → transcriptions, cascade delete; Swift model `PromptResult`) |

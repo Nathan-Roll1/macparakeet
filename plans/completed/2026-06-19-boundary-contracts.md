@@ -20,6 +20,10 @@
 - **Depends on**: none
 - **Category**: architecture / dx / trust
 - **Planned at**: commit `225c61dfc`, 2026-06-19
+- **Status (2026-06-21)**: SHIPPED — `spec/contracts/` (README, `cli-json-v1`,
+  `meeting-artifacts-v1`, `meeting-recovery-retention`) and their contract tests
+  landed on `main` in #567 (`2c4f76ebf`). Acceptance criteria re-verified in the
+  2026-06-21 audit; archived to `completed/`.
 
 ## Why this matters
 

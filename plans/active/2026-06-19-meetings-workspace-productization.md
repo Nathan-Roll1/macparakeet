@@ -8,7 +8,7 @@
 > database or by sending full meeting histories to an LLM provider.
 >
 > **Drift check (run first)**:
-> `git diff --stat 225c61dfc..HEAD -- Sources/MacParakeet/Views/Meetings Sources/MacParakeet/Views/Transcription Sources/MacParakeetViewModels/MeetingsWorkspaceViewModel.swift Sources/MacParakeetCore/Database Sources/MacParakeetCore/Services/MeetingRecording Tests/MacParakeetTests/ViewModels/MeetingsWorkspaceViewModelTests.swift spec/09-testing.md docs/human-qa-guide.md plans/active/2026-06-19-boundary-contracts.md`
+> `git diff --stat 225c61dfc..HEAD -- Sources/MacParakeet/Views/Meetings Sources/MacParakeet/Views/Transcription Sources/MacParakeetViewModels/MeetingsWorkspaceViewModel.swift Sources/MacParakeetCore/Database Sources/MacParakeetCore/Services/MeetingRecording Tests/MacParakeetTests/ViewModels/MeetingsWorkspaceViewModelTests.swift spec/09-testing.md docs/human-qa-guide.md plans/completed/2026-06-19-boundary-contracts.md`
 > If any of those paths changed since this plan was written, compare the
 > current-state notes below against the live files before editing.
 
@@ -18,7 +18,7 @@
 - **Effort**: L
 - **Risk**: MED
 - **Depends on**: soft dependency on
-  `plans/active/2026-06-19-boundary-contracts.md` for artifact-contract
+  `plans/completed/2026-06-19-boundary-contracts.md` for artifact-contract
   language and smoke-test expectations
 - **Category**: meetings / product / qa
 - **Planned at**: commit `225c61dfc`, 2026-06-19
@@ -326,9 +326,18 @@ from local retrieval.
 
 ### U2. Artifact visibility actions
 
+> **Update (2026-06-21):** Effectively **shipped**. The durable artifact-folder
+> locator (`transcriptions.meetingArtifactFolderPath`, preserved across "Delete
+> Audio" and retention) plus the UI actions — `MeetingArtifactActions`
+> (`openFolder` / `copyFolderPath`) with "Open Meeting Folder" / "Copy Artifact
+> Path" wired into the Library, Transcript, and Meetings views — both landed
+> (artifact persistence via #577; contract codified in
+> [`spec/contracts/meeting-artifacts-v1.md`](../../spec/contracts/meeting-artifacts-v1.md)).
+> Keep this unit only as a reference for residual polish; the core scope is done.
+
 - **Goal:** Expose meeting folders and artifact paths directly from the UI.
 - **Dependencies:** boundary-contract wording from
-  `plans/active/2026-06-19-boundary-contracts.md` is useful but not blocking.
+  `plans/completed/2026-06-19-boundary-contracts.md` is useful but not blocking.
 - **Files:**
   - `Sources/MacParakeet/Views/Transcription/MeetingAudioActions.swift`
   - `Sources/MacParakeet/Views/Meetings/MeetingsView.swift`
@@ -613,7 +622,7 @@ from local retrieval.
   - `spec/11-llm-integration.md`
   - `docs/human-qa-guide.md`
   - `plans/README.md`
-  - `plans/active/2026-06-19-boundary-contracts.md`
+  - `plans/completed/2026-06-19-boundary-contracts.md`
 - **Approach:**
   - Update data model docs when collection/index migrations land.
   - Update feature/UI docs when Meetings workspace and artifact actions land.

@@ -535,7 +535,7 @@ macparakeet-cli prompts run "<prompt-name>" \
   machine-readable.
 - **JSON flag shape:** read-only query commands take `--json` (a binary flag);
   `transcribe` and `export` take `--format json` because they emit one of
-  several formats (txt / srt / vtt / json / docx / pdf). Both produce stable
+  several formats (txt / markdown / srt / vtt / json). Both produce stable
   JSON schemas. The split is deliberate -- see
   `Sources/CLI/CHANGELOG.md` for the compatibility note.
 - **Lookups:** records that take an `<id-or-name>` argument accept full UUID,

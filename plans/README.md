@@ -34,7 +34,6 @@
 | [2026-06-onboarding-stall-watchdog-test](active/2026-06-onboarding-stall-watchdog-test.md) | Make the warm-up stall watchdog testable + test it | **VERIFY-THEN-ARCHIVE** ✅ | **P1** | Shipped as #518 (`89298746d`): timeout made injectable, `MockSTTClient` hang mode, stall→`.failed` test + healthy-path negative test, mutation-verified. No production behavior change at the 180s default. Confirm merge then move to `completed/`. |
 | [2026-06-12-telemetry-allowlist-ci-guard](active/2026-06-12-telemetry-allowlist-ci-guard.md) | Cross-repo telemetry allowlist CI guard | **EXECUTOR-READY** ✅ | P2 | Re-verified 2026-06-13: assumptions hold, repos in sync (97 events, 0 missing). Closes a 3×-recurring silent data-loss class. **One follow-up only a maintainer can do:** add the `WEBSITE_REPO_TOKEN` CI secret to flip it from skip→enforce. |
 | [2026-06-12-june-churn-regression-tests](active/2026-06-12-june-churn-regression-tests.md) | Regression tests: mic self-heal + Nemotron live dictation | **EXECUTOR-READY** | P2 | Adds the missing assertions on the June audio/STT hardening (#496, #507). Dispatchable now. |
-| [2026-06-19-boundary-contracts](active/2026-06-19-boundary-contracts.md) | Boundary contract docs + contract tests | **VERIFY-THEN-ARCHIVE** | P2 | Implemented in this branch: `spec/contracts/` plus tested contracts for meeting artifacts, recovery/retention safety, and CLI JSON/spec output. Includes the minimal DEBUG throwaway-state seam for future full-app meeting smoke work. |
 | [2026-06-19-meetings-workspace-productization](active/2026-06-19-meetings-workspace-productization.md) | Meetings workspace productization | **PROPOSED** | P2 | Product research-backed staged plan: make Meetings a compact daily workspace, expose artifact folders/paths, add DB-backed folders/projects, add local indexing before cross-meeting Ask, and create a full-app meeting smoke harness. |
 | [2026-06-14-meeting-auto-stop](active/2026-06-14-meeting-auto-stop.md) | Activity-based meeting auto-stop | **PARTIAL** | P2 | Phases A+B shipped as #522 (silence + app-quit signals, veto countdown) behind `AppFeatures.meetingAutoStopEnabled` (flag on `main`; per-user setting default off). Phase C (attribution-aware stop) deferred to ADR-024 — see the orchestration plan. ADR-023, REQ-MEET-015. |
 | [2026-06-14-meeting-auto-stop-orchestration](active/2026-06-14-meeting-auto-stop-orchestration.md) | Meeting auto-stop — execution/orchestration guide | **VERIFY-THEN-ARCHIVE** | P3 | Execution aid for the now-shipped #522; remaining value is the Phase C handoff context. Fold into the auto-stop plan or archive once Phase C scope is settled. |
@@ -77,6 +76,13 @@
 
 - No hard blockers between active plans. Soft sequencing: land the onboarding-stall watchdog test (#2) before/with the onboarding rework (#1) so the warm-up path has a safety net under it.
 - The two engine-switch plans are a pair: `ux-revamp` (Stage A, partial) is the parent; `stage-b` is its on-hold continuation. Both gate on the A3 cold-switch telemetry before the reactive flow is greenlit.
+
+## Recently archived → `completed/` (2026-06-21)
+
+- **2026-06-19-boundary-contracts** → shipped as #567 (`2c4f76ebf`):
+  `spec/contracts/` (README, `cli-json-v1`, `meeting-artifacts-v1`,
+  `meeting-recovery-retention`) plus their contract tests are live on `main`.
+  Acceptance criteria re-verified in the 2026-06-21 audit; moved out of `active/`.
 
 ## Recently archived → `completed/` (2026-06-18)
 
