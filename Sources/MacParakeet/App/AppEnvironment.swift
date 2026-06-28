@@ -102,7 +102,8 @@ final class AppEnvironment {
         // built-in but not pinned), the chain pins the built-in mic before
         // that fallback so opening capture doesn't force the headset into
         // HFP/SCO (issues #481/#541/#409); the Bluetooth-output query runs
-        // lazily, only after the cheaper input guards pass.
+        // lazily, only after the cheaper input guards pass. An unresolved output
+        // route during Bluetooth churn is treated as risky at that point.
         let attemptsBuilder: AVAudioEngineMicrophonePlatform.DeviceAttemptsBuilder = {
             let selectedUID = AudioDeviceManager.normalizedUID(selectedInputDeviceUIDProvider())
             let selectedID = selectedUID.flatMap { AudioDeviceManager.inputDeviceID(forUID: $0) }
@@ -115,7 +116,7 @@ final class AppEnvironment {
                 builtInMicrophone: { builtInID },
                 preferBuiltInWhenOutputIsBluetooth: preferBuiltInForBluetoothOutputProvider(),
                 defaultInputIsBluetooth: { AudioDeviceManager.isBluetoothInput($0) },
-                outputIsBluetooth: { AudioDeviceManager.isDefaultOutputBluetooth() }
+                outputIsBluetooth: { AudioDeviceManager.defaultOutputBluetoothState() }
             )
         }
         sharedMicStream = SharedMicrophoneStream(

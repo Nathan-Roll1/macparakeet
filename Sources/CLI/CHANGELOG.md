@@ -89,6 +89,8 @@ by checking exit code first: `2` = misuse, `1` = runtime, `0` = success.
 
 ## [Unreleased]
 
+## [2.11.0] -- 2026-06-28
+
 ### Added
 
 - `transcribe --engine` now accepts `cohere` as an explicit on-device Cohere
@@ -121,6 +123,10 @@ by checking exit code first: `2` = misuse, `1` = runtime, `0` = success.
   `on` maps to `keep-forever`, and `off` maps to `delete-immediately`.
 - `config get|set|list` now includes `meeting-audio-source`:
   `microphone-and-system` (default), `microphone-only`, or `system-only`.
+- `config get|set|list` now includes
+  `prefer-built-in-mic-bluetooth-output`, `voice-return-enabled`, and
+  `voice-return-triggers`, so support scripts can reproduce Bluetooth headset
+  routing and Voice Return settings without opening the GUI.
 - `prompts set --source file|youtube|podcast|meeting` scopes `--auto-run` /
   `--no-auto-run` to one transcription source, matching the app's
   source-scoped auto-run controls.
@@ -154,8 +160,9 @@ by checking exit code first: `2` = misuse, `1` = runtime, `0` = success.
   meeting JSON output. `meetings list/show/artifact` continue to report the
   artifact folder path after `filePath` has been cleared by audio deletion or
   retention.
-- `prompts restore-defaults` now restores result prompt defaults only; built-in
-  Transforms are reset through the Transforms surface.
+- `prompts restore-defaults` continues to re-show hidden built-in Transforms
+  during the 2.x compatibility window. Use `transforms restore-defaults` for the
+  newer Transform-specific restore/reset surface.
 
 ## [2.10.0] -- 2026-06-17
 

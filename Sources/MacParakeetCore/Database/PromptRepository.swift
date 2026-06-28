@@ -165,18 +165,29 @@ public final class PromptRepository: PromptRepositoryProtocol {
 
     public func restoreDefaults() throws {
         try dbQueue.write { db in
+            let now = Date()
             // Result-prompt built-ins ship unscoped (appliesToSources = NULL →
             // all sources), so restoring defaults clears any per-source
             // narrowing the user applied via the Meetings "After each meeting"
-            // card. Transform built-ins have their own restore/reset surface and
-            // are deliberately left untouched here.
+            // card. Built-in Transforms keep their dedicated restore/reset
+            // surface, but the legacy `prompts restore-defaults` behavior still
+            // re-shows hidden Transform built-ins during the 2.x compatibility
+            // window.
             try db.execute(
                 sql: """
                     UPDATE prompts
                     SET isVisible = 1, appliesToSources = NULL, updatedAt = ?
                     WHERE isBuiltIn = 1 AND category = ?
                     """,
-                arguments: [Date(), Prompt.Category.result.rawValue]
+                arguments: [now, Prompt.Category.result.rawValue]
+            )
+            try db.execute(
+                sql: """
+                    UPDATE prompts
+                    SET isVisible = 1, updatedAt = ?
+                    WHERE isBuiltIn = 1 AND category = ?
+                    """,
+                arguments: [now, Prompt.Category.transform.rawValue]
             )
         }
     }

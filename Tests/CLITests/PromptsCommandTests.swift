@@ -368,10 +368,10 @@ final class PromptsCommandTests: XCTestCase {
         XCTAssertTrue((decoded["error"] as? String)?.contains("No prompt matching") == true)
     }
 
-    func testRestoreDefaultsHelpAndHumanOutputAreResultPromptScoped() throws {
+    func testRestoreDefaultsKeepsTransformVisibilityCompatibility() throws {
         XCTAssertEqual(
             PromptsCommand.RestoreDefaultsSubcommand.configuration.abstract,
-            "Re-show built-in result prompts (does not affect custom prompts or Transforms)."
+            "Re-show built-in result prompts and hidden built-in Transforms."
         )
 
         let tmp = FileManager.default.temporaryDirectory
@@ -379,7 +379,14 @@ final class PromptsCommandTests: XCTestCase {
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmp) }
         let dbPath = tmp.appendingPathComponent("test.db").path
-        _ = try DatabaseManager(path: dbPath)
+        let manager = try DatabaseManager(path: dbPath)
+        let repo = PromptRepository(dbQueue: manager.dbQueue)
+        let transform = try XCTUnwrap(
+            (try repo.fetchVisible(category: .transform))
+                .first(where: { $0.name == "Polish" })
+        )
+        try repo.toggleVisibility(id: transform.id)
+        XCTAssertFalse(try XCTUnwrap(try repo.fetch(id: transform.id)).isVisible)
 
         let command = try PromptsCommand.RestoreDefaultsSubcommand.parse([
             "--database", dbPath,
@@ -388,7 +395,8 @@ final class PromptsCommandTests: XCTestCase {
             try command.run()
         }
 
-        XCTAssertTrue(output.contains("Built-in result prompts re-shown."))
+        XCTAssertTrue(output.contains("Built-in result prompts and hidden built-in Transforms re-shown."))
+        XCTAssertTrue(try XCTUnwrap(try repo.fetch(id: transform.id)).isVisible)
     }
 
     func testSetSourceScopedNoAutoRunNarrowsGlobalAutoRun() throws {

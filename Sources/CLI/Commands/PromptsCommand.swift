@@ -358,7 +358,7 @@ extension PromptsCommand {
     struct RestoreDefaultsSubcommand: ParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "restore-defaults",
-            abstract: "Re-show built-in result prompts (does not affect custom prompts or Transforms)."
+            abstract: "Re-show built-in result prompts and hidden built-in Transforms."
         )
 
         @Option(help: "Path to SQLite database file (defaults to the app database).")
@@ -369,7 +369,7 @@ extension PromptsCommand {
             let db = try DatabaseManager(path: resolvedDatabasePath(database))
             let repo = PromptRepository(dbQueue: db.dbQueue)
             try repo.restoreDefaults()
-            print("Built-in result prompts re-shown.")
+            print("Built-in result prompts and hidden built-in Transforms re-shown.")
         }
     }
 }

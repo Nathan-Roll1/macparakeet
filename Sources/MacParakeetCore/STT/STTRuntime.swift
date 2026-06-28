@@ -473,7 +473,9 @@ public actor STTRuntime: STTRuntimeProtocol {
                     var decoderState = TdtDecoderState.make(decoderLayers: decoderLayers)
                     try Task.checkCancellation()
                     onProgress?(0, 100)
-                    let result = try await manager.transcribe(paddedSamples, decoderState: &decoderState)
+                    let result = try await ANEInferenceGate.shared.withExclusiveAccess {
+                        try await manager.transcribe(paddedSamples, decoderState: &decoderState)
+                    }
                     onProgress?(100, 100)
                     return STTResult(
                         text: result.text,
@@ -969,7 +971,6 @@ public actor STTRuntime: STTRuntimeProtocol {
         var preparedWhisper: WhisperEngine?
         var preparedNemotron: NemotronEngine?
         var preparedNemotronEnglish: NemotronEnglishEngine?
-        var preparedCohere: CohereTranscribeEngine?
 
         switch preference {
         case .parakeet:
@@ -995,7 +996,6 @@ public actor STTRuntime: STTRuntimeProtocol {
         case .cohere:
             let engine = try ensureCohereEngine()
             try await engine.prepare(onProgress: onProgress)
-            preparedCohere = engine
         }
 
         if let preparedWhisper {
@@ -1006,9 +1006,6 @@ public actor STTRuntime: STTRuntimeProtocol {
         }
         if let preparedNemotronEnglish {
             nemotronEnglishEngine = preparedNemotronEnglish
-        }
-        if let preparedCohere {
-            cohereEngine = preparedCohere
         }
         speechEngine = preference
         preference.save(to: defaults)

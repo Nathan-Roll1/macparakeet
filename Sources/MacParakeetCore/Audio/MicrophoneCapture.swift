@@ -90,7 +90,8 @@ extension MeetingInputDeviceAttempt.Source {
 /// `outputIsBluetooth` is consulted last, only once the cheap guards confirm
 /// the rule could improve the chain, so the HAL query is skipped when the
 /// feature is off, the default input is non-Bluetooth, or there is no built-in
-/// mic to pin.
+/// mic to pin. `nil` means the output route could not be resolved during
+/// route churn and is treated as risky only after those input guards pass.
 public func meetingInputDeviceAttempts(
     selectedUID: String?,
     selectedInputDeviceID: (String) -> AudioDeviceID?,
@@ -98,7 +99,7 @@ public func meetingInputDeviceAttempts(
     builtInMicrophone: () -> AudioDeviceID?,
     preferBuiltInWhenOutputIsBluetooth: Bool = false,
     defaultInputIsBluetooth: (AudioDeviceID) -> Bool = { _ in true },
-    outputIsBluetooth: () -> Bool = { false }
+    outputIsBluetooth: () -> Bool? = { false }
 ) -> [MeetingInputDeviceAttempt] {
     var attempts: [MeetingInputDeviceAttempt] = []
     var seenDeviceIDs = Set<AudioDeviceID>()
@@ -142,7 +143,7 @@ public func meetingInputDeviceAttempts(
             return defaultInputIsBluetooth(defaultDeviceID)
         }()
 
-        if shouldAvoidDefaultInput, outputIsBluetooth() {
+        if shouldAvoidDefaultInput, outputIsBluetooth() != false {
             let selectedDeviceID = attempts.first { attempt in
                 if case .selected = attempt.source { return true }
                 return false
