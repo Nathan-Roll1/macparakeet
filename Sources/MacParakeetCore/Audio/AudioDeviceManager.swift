@@ -185,7 +185,7 @@ public enum AudioDeviceManager {
             subTransports = []
         }
 
-        return bluetoothOutputState(
+        return bluetoothRouteState(
             transport: transport,
             activeSubDeviceTransports: subTransports
         )
@@ -328,13 +328,13 @@ public enum AudioDeviceManager {
         transport: UInt32,
         activeSubDeviceTransports: [UInt32]
     ) -> Bool {
-        bluetoothOutputState(
+        bluetoothRouteState(
             transport: transport,
             activeSubDeviceTransports: activeSubDeviceTransports
         ) ?? false
     }
 
-    static func bluetoothOutputState(
+    static func bluetoothRouteState(
         transport: UInt32?,
         activeSubDeviceTransports: [UInt32]?
     ) -> Bool? {

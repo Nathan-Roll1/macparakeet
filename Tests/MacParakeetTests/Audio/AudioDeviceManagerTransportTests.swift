@@ -85,27 +85,27 @@ final class AudioDeviceManagerTransportTests: XCTestCase {
         )
     }
 
-    func testBluetoothOutputStatePreservesUnknownTransport() {
+    func testBluetoothRouteStatePreservesUnknownTransport() {
         XCTAssertNil(
-            AudioDeviceManager.bluetoothOutputState(
+            AudioDeviceManager.bluetoothRouteState(
                 transport: nil,
                 activeSubDeviceTransports: []
             )
         )
     }
 
-    func testBluetoothOutputStatePreservesUnknownAggregateSubDevices() {
+    func testBluetoothRouteStatePreservesUnknownAggregateSubDevices() {
         XCTAssertNil(
-            AudioDeviceManager.bluetoothOutputState(
+            AudioDeviceManager.bluetoothRouteState(
                 transport: kAudioDeviceTransportTypeAggregate,
                 activeSubDeviceTransports: nil
             )
         )
     }
 
-    func testBluetoothOutputStateKeepsKnownNonBluetoothRouteSafe() {
+    func testBluetoothRouteStateKeepsKnownNonBluetoothRouteSafe() {
         XCTAssertEqual(
-            AudioDeviceManager.bluetoothOutputState(
+            AudioDeviceManager.bluetoothRouteState(
                 transport: kAudioDeviceTransportTypeUSB,
                 activeSubDeviceTransports: nil
             ),
