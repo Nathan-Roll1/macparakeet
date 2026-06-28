@@ -2611,7 +2611,11 @@ struct SettingsView: View {
         NSWorkspace.shared.openApplication(
             at: Bundle.main.bundleURL,
             configuration: configuration
-        ) { _, _ in
+        ) { newInstance, error in
+            // Only terminate once the replacement instance is actually running.
+            // If the launch failed, leave this app running rather than quitting
+            // into nothing — the user can retry instead of being stranded.
+            guard newInstance != nil, error == nil else { return }
             Task { @MainActor in
                 NSApplication.shared.terminate(nil)
             }
