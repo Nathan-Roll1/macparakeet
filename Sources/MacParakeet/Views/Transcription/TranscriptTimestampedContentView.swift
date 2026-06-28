@@ -48,22 +48,18 @@ private func indexedSegments(_ segments: [TranscriptSegment]) -> [IndexedTranscr
     }
 }
 
-private struct SpeakerTurnIdentity: Hashable {
+struct SpeakerTurnIdentity: Hashable {
     let speakerId: String
     let firstStartMs: Int?
-    let lastStartMs: Int?
-    let segmentCount: Int
     let duplicateOrdinal: Int
 }
 
 private struct SpeakerTurnIdentityBase: Hashable {
     let speakerId: String
     let firstStartMs: Int?
-    let lastStartMs: Int?
-    let segmentCount: Int
 }
 
-private struct IdentifiedSpeakerTurn: Identifiable {
+struct IdentifiedSpeakerTurn: Identifiable {
     let turn: SpeakerTurn
     let identity: SpeakerTurnIdentity
 
@@ -72,14 +68,12 @@ private struct IdentifiedSpeakerTurn: Identifiable {
     }
 }
 
-private func identifiedSpeakerTurns(_ turns: [SpeakerTurn]) -> [IdentifiedSpeakerTurn] {
+func identifiedSpeakerTurns(_ turns: [SpeakerTurn]) -> [IdentifiedSpeakerTurn] {
     var duplicateCounts: [SpeakerTurnIdentityBase: Int] = [:]
     return turns.map { turn in
         let base = SpeakerTurnIdentityBase(
             speakerId: turn.speakerId,
-            firstStartMs: turn.segments.first?.startMs,
-            lastStartMs: turn.segments.last?.startMs,
-            segmentCount: turn.segments.count
+            firstStartMs: turn.segments.first?.startMs
         )
         let ordinal = duplicateCounts[base, default: 0]
         duplicateCounts[base] = ordinal + 1
@@ -88,8 +82,6 @@ private func identifiedSpeakerTurns(_ turns: [SpeakerTurn]) -> [IdentifiedSpeake
             identity: SpeakerTurnIdentity(
                 speakerId: turn.speakerId,
                 firstStartMs: base.firstStartMs,
-                lastStartMs: base.lastStartMs,
-                segmentCount: base.segmentCount,
                 duplicateOrdinal: ordinal
             )
         )
@@ -98,7 +90,7 @@ private func identifiedSpeakerTurns(_ turns: [SpeakerTurn]) -> [IdentifiedSpeake
 
 struct TranscriptTimestampedContentView: View {
     let hasSpeakers: Bool
-    let turns: [SpeakerTurn]
+    let identifiedTurns: [IdentifiedSpeakerTurn]
     let segments: [TranscriptSegment]
     let speakerColorMap: [String: Color]
     let speakerLabelForID: (String) -> String
@@ -116,7 +108,7 @@ struct TranscriptTimestampedContentView: View {
 
     var body: some View {
         if hasSpeakers {
-            ForEach(identifiedSpeakerTurns(turns)) { identified in
+            ForEach(identifiedTurns) { identified in
                 let turn = identified.turn
                 TranscriptTurnCardView(
                     speakerLabel: speakerLabelForID(turn.speakerId),

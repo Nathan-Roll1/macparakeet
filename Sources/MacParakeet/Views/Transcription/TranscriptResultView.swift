@@ -146,6 +146,7 @@ struct TranscriptResultView: View {
     // Cached transcript data — recomputed only when transcription.id changes, not on every playback tick
     @State private var cachedSegments: [TranscriptSegment] = []
     @State private var cachedTurns: [SpeakerTurn] = []
+    @State private var cachedIdentifiedTurns: [IdentifiedSpeakerTurn] = []
     @State private var cachedHasSpeakers: Bool = false
     @State private var cachedSpeakerColorMap: [String: Color] = [:]
     @State private var cachedSpeakerLabelMap: [String: String] = [:]
@@ -2844,7 +2845,7 @@ struct TranscriptResultView: View {
         let current = findCurrentHighlight
         TranscriptTimestampedContentView(
             hasSpeakers: cachedHasSpeakers,
-            turns: cachedTurns,
+            identifiedTurns: cachedIdentifiedTurns,
             segments: cachedSegments,
             speakerColorMap: cachedSpeakerColorMap,
             speakerLabelForID: { cachedSpeakerLabelMap[$0] ?? "Unknown" },
@@ -3008,6 +3009,7 @@ struct TranscriptResultView: View {
         guard let words = activeTranscription.wordTimestamps, !words.isEmpty else {
             cachedSegments = []
             cachedTurns = []
+            cachedIdentifiedTurns = []
             cachedHasSpeakers = false
             cachedSpeakerColorMap = [:]
             cachedSpeakerLabelMap = [:]
@@ -3025,15 +3027,18 @@ struct TranscriptResultView: View {
         cachedSegmentStartMs = segments.map(\.startMs)
 
         if hasSpeakers {
-            cachedTurns = TranscriptSegmenter.groupIntoSpeakerTurns(
+            let turns = TranscriptSegmenter.groupIntoSpeakerTurns(
                 segments: segments,
                 speakerLabelProvider: { speakerID in
                     guard let speakerID else { return "Unknown" }
                     return cachedSpeakerLabelMap[speakerID] ?? "Unknown"
                 }
             )
+            cachedTurns = turns
+            cachedIdentifiedTurns = identifiedSpeakerTurns(turns)
         } else {
             cachedTurns = []
+            cachedIdentifiedTurns = []
         }
     }
 

@@ -80,6 +80,8 @@ struct TranscriptFindBar: View {
         ZStack(alignment: .trailing) {
             Text("No results")
                 .hidden()
+            Text("00000 of 00000")
+                .hidden()
 
             if let position {
                 Text("\(position.current) of \(position.total)")
