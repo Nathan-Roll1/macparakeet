@@ -207,6 +207,12 @@ final class SpecCommandTests: XCTestCase {
         XCTAssertTrue(cohereValues.contains("en"))
         XCTAssertTrue(cohereValues.contains("ja"))
 
+        let nemotronLanguage = try XCTUnwrap(configKeys.first { ($0["key"] as? String) == "nemotron-language" })
+        XCTAssertNil(nemotronLanguage["allowedValues"] as? [String])
+
+        let meetingAudioRetention = try XCTUnwrap(configKeys.first { ($0["key"] as? String) == "meeting-audio-retention" })
+        XCTAssertNil(meetingAudioRetention["allowedValues"] as? [String])
+
         let timeout = try XCTUnwrap(configKeys.first { ($0["key"] as? String) == "meeting-hook-timeout" })
         XCTAssertEqual(timeout["valueSyntax"] as? String, "seconds 1-300")
     }

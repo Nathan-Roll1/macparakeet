@@ -153,7 +153,7 @@ public enum AudioDeviceManager {
         return deviceID
     }
 
-    /// True when audio output is currently routed to a Bluetooth device.
+    /// Returns whether audio output is currently routed to a Bluetooth device.
     ///
     /// This is the trigger for preferring the built-in microphone during
     /// dictation/meeting capture: opening a Bluetooth headset's microphone
@@ -163,13 +163,18 @@ public enum AudioDeviceManager {
     /// silence (issues #481 / #541 / #409). Mirrors `isBluetoothInput`,
     /// including the aggregate sub-device scan, since a Bluetooth endpoint can
     /// surface behind a CoreAudio aggregate.
-    public static func isDefaultOutputBluetooth() -> Bool {
-        guard let deviceID = defaultOutputDevice() else { return false }
+    public static func defaultOutputBluetoothState() -> Bool? {
+        guard let deviceID = defaultOutputDevice() else { return nil }
         let transport = transportType(deviceID)
         let subTransports = transport == kAudioDeviceTransportTypeAggregate
             ? activeSubDeviceIDs(deviceID).map(transportType)
             : []
         return isBluetoothInput(transport: transport, activeSubDeviceTransports: subTransports)
+    }
+
+    /// True when audio output is currently routed to a Bluetooth device.
+    public static func isDefaultOutputBluetooth() -> Bool {
+        defaultOutputBluetoothState() == true
     }
 
     /// Resolves a persistent CoreAudio device UID to the current process-local

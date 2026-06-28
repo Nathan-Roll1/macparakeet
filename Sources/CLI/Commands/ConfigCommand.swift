@@ -104,13 +104,13 @@ struct ConfigCommand: ParsableCommand {
         CLIConfigKeySpec(
             key: "nemotron-language",
             valueSyntax: "auto|<Nemotron language code>",
-            allowedValues: ["auto"],
+            allowedValues: nil,
             summary: "Default Nemotron language hint; auto uses engine detection when available."
         ),
         CLIConfigKeySpec(
             key: "whisper-language",
             valueSyntax: "auto|<Whisper language code>",
-            allowedValues: ["auto"],
+            allowedValues: nil,
             summary: "Default Whisper language hint."
         ),
         CLIConfigKeySpec(
@@ -140,7 +140,7 @@ struct ConfigCommand: ParsableCommand {
         CLIConfigKeySpec(
             key: "meeting-audio-retention",
             valueSyntax: "keep-forever|delete-immediately|delete-after-<1-365>-days|<1-365>d",
-            allowedValues: ["keep-forever", "delete-immediately"],
+            allowedValues: nil,
             summary: "Meeting audio retention policy."
         ),
         CLIConfigKeySpec(

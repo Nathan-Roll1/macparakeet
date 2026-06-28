@@ -440,7 +440,7 @@ private extension CLISpecCommand {
         ),
         CLISpecCommand(
             ["prompts", "restore-defaults"],
-            summary: "Re-show built-in result prompts without changing custom prompts.",
+            summary: "Re-show built-in result prompts and hidden built-in Transforms without changing custom prompts.",
             readOnly: false,
             jsonMode: "none",
             options: [databaseOption],

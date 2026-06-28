@@ -433,6 +433,26 @@ final class MicrophoneCaptureTests: XCTestCase {
         )
     }
 
+    func testBluetoothOutputPrefersBuiltInWhenOutputLookupIsUnavailable() {
+        let attempts = meetingInputDeviceAttempts(
+            selectedUID: nil,
+            selectedInputDeviceID: { _ in nil },
+            defaultInputDevice: { AudioDeviceID(20) },
+            builtInMicrophone: { AudioDeviceID(30) },
+            preferBuiltInWhenOutputIsBluetooth: true,
+            outputIsBluetooth: { nil }
+        )
+
+        XCTAssertEqual(
+            attempts,
+            [
+                MeetingInputDeviceAttempt(source: .builtIn, deviceID: 30),
+                .implicitSystemDefault(resolvedDeviceID: 20),
+            ],
+            "An unresolved output route during churn must fail closed once the default input is risky"
+        )
+    }
+
     func testBluetoothOutputDoesNotReorderWhenOutputIsNotBluetooth() {
         let attempts = meetingInputDeviceAttempts(
             selectedUID: nil,
