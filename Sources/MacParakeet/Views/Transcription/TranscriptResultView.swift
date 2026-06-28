@@ -3,6 +3,23 @@ import SwiftUI
 import MacParakeetCore
 import MacParakeetViewModels
 
+/// One searchable unit of the transcript reading surface (U2): a renderable
+/// text block plus its rendering context. In Timed mode `id` is the segment
+/// `startMs`. In Text mode the matcher searches the full transcript as a
+/// single block so cross-paragraph text selection stays intact.
+private struct TranscriptFindBlock: Equatable, Identifiable {
+    let id: Int
+    let text: String
+}
+
+/// Invisible scroll target inside the full-text transcript. Text mode keeps one
+/// selectable `Text` for the transcript body, then overlays a single prefix
+/// target for the active match so find navigation can still land near it.
+private struct TranscriptTextFindAnchor: Equatable, Identifiable {
+    let id: Int
+    let prefixText: String
+}
+
 /// Data-driven model for the export confirmation popover.
 /// Using a single `Identifiable` value with `.popover(item:)` ensures
 /// the popover content always has the correct URL and format — no race
@@ -98,6 +115,27 @@ struct TranscriptResultView: View {
     @State private var transcriptEditError: String?
     @State private var transcriptDisplayMode: TranscriptDisplayMode = .text
     @State private var transcriptDisplayModeBeforeEdit: TranscriptDisplayMode?
+    /// User-adjustable transcript reading size (Transcript Detail Refresh / U4).
+    /// Persisted; applies to both the Text and Timed reading surfaces.
+    @AppStorage(UserDefaultsAppRuntimePreferences.transcriptFontScaleKey)
+    private var transcriptFontScale: Double = 1.0
+    private static let transcriptFontScaleRange: ClosedRange<Double> = 0.85...1.4
+    private static let transcriptFontScaleStep: Double = 0.1
+    private static let textFindAnchorBaseID = -1_000_000
+    // In-transcript find (Transcript Detail Refresh / U2). The matcher is the
+    // testable `TranscriptFindModel`; this view owns the bar's visibility, the
+    // ordered blocks fed to the model, and the scroll wiring.
+    @State private var findModel = TranscriptFindModel()
+    @State private var findBarVisible = false
+    @State private var findBlocks: [TranscriptFindBlock] = []
+    /// Bumped on every keystroke / navigation so the in-reader `onChange` can
+    /// re-aim `scrollTo` at the current match (even when the cursor index is
+    /// unchanged but the matched block moved).
+    @State private var findScrollToken = 0
+    /// True once find-navigation has taken over the auto-scroll pause, so closing
+    /// the bar resumes playback-follow — without clobbering an unrelated
+    /// manual-scroll pause when find never navigated.
+    @State private var findPausedAutoScroll = false
     @State private var editingSpeakerId: String?
     @State private var editingSpeakerLabel: String = ""
     @State private var showConversationPopover = false
@@ -126,6 +164,7 @@ struct TranscriptResultView: View {
     @FocusState private var meetingTitleFocused: Bool
     @FocusState private var transcriptEditorFocused: Bool
     @FocusState private var speakerRenameFocused: Bool
+    @FocusState private var findFieldFocused: Bool
 
     private let suggestedPrompts = [
         "Summarize the key points",
@@ -200,6 +239,12 @@ struct TranscriptResultView: View {
             lastScrolledSegmentMs = -1
             autoScrollPaused = false
             scrollPauseTask?.cancel()
+            // Reset find for the new transcript (no animation during the swap).
+            findBarVisible = false
+            findFieldFocused = false
+            findModel.clear()
+            findBlocks = []
+            findPausedAutoScroll = false
             viewModel.hasConversations = false
             viewModel.selectedTab = .transcript
             viewModel.loadPersistedContent()
@@ -210,12 +255,18 @@ struct TranscriptResultView: View {
         }
         .onChange(of: activeTranscription.speakers) {
             rebuildSegmentCache()
+            if findBarVisible { rebuildFindBlocks() }
         }
         .onChange(of: activeTranscription.wordTimestamps) {
             rebuildSegmentCache()
+            if findBarVisible { rebuildFindBlocks() }
         }
         .onChange(of: activeTranscription.diarizationSegments) {
             rebuildSegmentCache()
+            if findBarVisible { rebuildFindBlocks() }
+        }
+        .onChange(of: transcriptText) {
+            if findBarVisible { rebuildFindBlocks() }
         }
         .onChange(of: transcriptAIContextModeRaw) {
             chatViewModel.loadTranscript(currentAIContextText, transcriptionId: viewModel.currentTranscription?.id)
@@ -1058,7 +1109,11 @@ struct TranscriptResultView: View {
     }
 
     private var transcriptPane: some View {
-        ScrollViewReader { proxy in
+        VStack(spacing: 0) {
+            if findBarVisible {
+                transcriptFindToolbar
+            }
+            ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: DesignSystem.Spacing.md) {
                     transcriptPaneHeader
@@ -1088,7 +1143,7 @@ struct TranscriptResultView: View {
                         }
                         timestampedView(words: timestamps)
                     } else if !transcriptText.isEmpty {
-                        transcriptTextBlock(transcriptText)
+                        transcriptTextBlock
                     } else {
                         Text("No transcript available")
                             .foregroundStyle(DesignSystem.Colors.textSecondary)
@@ -1114,6 +1169,18 @@ struct TranscriptResultView: View {
                     }
                 }
             }
+            // Find navigation: scroll the current match into view. Pausing
+            // auto-scroll keeps playback-follow from yanking the view back.
+            .onChange(of: findScrollToken) {
+                guard findBarVisible, let target = findCurrentScrollTargetID else { return }
+                autoScrollPaused = true
+                findPausedAutoScroll = true
+                scrollPauseTask?.cancel()
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    proxy.scrollTo(target, anchor: .center)
+                }
+            }
+            }
         }
         .background(
             RoundedRectangle(cornerRadius: DesignSystem.Layout.cardCornerRadius)
@@ -1123,12 +1190,26 @@ struct TranscriptResultView: View {
             RoundedRectangle(cornerRadius: DesignSystem.Layout.cardCornerRadius)
                 .strokeBorder(DesignSystem.Colors.border.opacity(0.75), lineWidth: 0.5)
         )
+        .background { transcriptFindShortcuts }
+        .onChange(of: transcriptDisplayMode) {
+            if findBarVisible { rebuildFindBlocks() }
+        }
+        .onChange(of: editingTranscript) {
+            if editingTranscript, findBarVisible { closeFindBar() }
+        }
         .onAppear {
             if let existing = scrollMonitor {
                 NSEvent.removeMonitor(existing)
             }
             scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
                 if self.playerViewModel.isPlaying {
+                    if self.findPausedAutoScroll {
+                        // Manual scroll takes ownership and should start the
+                        // normal bounded pause below, not inherit find's pause.
+                        self.findPausedAutoScroll = false
+                        self.autoScrollPaused = false
+                        self.scrollPauseTask?.cancel()
+                    }
                     if !self.autoScrollPaused {
                         self.autoScrollPaused = true
                         self.lastScrolledSegmentMs = -1
@@ -1152,6 +1233,227 @@ struct TranscriptResultView: View {
             scrollPauseTask?.cancel()
             autoScrollPaused = false
         }
+    }
+
+    // MARK: - In-transcript find (U2)
+
+    /// Pinned find toolbar at the top of the reading pane. Stays visible while
+    /// scrolling (unlike a row inside the ScrollView) and never overlaps the
+    /// header controls (unlike a floating overlay).
+    private var transcriptFindToolbar: some View {
+        HStack {
+            Spacer()
+            transcriptFindBar
+        }
+        .padding(.horizontal, DesignSystem.Spacing.lg)
+        .padding(.top, DesignSystem.Spacing.md)
+        .padding(.bottom, DesignSystem.Spacing.sm)
+        .transition(.move(edge: .top).combined(with: .opacity))
+    }
+
+    private var transcriptFindBar: some View {
+        TranscriptFindBar(
+            query: Binding(
+                get: { findModel.query },
+                set: { setFindQuery($0) }
+            ),
+            isFocused: $findFieldFocused,
+            position: findModel.displayPosition,
+            hasQueryButNoMatches: findHasQueryNoMatches,
+            onNext: { findModel.next(); findScrollToken &+= 1 },
+            onPrev: { findModel.prev(); findScrollToken &+= 1 },
+            onClose: closeFindBar
+        )
+    }
+
+    /// Hidden buttons that register ⌘F / ⌘G / ⇧⌘G while the transcript pane is
+    /// in the hierarchy. ⌘G stepping is gated on an open bar with live matches.
+    private var transcriptFindShortcuts: some View {
+        ZStack {
+            Button("") { openFindBar() }
+                .keyboardShortcut("f", modifiers: .command)
+            if findBarVisible, findModel.hasMatches {
+                Button("") { findModel.next(); findScrollToken &+= 1 }
+                    .keyboardShortcut("g", modifiers: .command)
+                Button("") { findModel.prev(); findScrollToken &+= 1 }
+                    .keyboardShortcut("g", modifiers: [.command, .shift])
+            }
+        }
+        .opacity(0)
+        .frame(width: 0, height: 0)
+        .accessibilityHidden(true)
+    }
+
+    /// Match ranges to wash in the reading surface, keyed by block `id`
+    /// (segment `startMs` in Timed mode, paragraph line index in Text mode).
+    private var findHighlightsByBlockId: [Int: [NSRange]] {
+        guard findBarVisible, !findModel.matches.isEmpty, !findBlocks.isEmpty else { return [:] }
+        var dict: [Int: [NSRange]] = [:]
+        for match in findModel.matches where findBlocks.indices.contains(match.blockIndex) {
+            dict[findBlocks[match.blockIndex].id, default: []].append(match.range)
+        }
+        return dict
+    }
+
+    /// The single emphasized match, resolved to its block's scroll `id`.
+    private var findCurrentHighlight: (id: Int, range: NSRange)? {
+        guard findBarVisible, let current = findModel.current,
+              findBlocks.indices.contains(current.blockIndex) else { return nil }
+        return (id: findBlocks[current.blockIndex].id, range: current.range)
+    }
+
+    /// The scroll target for the current match. Timed mode scrolls to the
+    /// owning segment. Text mode keeps one selectable transcript body, so it
+    /// scrolls to the hidden prefix anchor for the current match range.
+    private var findCurrentScrollTargetID: Int? {
+        guard findBarVisible, let current = findModel.current,
+              findBlocks.indices.contains(current.blockIndex) else { return nil }
+        if transcriptDisplayMode == .text {
+            return currentTextFindAnchor?.id
+        }
+        return findBlocks[current.blockIndex].id
+    }
+
+    private var findFullTextHighlightRanges: [NSRange] {
+        guard findBarVisible, transcriptDisplayMode == .text, !findModel.matches.isEmpty else { return [] }
+        return findModel.matches.map(\.range)
+    }
+
+    private var findFullTextCurrentHighlightRange: NSRange? {
+        guard findBarVisible, transcriptDisplayMode == .text else { return nil }
+        return findModel.current?.range
+    }
+
+    private var findHasQueryNoMatches: Bool {
+        findBarVisible
+            && !findModel.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !findModel.hasMatches
+    }
+
+    private func openFindBar() {
+        // Find is a reading affordance; editing uses the raw text editor.
+        guard !editingTranscript else { return }
+        if !findBarVisible {
+            withAnimation(DesignSystem.Animation.contentSwap) { findBarVisible = true }
+        }
+        rebuildFindBlocks()
+        Task { @MainActor in findFieldFocused = true }
+    }
+
+    private func closeFindBar() {
+        withAnimation(DesignSystem.Animation.contentSwap) { findBarVisible = false }
+        findFieldFocused = false
+        findModel.clear()
+        findBlocks = []
+        releaseFindOwnedAutoScrollPause()
+    }
+
+    /// Resume playback-follow only if find navigation owns the pause; manual
+    /// scroll pauses keep their normal 5-second lifetime.
+    private func releaseFindOwnedAutoScrollPause() {
+        if findPausedAutoScroll {
+            autoScrollPaused = false
+            scrollPauseTask?.cancel()
+            findPausedAutoScroll = false
+        }
+    }
+
+    private func setFindQuery(_ newValue: String) {
+        findModel.setQuery(newValue)
+        if !findModel.hasMatches {
+            releaseFindOwnedAutoScrollPause()
+        }
+        findScrollToken &+= 1
+    }
+
+    /// Rebuild the ordered blocks the matcher searches for the current mode and
+    /// re-run the live query. Timed mode searches cached segments. Text mode
+    /// searches the full transcript string so native selection can span line and
+    /// paragraph breaks; the current-match scroll anchor is derived on demand.
+    private func rebuildFindBlocks() {
+        guard findBarVisible, !editingTranscript else {
+            findBlocks = []
+            findModel.setBlocks([])
+            releaseFindOwnedAutoScrollPause()
+            return
+        }
+        let blocks: [TranscriptFindBlock]
+        if transcriptDisplayMode == .timed, hasTimestamps {
+            blocks = cachedSegments.map { TranscriptFindBlock(id: $0.startMs, text: $0.text) }
+        } else {
+            blocks = [TranscriptFindBlock(id: 0, text: transcriptText)]
+        }
+        findBlocks = blocks
+        findModel.setBlocks(blocks.map(\.text))
+        if findModel.hasMatches {
+            findScrollToken &+= 1
+        } else {
+            releaseFindOwnedAutoScrollPause()
+        }
+    }
+
+    private var currentTextFindAnchor: TranscriptTextFindAnchor? {
+        guard findBarVisible, transcriptDisplayMode == .text,
+              let current = findModel.current else { return nil }
+        guard let prefixEnd = transcriptText.stringIndex(utf16Offset: current.range.location) else {
+            return nil
+        }
+        return TranscriptTextFindAnchor(
+            id: Self.textFindAnchorBaseID,
+            prefixText: String(transcriptText[..<prefixEnd])
+        )
+    }
+
+    /// Persisted scale clamped to the supported range, so a stale or externally
+    /// written `transcriptFontScale` never renders the body at an out-of-range
+    /// size before the user touches A−/A+.
+    private var clampedTranscriptFontScale: Double {
+        min(
+            max(transcriptFontScale, Self.transcriptFontScaleRange.lowerBound),
+            Self.transcriptFontScaleRange.upperBound
+        )
+    }
+
+    /// Transcript body font at the current user reading scale (U4).
+    private var scaledTranscriptFont: Font {
+        DesignSystem.Typography.transcriptBody(scale: clampedTranscriptFontScale)
+    }
+
+    private func adjustTranscriptFontScale(by delta: Double) {
+        let next = clampedTranscriptFontScale + delta
+        transcriptFontScale = min(
+            max(next, Self.transcriptFontScaleRange.lowerBound),
+            Self.transcriptFontScaleRange.upperBound
+        )
+    }
+
+    /// Compact A−/A+ control for the transcript reading size. Lives in the pane
+    /// header; hidden while editing (editing uses the raw text editor).
+    private var transcriptFontSizeControl: some View {
+        HStack(spacing: 2) {
+            Button {
+                adjustTranscriptFontScale(by: -Self.transcriptFontScaleStep)
+            } label: {
+                Image(systemName: "textformat.size.smaller")
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            .buttonStyle(.plain)
+            .disabled(clampedTranscriptFontScale <= Self.transcriptFontScaleRange.lowerBound + 0.001)
+            .help("Smaller transcript text")
+            .accessibilityLabel("Smaller transcript text")
+
+            Button {
+                adjustTranscriptFontScale(by: Self.transcriptFontScaleStep)
+            } label: {
+                Image(systemName: "textformat.size.larger")
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            .buttonStyle(.plain)
+            .disabled(clampedTranscriptFontScale >= Self.transcriptFontScaleRange.upperBound - 0.001)
+            .help("Larger transcript text")
+            .accessibilityLabel("Larger transcript text")
+        }
+        .foregroundStyle(DesignSystem.Colors.textSecondary)
     }
 
     private var transcriptPaneHeader: some View {
@@ -1184,6 +1486,10 @@ struct TranscriptResultView: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .frame(width: 150)
+            }
+
+            if !editingTranscript {
+                transcriptFontSizeControl
             }
 
             if editingTranscript {
@@ -1254,18 +1560,111 @@ struct TranscriptResultView: View {
             && !viewModel.hasConversations
     }
 
-    private func transcriptTextBlock(_ text: String) -> some View {
-        Text(text)
-            .font(DesignSystem.Typography.bodyLarge)
-            .foregroundStyle(DesignSystem.Colors.textPrimary)
-            .textSelection(.enabled)
-            .lineSpacing(6)
-            .padding(DesignSystem.Spacing.lg)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: DesignSystem.Layout.rowCornerRadius)
-                    .fill(DesignSystem.Colors.surfaceElevated.opacity(0.6))
-            )
+    @ViewBuilder
+    private var transcriptTextBlock: some View {
+        if findBarVisible {
+            transcriptTextBlockSearchable()
+        } else {
+            Text(transcriptText)
+                .font(scaledTranscriptFont)
+                .foregroundStyle(DesignSystem.Colors.textPrimary)
+                .textSelection(.enabled)
+                .lineSpacing(6)
+                .padding(DesignSystem.Spacing.lg)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: DesignSystem.Layout.rowCornerRadius)
+                        .fill(DesignSystem.Colors.surfaceElevated.opacity(0.6))
+                )
+        }
+    }
+
+    @ViewBuilder
+    private func transcriptTextBlockSearchable() -> some View {
+        if transcriptDisplayMode == .text {
+            transcriptFullTextSearchableBlock()
+        } else {
+            transcriptTimedTextSearchableBlocks()
+        }
+    }
+
+    private func transcriptFullTextSearchableBlock() -> some View {
+        Text(TranscriptFindHighlight.attributed(
+            transcriptText,
+            ranges: findFullTextHighlightRanges,
+            current: findFullTextCurrentHighlightRange,
+            baseFont: scaledTranscriptFont
+        ))
+        .foregroundStyle(DesignSystem.Colors.textPrimary)
+        .lineSpacing(6)
+        .textSelection(.enabled)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(alignment: .topLeading) {
+            transcriptTextFindAnchor()
+        }
+        .padding(DesignSystem.Spacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: DesignSystem.Layout.rowCornerRadius)
+                .fill(DesignSystem.Colors.surfaceElevated.opacity(0.6))
+        )
+    }
+
+    @ViewBuilder
+    private func transcriptTextFindAnchor() -> some View {
+        if let anchor = currentTextFindAnchor {
+            Text(anchor.prefixText)
+                .font(scaledTranscriptFont)
+                .lineSpacing(6)
+                .foregroundStyle(.clear)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .overlay(alignment: .bottomLeading) {
+                    Color.clear
+                        .frame(width: 1, height: 1)
+                        .id(anchor.id)
+                }
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private func transcriptTimedTextSearchableBlocks() -> some View {
+        let highlights = findHighlightsByBlockId
+        let current = findCurrentHighlight
+        return VStack(alignment: .leading, spacing: DesignSystem.Spacing.sm) {
+            ForEach(findBlocks) { block in
+                paragraphText(block, highlights: highlights, current: current)
+                    .foregroundStyle(DesignSystem.Colors.textPrimary)
+                    .lineSpacing(6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .id(block.id)
+            }
+        }
+        .textSelection(.enabled)
+        .padding(DesignSystem.Spacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: DesignSystem.Layout.rowCornerRadius)
+                .fill(DesignSystem.Colors.surfaceElevated.opacity(0.6))
+        )
+    }
+
+    private func paragraphText(
+        _ block: TranscriptFindBlock,
+        highlights: [Int: [NSRange]],
+        current: (id: Int, range: NSRange)?
+    ) -> Text {
+        let ranges = highlights[block.id] ?? []
+        guard !ranges.isEmpty else {
+            return Text(block.text).font(scaledTranscriptFont)
+        }
+        let currentRange = (current?.id == block.id) ? current?.range : nil
+        return Text(TranscriptFindHighlight.attributed(
+            block.text,
+            ranges: ranges,
+            current: currentRange,
+            baseFont: scaledTranscriptFont
+        ))
     }
 
     private func meetingNotesSection(_ notes: String) -> some View {
@@ -2361,6 +2760,10 @@ struct TranscriptResultView: View {
 
     @ViewBuilder
     private func timestampedView(words _: [WordTimestamp]) -> some View {
+        // Compute the highlight map once here, not per row, so a long transcript
+        // with an active find doesn't rescan matches for every segment.
+        let highlights = findHighlightsByBlockId
+        let current = findCurrentHighlight
         TranscriptTimestampedContentView(
             hasSpeakers: cachedHasSpeakers,
             turns: cachedTurns,
@@ -2377,7 +2780,10 @@ struct TranscriptResultView: View {
                 }
                 autoScrollPaused = false
                 scrollPauseTask?.cancel()
-            }
+            },
+            bodyFont: scaledTranscriptFont,
+            highlightRangesByStartMs: highlights,
+            currentHighlight: current
         )
     }
 
@@ -3254,5 +3660,15 @@ private struct EngineBadge: View {
                 Capsule(style: .continuous)
                     .stroke(tint.opacity(0.28), lineWidth: 0.5)
             )
+    }
+}
+
+private extension String {
+    func stringIndex(utf16Offset: Int) -> String.Index? {
+        guard utf16Offset >= 0,
+              let utf16Index = utf16.index(utf16.startIndex, offsetBy: utf16Offset, limitedBy: utf16.endIndex) else {
+            return nil
+        }
+        return String.Index(utf16Index, within: self)
     }
 }

@@ -1,5 +1,100 @@
 import SwiftUI
+import Foundation
 import MacParakeetCore
+
+private struct TranscriptSegmentRowIdentity: Hashable {
+    let startMs: Int
+    let text: String
+    let speakerId: String?
+    let duplicateOrdinal: Int
+}
+
+private struct TranscriptSegmentRowIdentityBase: Hashable {
+    let startMs: Int
+    let text: String
+    let speakerId: String?
+}
+
+private struct IndexedTranscriptSegment: Identifiable {
+    let index: Int
+    let segment: TranscriptSegment
+    let identity: TranscriptSegmentRowIdentity
+
+    var id: TranscriptSegmentRowIdentity {
+        identity
+    }
+}
+
+private func indexedSegments(_ segments: [TranscriptSegment]) -> [IndexedTranscriptSegment] {
+    var duplicateCounts: [TranscriptSegmentRowIdentityBase: Int] = [:]
+    return segments.enumerated().map { index, segment in
+        let base = TranscriptSegmentRowIdentityBase(
+            startMs: segment.startMs,
+            text: segment.text,
+            speakerId: segment.speakerId
+        )
+        let ordinal = duplicateCounts[base, default: 0]
+        duplicateCounts[base] = ordinal + 1
+        return IndexedTranscriptSegment(
+            index: index,
+            segment: segment,
+            identity: TranscriptSegmentRowIdentity(
+                startMs: segment.startMs,
+                text: segment.text,
+                speakerId: segment.speakerId,
+                duplicateOrdinal: ordinal
+            )
+        )
+    }
+}
+
+private struct SpeakerTurnIdentity: Hashable {
+    let speakerId: String
+    let firstStartMs: Int?
+    let lastStartMs: Int?
+    let segmentCount: Int
+    let duplicateOrdinal: Int
+}
+
+private struct SpeakerTurnIdentityBase: Hashable {
+    let speakerId: String
+    let firstStartMs: Int?
+    let lastStartMs: Int?
+    let segmentCount: Int
+}
+
+private struct IdentifiedSpeakerTurn: Identifiable {
+    let turn: SpeakerTurn
+    let identity: SpeakerTurnIdentity
+
+    var id: SpeakerTurnIdentity {
+        identity
+    }
+}
+
+private func identifiedSpeakerTurns(_ turns: [SpeakerTurn]) -> [IdentifiedSpeakerTurn] {
+    var duplicateCounts: [SpeakerTurnIdentityBase: Int] = [:]
+    return turns.map { turn in
+        let base = SpeakerTurnIdentityBase(
+            speakerId: turn.speakerId,
+            firstStartMs: turn.segments.first?.startMs,
+            lastStartMs: turn.segments.last?.startMs,
+            segmentCount: turn.segments.count
+        )
+        let ordinal = duplicateCounts[base, default: 0]
+        duplicateCounts[base] = ordinal + 1
+        return IdentifiedSpeakerTurn(
+            turn: turn,
+            identity: SpeakerTurnIdentity(
+                speakerId: turn.speakerId,
+                firstStartMs: base.firstStartMs,
+                lastStartMs: base.lastStartMs,
+                segmentCount: base.segmentCount,
+                duplicateOrdinal: ordinal
+            )
+        )
+    }
+}
 
 struct TranscriptTimestampedContentView: View {
     let hasSpeakers: Bool
@@ -11,49 +106,62 @@ struct TranscriptTimestampedContentView: View {
     let timestampLabel: (Int) -> String
     let isTimestampSeekable: Bool
     let onTimestampTap: (Int) -> Void
+    /// User-adjustable reading size for the transcript body (U4). Defaults to the
+    /// design-system `bodyLarge` so existing call sites are unaffected.
+    var bodyFont: Font = DesignSystem.Typography.bodyLarge
+    /// In-transcript find highlights (U2), keyed by a row's `startMs`.
+    var highlightRangesByStartMs: [Int: [NSRange]] = [:]
+    /// The single emphasized ("current") match, identified by its row `startMs`.
+    var currentHighlight: (id: Int, range: NSRange)?
 
     var body: some View {
         if hasSpeakers {
-            ForEach(turns, id: \.segments.first?.startMs) { turn in
+            ForEach(identifiedSpeakerTurns(turns)) { identified in
+                let turn = identified.turn
                 TranscriptTurnCardView(
                     speakerLabel: speakerLabelForID(turn.speakerId),
                     speakerColor: speakerColorMap[turn.speakerId] ?? DesignSystem.Colors.textTertiary,
                     segments: turn.segments,
                     timestampLabel: timestampLabel,
                     isTimestampSeekable: isTimestampSeekable,
+                    bodyFont: bodyFont,
+                    highlightRangesByStartMs: highlightRangesByStartMs,
+                    currentHighlight: currentHighlight,
                     onTimestampTap: onTimestampTap
                 )
+                // Preserve the existing first-segment/card scroll target while
+                // later rows expose their own anchors for mid-turn find results.
                 .id(turn.segments.first?.startMs ?? 0)
             }
         } else {
-            ForEach(Array(segments.enumerated()), id: \.element.startMs) { index, segment in
-                let isActive = isSegmentActive(index)
-                HStack(alignment: .top, spacing: DesignSystem.Spacing.md) {
-                    TranscriptTimestampChip(
+            ForEach(indexedSegments(segments)) { indexed in
+                let index = indexed.index
+                let segment = indexed.segment
+                ZStack(alignment: .topLeading) {
+                    timestampScrollAnchor(startMs: segment.startMs)
+                    TranscriptSegmentRow(
                         startMs: segment.startMs,
-                        label: timestampLabel(segment.startMs),
+                        text: segment.text,
+                        timestampText: timestampLabel(segment.startMs),
+                        isActive: isSegmentActive(index),
                         isSeekable: isTimestampSeekable,
-                        onTap: onTimestampTap
+                        bodyFont: bodyFont,
+                        showRowBackground: true,
+                        highlightRanges: highlightRangesByStartMs[segment.startMs] ?? [],
+                        currentRange: currentHighlight?.id == segment.startMs ? currentHighlight?.range : nil,
+                        onPlayFromHere: { onTimestampTap(segment.startMs) }
                     )
-
-                    Text(segment.text)
-                        .font(DesignSystem.Typography.bodyLarge)
-                        .foregroundStyle(DesignSystem.Colors.textPrimary)
-                        .textSelection(.enabled)
-                        .lineSpacing(5)
-                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(DesignSystem.Spacing.md)
-                .background(
-                    RoundedRectangle(cornerRadius: DesignSystem.Layout.rowCornerRadius)
-                        .fill(isActive
-                              ? DesignSystem.Colors.accent.opacity(0.12)
-                              : DesignSystem.Colors.surfaceElevated.opacity(0.45))
-                )
-                .id(segment.startMs)
             }
         }
     }
+}
+
+private func timestampScrollAnchor(startMs: Int) -> some View {
+    Color.clear
+        .frame(width: 1, height: 1)
+        .id(startMs)
+        .accessibilityHidden(true)
 }
 
 private struct TranscriptTurnCardView: View {
@@ -62,6 +170,9 @@ private struct TranscriptTurnCardView: View {
     let segments: [TranscriptSegment]
     let timestampLabel: (Int) -> String
     let isTimestampSeekable: Bool
+    var bodyFont: Font
+    var highlightRangesByStartMs: [Int: [NSRange]] = [:]
+    var currentHighlight: (id: Int, range: NSRange)?
     let onTimestampTap: (Int) -> Void
 
     var body: some View {
@@ -83,22 +194,10 @@ private struct TranscriptTurnCardView: View {
             }
 
             VStack(alignment: .leading, spacing: DesignSystem.Spacing.sm) {
-                ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
-                    HStack(alignment: .top, spacing: DesignSystem.Spacing.md) {
-                        TranscriptTimestampChip(
-                            startMs: segment.startMs,
-                            label: timestampLabel(segment.startMs),
-                            isSeekable: isTimestampSeekable,
-                            onTap: onTimestampTap
-                        )
-
-                        Text(segment.text)
-                            .font(DesignSystem.Typography.bodyLarge)
-                            .foregroundStyle(DesignSystem.Colors.textPrimary)
-                            .textSelection(.enabled)
-                            .lineSpacing(5)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
+                ForEach(indexedSegments(segments)) { indexed in
+                    let index = indexed.index
+                    let segment = indexed.segment
+                    turnSegmentRow(index: index, segment: segment)
                 }
             }
         }
@@ -111,6 +210,34 @@ private struct TranscriptTurnCardView: View {
             RoundedRectangle(cornerRadius: DesignSystem.Layout.rowCornerRadius)
                 .strokeBorder(speakerColor.opacity(0.18), lineWidth: 0.75)
         )
+    }
+
+    @ViewBuilder
+    private func turnSegmentRow(index: Int, segment: TranscriptSegment) -> some View {
+        let row = TranscriptSegmentRow(
+            startMs: segment.startMs,
+            text: segment.text,
+            timestampText: timestampLabel(segment.startMs),
+            // Per-segment active highlight is a flat-mode affordance
+            // today; turn cards keep their own surface unchanged.
+            isActive: false,
+            isSeekable: isTimestampSeekable,
+            bodyFont: bodyFont,
+            showRowBackground: false,
+            highlightRanges: highlightRangesByStartMs[segment.startMs] ?? [],
+            currentRange: currentHighlight?.id == segment.startMs ? currentHighlight?.range : nil,
+            onPlayFromHere: { onTimestampTap(segment.startMs) }
+        )
+        if index == 0 {
+            row
+        } else {
+            // Non-first rows get their own anchors so find navigation can land
+            // inside a speaker turn without shifting the first-line/card target.
+            ZStack(alignment: .topLeading) {
+                timestampScrollAnchor(startMs: segment.startMs)
+                row
+            }
+        }
     }
 
     @ViewBuilder
@@ -128,6 +255,126 @@ private struct TranscriptTurnCardView: View {
             Capsule()
                 .fill(DesignSystem.Colors.surfaceElevated)
         )
+    }
+}
+
+/// One transcript line: a seekable timestamp chip, the segment text, and
+/// hover-revealed actions (play-from-here, copy, copy-with-timestamp). Shared by
+/// both the flat segment list and the speaker-turn cards so the affordances stay
+/// identical across modes.
+private struct TranscriptSegmentRow: View {
+    let startMs: Int
+    let text: String
+    let timestampText: String
+    let isActive: Bool
+    let isSeekable: Bool
+    var bodyFont: Font
+    /// Flat list rows draw their own active/inactive surface; turn-card rows sit
+    /// inside the card and pass `false`.
+    var showRowBackground: Bool
+    /// In-transcript find matches inside this row's text (U2). Empty on the
+    /// fast path keeps the row a plain `Text`.
+    var highlightRanges: [NSRange] = []
+    /// The emphasized match within this row, if the find cursor is on it.
+    var currentRange: NSRange?
+    let onPlayFromHere: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        HStack(alignment: .top, spacing: DesignSystem.Spacing.md) {
+            TranscriptTimestampChip(
+                startMs: startMs,
+                label: timestampText,
+                isSeekable: isSeekable,
+                onTap: { _ in onPlayFromHere() }
+            )
+
+            bodyTextCore
+                .foregroundStyle(DesignSystem.Colors.textPrimary)
+                .textSelection(.enabled)
+                .lineSpacing(5)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(showRowBackground ? DesignSystem.Spacing.md : 0)
+        .background {
+            if showRowBackground {
+                RoundedRectangle(cornerRadius: DesignSystem.Layout.rowCornerRadius)
+                    .fill(isActive
+                          ? DesignSystem.Colors.accent.opacity(0.12)
+                          : DesignSystem.Colors.surfaceElevated.opacity(0.45))
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            hoverActions
+                .padding(showRowBackground ? DesignSystem.Spacing.sm : 0)
+                .opacity(isHovering ? 1 : 0)
+                .allowsHitTesting(isHovering)
+        }
+        .onHover { hovering in
+            withAnimation(DesignSystem.Animation.hoverTransition) {
+                isHovering = hovering
+            }
+        }
+    }
+
+    /// Plain `Text` on the idle fast path; an attributed, highlighted `Text`
+    /// only when this row carries find matches.
+    private var bodyTextCore: Text {
+        guard !highlightRanges.isEmpty else {
+            return Text(text).font(bodyFont)
+        }
+        return Text(TranscriptFindHighlight.attributed(
+            text,
+            ranges: highlightRanges,
+            current: currentRange,
+            baseFont: bodyFont
+        ))
+    }
+
+    private var hoverActions: some View {
+        HStack(spacing: 2) {
+            // Play-from-here mirrors the timestamp chip's ready-state guard: when
+            // playback isn't seekable the chip is inert, so don't expose a live
+            // play action that would bypass it. Copy actions stay available.
+            if isSeekable {
+                rowActionButton(icon: "play.fill", help: "Play from here", action: onPlayFromHere)
+            }
+            rowActionButton(icon: "doc.on.doc", help: "Copy text") {
+                TranscriptResultActions.copyText(text)
+            }
+            rowActionButton(icon: "clock", help: "Copy with timestamp") {
+                TranscriptResultActions.copyText(
+                    TranscriptSegmentClipboard.text(timestampLabel: timestampText, body: text)
+                )
+            }
+        }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 3)
+        .background(
+            Capsule().fill(DesignSystem.Colors.surface)
+        )
+        .overlay(
+            Capsule().strokeBorder(DesignSystem.Colors.textTertiary.opacity(0.20), lineWidth: 0.5)
+        )
+        .shadow(color: .black.opacity(0.08), radius: 3, y: 1)
+    }
+
+    private func rowActionButton(
+        icon: String,
+        help: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(DesignSystem.Colors.textSecondary)
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(help)
     }
 }
 
