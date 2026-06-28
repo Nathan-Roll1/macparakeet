@@ -71,11 +71,34 @@ extension MeetingInputDeviceAttempt.Source {
     }
 }
 
+/// Builds the ordered device-attempt chain the shared mic engine walks on
+/// every start, deduplicated by device ID unless a pinned built-in fallback is
+/// needed to avoid an unpinned Bluetooth system default.
+///
+/// `preferBuiltInWhenOutputIsBluetooth` opts into the Bluetooth-output
+/// avoidance rule. When audio output is currently routed to a Bluetooth
+/// headset and the unpinned system-default input is Bluetooth, unresolved, or
+/// the built-in mic itself, the built-in microphone is pinned before that
+/// default fallback so opening the mic does not force the headset from A2DP
+/// into HFP/SCO — which degrades playback and races the profile switch into
+/// silent capture (issues #481 / #541 / #409). A resolvable explicit
+/// selection stays first; the rule only changes the fallback behind it. The
+/// rule is gated on whether a `.selected` attempt actually resolved, not just
+/// on `selectedUID`: a saved-but-unavailable selection falls through to this
+/// rule rather than landing on a Bluetooth system default. A non-Bluetooth
+/// system-default input, such as a USB desk mic, is left alone.
+/// `outputIsBluetooth` is consulted last, only once the cheap guards confirm
+/// the rule could improve the chain, so the HAL query is skipped when the
+/// feature is off, the default input is non-Bluetooth, or there is no built-in
+/// mic to pin.
 public func meetingInputDeviceAttempts(
     selectedUID: String?,
     selectedInputDeviceID: (String) -> AudioDeviceID?,
     defaultInputDevice: () -> AudioDeviceID?,
-    builtInMicrophone: () -> AudioDeviceID?
+    builtInMicrophone: () -> AudioDeviceID?,
+    preferBuiltInWhenOutputIsBluetooth: Bool = false,
+    defaultInputIsBluetooth: (AudioDeviceID) -> Bool = { _ in true },
+    outputIsBluetooth: () -> Bool = { false }
 ) -> [MeetingInputDeviceAttempt] {
     var attempts: [MeetingInputDeviceAttempt] = []
     var seenDeviceIDs = Set<AudioDeviceID>()
@@ -90,12 +113,80 @@ public func meetingInputDeviceAttempts(
     }
 
     let defaultDeviceID = defaultInputDevice()
+    let builtInDeviceID = builtInMicrophone()
     if let defaultDeviceID {
         seenDeviceIDs.insert(defaultDeviceID)
     }
     attempts.append(.implicitSystemDefault(resolvedDeviceID: defaultDeviceID))
 
-    appendExplicit(.builtIn, deviceID: builtInMicrophone())
+    appendExplicit(.builtIn, deviceID: builtInDeviceID)
+
+    // Bluetooth-output avoidance. Gate on whether a `.selected` attempt
+    // actually resolved (not just on `selectedUID`): a saved selection whose
+    // device is currently unavailable produces no `.selected` attempt and
+    // would otherwise fall back to a Bluetooth system default and still hit
+    // the race. Leave non-Bluetooth system-default inputs (for example a USB
+    // desk mic) alone; opening them does not force the headset output into
+    // HFP/SCO. The cheap structural guards run before any transport query so
+    // the HAL is consulted only when the chain can actually be made safer.
+    let hasResolvedSelection = attempts.contains { attempt in
+        if case .selected = attempt.source { return true }
+        return false
+    }
+    if preferBuiltInWhenOutputIsBluetooth,
+        let builtInDeviceID
+    {
+        let shouldAvoidDefaultInput: Bool = {
+            guard let defaultDeviceID else { return true }
+            if defaultDeviceID == builtInDeviceID { return true }
+            return defaultInputIsBluetooth(defaultDeviceID)
+        }()
+
+        if shouldAvoidDefaultInput, outputIsBluetooth() {
+            let selectedDeviceID = attempts.first { attempt in
+                if case .selected = attempt.source { return true }
+                return false
+            }?.deviceID
+            let defaultIndex = attempts.firstIndex(where: \.usesImplicitSystemDefault)
+
+            func removeImplicitDefaultFallback() {
+                if let defaultIndex = attempts.firstIndex(where: \.usesImplicitSystemDefault) {
+                    attempts.remove(at: defaultIndex)
+                }
+            }
+
+            func moveOrInsertBuiltIn(at index: Int) {
+                if let existingIndex = attempts.firstIndex(where: { $0.source == .builtIn }) {
+                    let builtIn = attempts.remove(at: existingIndex)
+                    attempts.insert(builtIn, at: existingIndex < index ? index - 1 : index)
+                } else if selectedDeviceID != builtInDeviceID {
+                    attempts.insert(
+                        MeetingInputDeviceAttempt(source: .builtIn, deviceID: builtInDeviceID),
+                        at: index
+                    )
+                }
+            }
+
+            if hasResolvedSelection {
+                if selectedDeviceID == builtInDeviceID {
+                    removeImplicitDefaultFallback()
+                } else if let defaultIndex {
+                    moveOrInsertBuiltIn(at: defaultIndex)
+                    if defaultDeviceID == builtInDeviceID {
+                        removeImplicitDefaultFallback()
+                    }
+                }
+            } else if let builtInIndex = attempts.firstIndex(where: { $0.source == .builtIn }) {
+                if builtInIndex != 0 {
+                    let builtIn = attempts.remove(at: builtInIndex)
+                    attempts.insert(builtIn, at: 0)
+                }
+            } else if defaultDeviceID == builtInDeviceID {
+                removeImplicitDefaultFallback()
+                attempts.insert(MeetingInputDeviceAttempt(source: .builtIn, deviceID: builtInDeviceID), at: 0)
+            }
+        }
+    }
 
     return attempts
 }

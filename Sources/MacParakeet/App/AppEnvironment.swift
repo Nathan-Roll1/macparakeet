@@ -92,9 +92,17 @@ final class AppEnvironment {
         // explicit experiments, but enabling it during live calls can degrade
         // the outgoing mic heard by other participants.
         let meetingMicProcessingMode: MeetingMicProcessingMode = .raw
+        let preferBuiltInForBluetoothOutputProvider: @Sendable () -> Bool = { [runtimePreferences] in
+            runtimePreferences.preferBuiltInMicWhenBluetoothOutput
+        }
         // Build the device-attempt chain lazily on each engine start so a
         // user changing their mic in Settings between meetings sees the new
-        // selection.
+        // selection. When output is routed to a Bluetooth headset and the
+        // unpinned system-default input is risky (Bluetooth, unresolved, or
+        // built-in but not pinned), the chain pins the built-in mic before
+        // that fallback so opening capture doesn't force the headset into
+        // HFP/SCO (issues #481/#541/#409); the Bluetooth-output query runs
+        // lazily, only after the cheaper input guards pass.
         let attemptsBuilder: AVAudioEngineMicrophonePlatform.DeviceAttemptsBuilder = {
             let selectedUID = AudioDeviceManager.normalizedUID(selectedInputDeviceUIDProvider())
             let selectedID = selectedUID.flatMap { AudioDeviceManager.inputDeviceID(forUID: $0) }
@@ -104,7 +112,10 @@ final class AppEnvironment {
                 selectedUID: selectedUID,
                 selectedInputDeviceID: { _ in selectedID },
                 defaultInputDevice: { defaultID },
-                builtInMicrophone: { builtInID }
+                builtInMicrophone: { builtInID },
+                preferBuiltInWhenOutputIsBluetooth: preferBuiltInForBluetoothOutputProvider(),
+                defaultInputIsBluetooth: { AudioDeviceManager.isBluetoothInput($0) },
+                outputIsBluetooth: { AudioDeviceManager.isDefaultOutputBluetooth() }
             )
         }
         sharedMicStream = SharedMicrophoneStream(

@@ -1060,6 +1060,14 @@ struct SettingsView: View {
                 Divider()
 
                 settingsToggleRow(
+                    title: "Use built-in mic with Bluetooth headphones",
+                    detail: "When sound is playing to AirPods or other Bluetooth headphones, dictation records from the built-in mic instead of the headset. Keeps playback in full quality and avoids the brief Bluetooth mode switch that can drop your first words or capture silence. Turn off to always record from your headset's mic. If you pick a specific microphone above, MacParakeet tries it first.",
+                    isOn: $viewModel.preferBuiltInMicWhenBluetoothOutput
+                )
+
+                Divider()
+
+                settingsToggleRow(
                     title: "Live transcript preview",
                     detail: liveDictationPreviewDetail,
                     isBeta: true,
