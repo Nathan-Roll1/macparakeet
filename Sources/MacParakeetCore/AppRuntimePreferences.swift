@@ -3,6 +3,7 @@ import Foundation
 public protocol AppRuntimePreferencesProtocol: Sendable {
     var processingMode: Dictation.ProcessingMode { get }
     var dictationInsertionStyle: DictationInsertionStyle { get }
+    var voiceReturnTriggers: [String] { get }
     var voiceReturnTrigger: String? { get }
     var shouldSaveAudioRecordings: Bool { get }
     var shouldSaveDictationHistory: Bool { get }
@@ -452,12 +453,39 @@ public enum MeetingAudioSourceMode: String, CaseIterable, Hashable, Sendable, Eq
     }
 }
 
+public enum VoiceReturnTriggerPhrases: Sendable {
+    public static let defaultTrigger = "press return"
+
+    public static func normalized(_ rawTriggers: [String]) -> [String] {
+        var seenKeys = Set<String>()
+        var triggers: [String] = []
+
+        for rawTrigger in rawTriggers {
+            let trigger = rawTrigger.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trigger.isEmpty else { continue }
+
+            let key = trigger.lowercased()
+            guard seenKeys.insert(key).inserted else { continue }
+            triggers.append(trigger)
+        }
+
+        return triggers
+    }
+
+    public static func normalizedOrDefault(_ rawTriggers: [String]) -> [String] {
+        let triggers = normalized(rawTriggers)
+        return triggers.isEmpty ? [defaultTrigger] : triggers
+    }
+}
+
 public final class UserDefaultsAppRuntimePreferences: AppRuntimePreferencesProtocol, @unchecked Sendable {
+    public static let defaultVoiceReturnTrigger = VoiceReturnTriggerPhrases.defaultTrigger
     public static let showIdlePillKey = "showIdlePill"
     public static let silenceAutoStopKey = "silenceAutoStop"
     public static let silenceDelayKey = "silenceDelay"
     public static let voiceReturnEnabledKey = "voiceReturnEnabled"
     public static let voiceReturnTriggerKey = "voiceReturnTrigger"
+    public static let voiceReturnTriggersKey = "voiceReturnTriggers"
     public static let processingModeKey = "processingMode"
     public static let dictationInsertionStyleKey = "dictationInsertionStyle"
     public static let saveDictationHistoryKey = "saveDictationHistory"
@@ -510,6 +538,30 @@ public final class UserDefaultsAppRuntimePreferences: AppRuntimePreferencesProto
         self.defaults = defaults
     }
 
+    public static func normalizedVoiceReturnTriggers(_ rawTriggers: [String]) -> [String] {
+        VoiceReturnTriggerPhrases.normalized(rawTriggers)
+    }
+
+    public static func voiceReturnTriggerList(defaults: UserDefaults = .standard) -> [String] {
+        if defaults.object(forKey: voiceReturnTriggersKey) != nil {
+            let triggers = VoiceReturnTriggerPhrases.normalized(
+                defaults.stringArray(forKey: voiceReturnTriggersKey) ?? []
+            )
+            if !triggers.isEmpty {
+                return triggers
+            }
+        }
+
+        if let legacyTrigger = defaults.string(forKey: voiceReturnTriggerKey) {
+            let triggers = VoiceReturnTriggerPhrases.normalized([legacyTrigger])
+            if !triggers.isEmpty {
+                return triggers
+            }
+        }
+
+        return [defaultVoiceReturnTrigger]
+    }
+
     public var processingMode: Dictation.ProcessingMode {
         let raw = defaults.string(forKey: Self.processingModeKey)
         return Dictation.ProcessingMode(rawValue: raw ?? Dictation.ProcessingMode.raw.rawValue) ?? .raw
@@ -519,11 +571,13 @@ public final class UserDefaultsAppRuntimePreferences: AppRuntimePreferencesProto
         DictationInsertionStyle.current(defaults: defaults)
     }
 
+    public var voiceReturnTriggers: [String] {
+        guard defaults.bool(forKey: Self.voiceReturnEnabledKey) else { return [] }
+        return Self.voiceReturnTriggerList(defaults: defaults)
+    }
+
     public var voiceReturnTrigger: String? {
-        guard defaults.bool(forKey: Self.voiceReturnEnabledKey) else { return nil }
-        let trigger = (defaults.string(forKey: Self.voiceReturnTriggerKey) ?? "press return")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return trigger.isEmpty ? nil : trigger
+        voiceReturnTriggers.first
     }
 
     public var shouldSaveAudioRecordings: Bool {
