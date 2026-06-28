@@ -54,6 +54,9 @@ This repo often has many parallel worktrees.
 - Treat `.build*`, `.claude/worktrees`, `dist`, and
   `journal/x-agent/node_modules` as generated or archival unless the task
   specifically asks about them.
+- Default searches should avoid ignored/generated/private paths such as
+  `.claude/`, `.build*`, `dist`, `diagnostics`, `logs`, `journal/`, local env
+  files, and key material unless the task explicitly names them.
 
 ## Code Boundaries
 
@@ -65,12 +68,16 @@ This repo often has many parallel worktrees.
   without the GUI.
 - New I/O should use async/await. Avoid new completion-handler or Combine
   patterns.
+- When ordering or a result matters, make the API async and await it instead of
+  using fire-and-forget `Task`.
+- Keep `@MainActor` work short; move long-running I/O, model, process, and
+  audio work off the actor, then hop back for UI state.
 - Database access uses GRDB repositories, roughly one repository per table.
 - UI buttons use `.parakeetAction(...)`; do not tint whole hosting roots coral.
 
 When editing a load-bearing Core subsystem, read its local README before code:
-`Audio/`, `STT/`, `TextProcessing/`, `Database/`, and `Licensing/` currently
-have subsystem rules.
+`Audio/`, `STT/`, `TextProcessing/`, `Database/`, `Licensing/`, and
+`Services/System/` currently have subsystem rules.
 
 ## Product Rules
 
@@ -87,6 +94,9 @@ have subsystem rules.
 ## Working Method
 
 - Start by finding the governing code, ADRs/specs, and tests for the task.
+- Treat agent memory, old chat, and old plans as hints. Verify live state from
+  code, tests, `git`, GitHub, release metadata, or the governing doc before
+  relying on them.
 - For behavior changes, define the intended scope and must-not-change
   invariants before editing.
 - Plans are useful working memory for substantial or long-running tasks, but
@@ -126,6 +136,7 @@ for significant work, not ceremony for every typo.
 - UI patterns: [`spec/04-ui-patterns.md`](./spec/04-ui-patterns.md)
 - Testing strategy: [`spec/09-testing.md`](./spec/09-testing.md)
 - Agent working method: [`spec/10-ai-coding-method.md`](./spec/10-ai-coding-method.md)
+- Agent memory governance: [`docs/agent-memory-governance.md`](./docs/agent-memory-governance.md)
 - Agent instruction research: [`docs/research/coding-agent-instructions-2026-06.md`](./docs/research/coding-agent-instructions-2026-06.md)
 - Active/completed plans: [`plans/README.md`](./plans/README.md)
 - Distribution/release steps: [`docs/distribution.md`](./docs/distribution.md)
