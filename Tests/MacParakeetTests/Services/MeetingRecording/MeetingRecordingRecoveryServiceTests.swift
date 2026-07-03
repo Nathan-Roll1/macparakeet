@@ -244,6 +244,38 @@ final class MeetingRecordingRecoveryServiceTests: XCTestCase {
         XCTAssertTrue(rows.first?.recoveredFromCrash == true)
     }
 
+    func testRecoverSkipsCleanedMicWhenRecoveredAlignmentIsSynthetic() async throws {
+        let fixture = try makeRecoverableSession()
+        let staleCleanedURL = fixture.folderURL.appendingPathComponent("microphone-cleaned.m4a")
+        try writeM4A(to: staleCleanedURL)
+        let conditionerProbe = RecoveryMicConditionerFactoryProbe()
+        transcriptionService.sourceResolutionPolicy = .init(
+            floorSeconds: 0.05,
+            durationMultiplier: 0,
+            capSeconds: 0.05
+        )
+        recoveryService = MeetingRecordingRecoveryService(
+            meetingsRoot: tempRoot,
+            lockFileStore: lockStore,
+            transcriptionService: transcriptionService,
+            transcriptionRepo: transcriptionRepo,
+            audioConverter: audioConverter,
+            micConditionerFactory: { @Sendable in conditionerProbe.make() }
+        )
+
+        _ = try await recoveryService.recover(fixture.lock)
+
+        let recording = try XCTUnwrap(transcriptionService.recordings.first)
+        let decision = try XCTUnwrap(transcriptionService.sourceDecisions.first)
+        XCTAssertEqual(conditionerProbe.buildCount, 0)
+        XCTAssertNil(recording.cleanedMicrophoneAudioURL)
+        XCTAssertEqual(decision.reason, .skippedNoEchoPath)
+        XCTAssertEqual(decision.url, fixture.folderURL.appendingPathComponent("microphone.m4a"))
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: staleCleanedURL.path),
+            "synthetic recovered alignment must remove stale cleaned artifacts")
+    }
+
     func testRecoverDeletesStaleCleanedMicWhenSourceMissing() async throws {
         let fixture = try makeRecoverableSession(systemAudio: .corrupt)
         let staleCleanedURL = fixture.folderURL.appendingPathComponent("microphone-cleaned.m4a")
@@ -519,13 +551,9 @@ final class MeetingRecordingRecoveryServiceTests: XCTestCase {
             let file = try AVAudioFile(
                 forWriting: url,
                 settings: [
-                    AVFormatIDKey: kAudioFormatLinearPCM,
+                    AVFormatIDKey: kAudioFormatAppleLossless,
                     AVSampleRateKey: sampleRate,
                     AVNumberOfChannelsKey: 1,
-                    AVLinearPCMBitDepthKey: 32,
-                    AVLinearPCMIsFloatKey: true,
-                    AVLinearPCMIsBigEndianKey: false,
-                    AVLinearPCMIsNonInterleaved: true,
                 ],
                 commonFormat: .pcmFormatFloat32,
                 interleaved: false

@@ -368,6 +368,30 @@ enum MeetingCleanedMicrophoneRenderScheduler {
         }
         let rendererFileManager = UncheckedSendableBox(fileManager)
         let candidateOutputURL = candidateOutputURL(for: outputURL, sessionID: sessionID)
+        guard hasTrustedEchoPathAlignment(sourceAlignment) else {
+            discardArtifact(
+                at: outputURL,
+                sessionID: sessionID,
+                reason: "untrusted_alignment",
+                fileManager: fileManager,
+                eventName: eventName
+            )
+            discardArtifact(
+                at: candidateOutputURL,
+                sessionID: sessionID,
+                reason: "untrusted_alignment",
+                fileManager: fileManager,
+                eventName: eventName
+            )
+            appendDiagnostic(
+                eventName: eventName,
+                sessionID: sessionID,
+                outcome: "not_scheduled",
+                reason: .skippedNoEchoPath,
+                detail: "alignment=untrusted"
+            )
+            return .notScheduled(reason: .skippedNoEchoPath)
+        }
         discardArtifact(
             at: outputURL,
             sessionID: sessionID,
@@ -451,6 +475,18 @@ enum MeetingCleanedMicrophoneRenderScheduler {
             .deletingLastPathComponent()
             .appendingPathComponent(".\(basename)-\(sessionID.uuidString).tmp")
             .appendingPathExtension(pathExtension)
+    }
+
+    private static func hasTrustedEchoPathAlignment(_ alignment: MeetingSourceAlignment) -> Bool {
+        guard let microphone = alignment.microphone,
+              let system = alignment.system else {
+            return false
+        }
+        return alignment.meetingOriginHostTime != nil
+            && microphone.firstHostTime != nil
+            && microphone.lastHostTime != nil
+            && system.firstHostTime != nil
+            && system.lastHostTime != nil
     }
 
     private static func handleOutcome(

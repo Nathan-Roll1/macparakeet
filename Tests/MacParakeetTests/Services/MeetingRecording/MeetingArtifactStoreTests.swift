@@ -273,13 +273,9 @@ final class MeetingArtifactStoreTests: XCTestCase {
             let file = try AVAudioFile(
                 forWriting: url,
                 settings: [
-                    AVFormatIDKey: kAudioFormatLinearPCM,
+                    AVFormatIDKey: kAudioFormatAppleLossless,
                     AVSampleRateKey: sampleRate,
                     AVNumberOfChannelsKey: 1,
-                    AVLinearPCMBitDepthKey: 32,
-                    AVLinearPCMIsFloatKey: true,
-                    AVLinearPCMIsBigEndianKey: false,
-                    AVLinearPCMIsNonInterleaved: true,
                 ],
                 commonFormat: .pcmFormatFloat32,
                 interleaved: false
