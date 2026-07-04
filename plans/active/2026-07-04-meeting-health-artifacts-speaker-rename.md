@@ -1,6 +1,10 @@
 # Meeting Health, Artifacts, and Speaker Rename Plan
 
-> **Status:** PROPOSED
+> **Status:** IMPLEMENTED 2026-07-04 — shipped as PR #707 (source health
+> model + UI), PR #708 (meeting.md artifact + shared renderer + CLI/contract
+> promotion), and PR #710 (speaker rename UX + rollback guard). Remaining:
+> manual dual-source QA of the live health chips (mute/unmute, system
+> interruption) before release framing.
 > **Date:** 2026-07-04
 > **Priority:** P1 for visible source health, P2 for artifact/CLI promotion and
 > speaker rename polish

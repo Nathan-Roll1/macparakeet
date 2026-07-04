@@ -1,6 +1,6 @@
 # Meeting capture reliability — mic-health watchdog + post-stop coverage repair
 
-**Status:** IN PROGRESS — Phase A implemented 2026-06-14 (detection-only mic-health telemetry); warning UI and coverage repair remain unimplemented.
+**Status:** IN PROGRESS — Phase A implemented 2026-06-14 (detection-only mic-health telemetry). Phase B user-visible warning UI productized 2026-07-04 via PR #707 (per plans/active/2026-07-04-meeting-health-artifacts-speaker-rename.md): per-source health states incl. monitor-confirmed stalls and 12s first-buffer grace for both sources. Coverage repair remains unimplemented.
 **Date:** 2026-06-14
 **ADRs:** ADR-025 (meeting capture reliability), ADR-014 (meeting recording), ADR-015 (concurrent dictation/meeting), ADR-016 (centralized STT runtime + two-slot scheduler), ADR-019 (crash-resilient meeting recording)
 **Requirements:** REQ-MEET-017 (mic-health watchdog) — Phase A implemented; REQ-MEET-018 (post-stop coverage-based transcript repair) — proposed
