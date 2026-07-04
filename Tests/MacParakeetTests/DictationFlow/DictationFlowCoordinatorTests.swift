@@ -25,6 +25,49 @@ final class DictationFlowCoordinatorTests: XCTestCase {
         harness.coordinator.cancelDictation()
     }
 
+    func testPersistentBackToBackDictationsPasteJustCompletedTranscript() async throws {
+        let harness = try await makeRecordingHarness()
+        await harness.stt.configureSequence(results: [
+            STTResult(text: "first dictated message"),
+            STTResult(text: "second dictated message"),
+        ])
+
+        harness.coordinator.startDictation(mode: .persistent, trigger: .hotkey)
+        let firstStarted = await waitUntil { self.isFlowRecording(harness.coordinator.flowStateForTesting) }
+        XCTAssertTrue(firstStarted)
+
+        harness.coordinator.stopDictation()
+        let firstPasted = await waitUntilAsync {
+            let snapshot = await harness.clipboard.snapshot()
+            return snapshot.pastedTexts.count == 1 && harness.coordinator.flowStateForTesting == .idle
+        }
+        XCTAssertTrue(firstPasted)
+        XCTAssertEqual(harness.coordinator.flowStateForTesting, .idle)
+
+        harness.coordinator.startDictation(mode: .persistent, trigger: .hotkey)
+        let secondStarted = await waitUntil { self.isFlowRecording(harness.coordinator.flowStateForTesting) }
+        XCTAssertTrue(secondStarted)
+
+        harness.coordinator.stopDictation()
+        let secondPasted = await waitUntilAsync {
+            let snapshot = await harness.clipboard.snapshot()
+            return snapshot.pastedTexts.count == 2 && harness.coordinator.flowStateForTesting == .idle
+        }
+        XCTAssertTrue(secondPasted)
+
+        let clipboardSnapshot = await harness.clipboard.snapshot()
+        XCTAssertEqual(
+            clipboardSnapshot.pastedTexts,
+            ["first dictated message ", "second dictated message "]
+        )
+        XCTAssertEqual(clipboardSnapshot.lastPastedText, "second dictated message ")
+
+        let savedTranscripts = try harness.repo.fetchAll(limit: nil).map(\.rawTranscript)
+        XCTAssertEqual(savedTranscripts.count, 2)
+        XCTAssertTrue(savedTranscripts.contains("first dictated message"))
+        XCTAssertTrue(savedTranscripts.contains("second dictated message"))
+    }
+
     func testSuccessfulMicPermissionRequestDismissesStaleStartFailure() async throws {
         let harness = try await makeMicPermissionHarness(
             microphonePermission: .notDetermined,
@@ -254,6 +297,7 @@ final class DictationFlowCoordinatorTests: XCTestCase {
         let dbManager = try DatabaseManager()
         let audio = MockAudioProcessor()
         let stt = MockSTTClient()
+        let clipboard = MockClipboardService()
         let repo = DictationRepository(dbQueue: dbManager.dbQueue)
         let service = DictationService(
             audioProcessor: audio,
@@ -275,7 +319,7 @@ final class DictationFlowCoordinatorTests: XCTestCase {
 
         let coordinator = DictationFlowCoordinator(
             dictationService: service,
-            clipboardService: MockClipboardService(),
+            clipboardService: clipboard,
             entitlementsService: entitlements,
             dictationRepo: repo,
             settingsViewModel: settings,
@@ -288,7 +332,13 @@ final class DictationFlowCoordinatorTests: XCTestCase {
             onPresentEntitlementsAlert: { _ in }
         )
 
-        return RecordingHarness(coordinator: coordinator)
+        return RecordingHarness(
+            coordinator: coordinator,
+            audio: audio,
+            stt: stt,
+            clipboard: clipboard,
+            repo: repo
+        )
     }
 
     private func makeTestDefaults(prefix: String) -> UserDefaults {
@@ -307,10 +357,32 @@ final class DictationFlowCoordinatorTests: XCTestCase {
     ) async -> Bool {
         let deadline = Date().addingTimeInterval(Double(timeoutMs) / 1000)
         while Date() < deadline {
+            if Task.isCancelled { return false }
             if condition() { return true }
-            try? await Task.sleep(for: .milliseconds(5))
+            do {
+                try await Task.sleep(for: .milliseconds(5))
+            } catch {
+                return false
+            }
         }
         return condition()
+    }
+
+    private func waitUntilAsync(
+        timeoutMs: UInt64 = 2_500,
+        condition: @escaping @MainActor () async -> Bool
+    ) async -> Bool {
+        let deadline = Date().addingTimeInterval(Double(timeoutMs) / 1000)
+        while Date() < deadline {
+            if Task.isCancelled { return false }
+            if await condition() { return true }
+            do {
+                try await Task.sleep(for: .milliseconds(5))
+            } catch {
+                return false
+            }
+        }
+        return await condition()
     }
 
     private func isFlowRecording(_ state: DictationFlowState) -> Bool {
@@ -326,6 +398,10 @@ final class DictationFlowCoordinatorTests: XCTestCase {
 
     private struct RecordingHarness {
         let coordinator: DictationFlowCoordinator
+        let audio: MockAudioProcessor
+        let stt: MockSTTClient
+        let clipboard: MockClipboardService
+        let repo: DictationRepository
     }
 }
 
