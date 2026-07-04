@@ -146,11 +146,12 @@ public actor MeetingRecordingService: MeetingRecordingServiceProtocol {
         let systemAudioURL: URL
         let mixedAudioURL: URL
         let speechEngine: SpeechEngineSelection
+        let speechEngineCapabilities: SpeechEngineCapabilities?
         let startContext: MeetingStartContext?
         let calendarEventSnapshot: MeetingCalendarSnapshot?
 
         var supportsLiveChunkTranscription: Bool {
-            speechEngine.engine != .cohere
+            speechEngineCapabilities?.providesWordTimestamps == true
         }
     }
 
@@ -500,7 +501,15 @@ public actor MeetingRecordingService: MeetingRecordingServiceProtocol {
         let now = wallClockNow()
         let speechEngineLease = await speechEngineSessionManager?.beginSpeechEngineSession()
         currentSpeechEngineLease = speechEngineLease
-        let speechEngine = speechEngineLease?.selection ?? SpeechEngineSelection(engine: .parakeet)
+        let speechEngine: SpeechEngineSelection
+        let speechEngineCapabilities: SpeechEngineCapabilities?
+        if let speechEngineLease {
+            speechEngine = speechEngineLease.selection
+            speechEngineCapabilities = speechEngineLease.capabilities
+        } else {
+            speechEngine = SpeechEngineSelection(engine: .parakeet)
+            speechEngineCapabilities = SpeechEngineCapabilityRegistry.capabilities(for: .parakeet(.v3))
+        }
         let session = Session(
             id: sessionID,
             displayName: Self.resolveDisplayName(title: title, fallbackDate: now),
@@ -511,6 +520,7 @@ public actor MeetingRecordingService: MeetingRecordingServiceProtocol {
             systemAudioURL: writer.systemAudioURL,
             mixedAudioURL: writer.mixedAudioURL,
             speechEngine: speechEngine,
+            speechEngineCapabilities: speechEngineCapabilities,
             startContext: startContext,
             calendarEventSnapshot: calendarEventSnapshot
         )
