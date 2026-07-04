@@ -83,6 +83,10 @@ enum MeetingAecSignal {
         return out
     }
 
+    static func scaled(_ signal: [Float], by scale: Float) -> [Float] {
+        return signal.map { $0 * scale }
+    }
+
     static func silence(sampleCount: Int) -> [Float] {
         [Float](repeating: 0, count: sampleCount)
     }
@@ -138,7 +142,13 @@ struct MeetingAecScenario {
     /// samples keeps that uncancelled tail out of the measurement. (256 is the
     /// LocalVQE hop and every processor's frame size here.)
     static let maxFrameSize = 256
-    var steadyStateWindow: Range<Int> { (sampleCount / 2)..<(sampleCount - Self.maxFrameSize) }
+    var steadyStateWindow: Range<Int> { Self.steadyStateWindow(sampleCount: sampleCount) }
+
+    static func steadyStateWindow(sampleCount: Int) -> Range<Int> {
+        let lower = sampleCount / 2
+        let upper = max(lower, sampleCount - maxFrameSize)
+        return lower..<upper
+    }
 }
 
 enum MeetingAecScenarioFactory {
@@ -156,17 +166,19 @@ enum MeetingAecScenarioFactory {
         farEndActive: Bool,
         echoPath: MeetingAecEchoPath,
         sampleCount: Int = 24_000,
-        noiseLevel: Float = 0.001
+        noiseLevel: Float = 0.001,
+        nearAmplitude: Float = 0.3,
+        farAmplitude: Float = 0.3
     ) -> MeetingAecScenario {
         let near = nearEndActive
             ? MeetingAecSignal.voiceLike(
                 sampleCount: sampleCount, sampleRate: sampleRate,
-                formants: nearFormants, seed: nearSeed)
+                formants: nearFormants, seed: nearSeed, amplitude: nearAmplitude)
             : MeetingAecSignal.silence(sampleCount: sampleCount)
         let far = farEndActive
             ? MeetingAecSignal.voiceLike(
                 sampleCount: sampleCount, sampleRate: sampleRate,
-                formants: farFormants, seed: farSeed)
+                formants: farFormants, seed: farSeed, amplitude: farAmplitude)
             : MeetingAecSignal.silence(sampleCount: sampleCount)
         let echo = echoPath.apply(to: far)
 
@@ -179,13 +191,155 @@ enum MeetingAecScenarioFactory {
             name: name, sampleRate: sampleRate,
             nearEnd: near, farEnd: far, echo: echo, mic: mic)
     }
+
+    /// Double-talk fixture with a controlled signal-to-interference ratio (SIR):
+    /// local-user speech power vs reference bleed power in the steady-state
+    /// scoring window. The whole steady-state window is overlap by construction,
+    /// so metrics computed there are specifically double-talk metrics.
+    static func makeDoubleTalk(
+        name: String,
+        echoPath: MeetingAecEchoPath,
+        signalToInterferenceDB: Double,
+        sampleCount: Int = 24_000,
+        noiseLevel: Float = 0.001
+    ) -> MeetingAecScenario {
+        makeOverlapScenario(
+            name: name,
+            nearEndActive: true,
+            echoPath: echoPath,
+            signalToInterferenceDB: signalToInterferenceDB,
+            sampleCount: sampleCount,
+            noiseLevel: noiseLevel
+        )
+    }
+
+    /// Echo-only companion for `makeDoubleTalk`: same reference-bleed level as
+    /// the requested SIR, but with no local-user speech. This exposes the other
+    /// failure direction: residual echo should approach silence/empty transcript.
+    static func makeEchoOnlyAtDoubleTalkLevel(
+        name: String,
+        echoPath: MeetingAecEchoPath,
+        signalToInterferenceDB: Double,
+        sampleCount: Int = 24_000,
+        noiseLevel: Float = 0.001
+    ) -> MeetingAecScenario {
+        makeOverlapScenario(
+            name: name,
+            nearEndActive: false,
+            echoPath: echoPath,
+            signalToInterferenceDB: signalToInterferenceDB,
+            sampleCount: sampleCount,
+            noiseLevel: noiseLevel
+        )
+    }
+
+    private static func makeOverlapScenario(
+        name: String,
+        nearEndActive: Bool,
+        echoPath: MeetingAecEchoPath,
+        signalToInterferenceDB: Double,
+        sampleCount: Int,
+        noiseLevel: Float
+    ) -> MeetingAecScenario {
+        let canonicalNear = MeetingAecSignal.voiceLike(
+            sampleCount: sampleCount,
+            sampleRate: sampleRate,
+            formants: nearFormants,
+            seed: nearSeed
+        )
+        let near = nearEndActive ? canonicalNear : MeetingAecSignal.silence(sampleCount: sampleCount)
+        let baseFar = MeetingAecSignal.voiceLike(
+            sampleCount: sampleCount,
+            sampleRate: sampleRate,
+            formants: farFormants,
+            seed: farSeed
+        )
+        let window = MeetingAecScenario.steadyStateWindow(sampleCount: sampleCount)
+        let nearPower = MeetingAecMetrics.power(canonicalNear, over: window)
+        let targetEchoPower = nearPower / pow(10, signalToInterferenceDB / 10)
+        let calibrated = calibrateFarEnd(
+            baseFar,
+            echoPath: echoPath,
+            targetEchoPower: targetEchoPower,
+            over: window
+        )
+        let far = calibrated.far
+        let echo = calibrated.echo
+
+        var noise = MeetingAecRandom(seed: noiseSeed)
+        var mic = [Float](repeating: 0, count: sampleCount)
+        for i in 0..<sampleCount {
+            mic[i] = near[i] + echo[i] + noiseLevel * noise.nextSymmetric()
+        }
+        return MeetingAecScenario(
+            name: name,
+            sampleRate: sampleRate,
+            nearEnd: near,
+            farEnd: far,
+            echo: echo,
+            mic: mic
+        )
+    }
+
+    private static func calibrateFarEnd(
+        _ baseFar: [Float],
+        echoPath: MeetingAecEchoPath,
+        targetEchoPower: Double,
+        over window: Range<Int>
+    ) -> (far: [Float], echo: [Float]) {
+        let baseEcho = echoPath.apply(to: baseFar)
+        let baseEchoPower = MeetingAecMetrics.power(baseEcho, over: window)
+        guard targetEchoPower > 0, baseEchoPower > 0 else {
+            let silence = MeetingAecSignal.silence(sampleCount: baseFar.count)
+            return (silence, silence)
+        }
+
+        var scale = Float(sqrt(targetEchoPower / baseEchoPower))
+        var far = MeetingAecSignal.scaled(baseFar, by: scale)
+        var echo = echoPath.apply(to: far)
+        let convergenceTolerance = 0.0005
+        for _ in 0..<6 {
+            let echoPower = MeetingAecMetrics.power(echo, over: window)
+            precondition(
+                echoPower > 0,
+                "AEC double-talk calibration underflowed: scaled far-end produced zero echo power"
+            )
+            let correction = sqrt(targetEchoPower / echoPower)
+            guard correction.isFinite else { break }
+            if abs(correction - 1) < convergenceTolerance { break }
+            scale *= Float(correction)
+            far = MeetingAecSignal.scaled(baseFar, by: scale)
+            echo = echoPath.apply(to: far)
+        }
+        let finalEchoPower = MeetingAecMetrics.power(echo, over: window)
+        precondition(
+            finalEchoPower > 0,
+            "AEC double-talk calibration underflowed: scaled far-end produced zero echo power"
+        )
+        let finalCorrection = sqrt(targetEchoPower / finalEchoPower)
+        precondition(
+            finalCorrection.isFinite && abs(finalCorrection - 1) < convergenceTolerance,
+            String(format: "AEC double-talk calibration failed to converge: correction %.6f", finalCorrection)
+        )
+        return (far, echo)
+    }
 }
 
 // MARK: Metrics
 
 enum MeetingAecMetrics {
+    private static let powerFloor = 1e-12
+
+    private static func boundedWindow(_ window: Range<Int>, counts: Int...) -> Range<Int>? {
+        guard !counts.isEmpty else { return nil }
+        let lower = max(0, window.lowerBound)
+        let upper = min(window.upperBound, counts.min()!)
+        guard lower < upper else { return nil }
+        return lower..<upper
+    }
+
     static func power(_ signal: [Float], over window: Range<Int>) -> Double {
-        guard !window.isEmpty else { return 0 }
+        guard let window = boundedWindow(window, counts: signal.count) else { return 0 }
         var acc = 0.0
         for i in window {
             let v = Double(signal[i])
@@ -198,9 +352,10 @@ enum MeetingAecMetrics {
     /// unprocessed mic. Higher = more echo removed. Meaningful for far-end-only
     /// fixtures, where any mic energy is echo by construction.
     static func erleDB(mic: [Float], output: [Float], over window: Range<Int>) -> Double {
+        guard let window = boundedWindow(window, counts: mic.count, output.count) else { return 0 }
         let micPower = power(mic, over: window)
         let outPower = power(output, over: window)
-        return 10 * log10(micPower / max(outPower, 1e-12))
+        return 10 * log10(max(micPower, powerFloor) / max(outPower, powerFloor))
     }
 
     /// Near-end error (dB relative to near-end power): how far the output drifts
@@ -209,7 +364,7 @@ enum MeetingAecMetrics {
     /// Lower (more negative) is better; 0 dB means the error is as loud as the
     /// voice we wanted to keep.
     static func nearEndErrorDB(output: [Float], nearEnd: [Float], over window: Range<Int>) -> Double {
-        guard !window.isEmpty else { return 0 }
+        guard let window = boundedWindow(window, counts: output.count, nearEnd.count) else { return 0 }
         var errAcc = 0.0
         for i in window {
             let d = Double(output[i]) - Double(nearEnd[i])
@@ -217,7 +372,27 @@ enum MeetingAecMetrics {
         }
         let errPower = errAcc / Double(window.count)
         let nearPower = power(nearEnd, over: window)
-        return 10 * log10(errPower / max(nearPower, 1e-12))
+        return 10 * log10(max(errPower, powerFloor) / max(nearPower, powerFloor))
+    }
+
+    /// Signal power relative to a reference signal, in dB. Used for echo-only
+    /// rows where the ideal transcript is empty: lower residual power relative
+    /// to a nominal local voice means less speech-like echo left to transcribe.
+    static func relativePowerDB(signal: [Float], reference: [Float], over window: Range<Int>) -> Double {
+        guard let window = boundedWindow(window, counts: signal.count, reference.count) else { return 0 }
+        let signalPower = power(signal, over: window)
+        let referencePower = power(reference, over: window)
+        return 10 * log10(max(signalPower, powerFloor) / max(referencePower, powerFloor))
+    }
+
+    /// RMS ratio of a candidate output to an expected reference. ~1 means energy
+    /// was preserved, <1 means suppression, >1 usually means residual echo/noise.
+    static func rmsRatio(_ output: [Float], reference: [Float], over window: Range<Int>) -> Float {
+        guard let window = boundedWindow(window, counts: output.count, reference.count) else { return 0 }
+        let outputPower = power(output, over: window)
+        let referencePower = power(reference, over: window)
+        precondition(referencePower > 0, "AEC RMS ratio reference power is zero")
+        return Float((outputPower / referencePower).squareRoot())
     }
 
     /// Largest absolute sample deviation from a reference signal. Used to assert
@@ -243,6 +418,25 @@ enum MeetingAecRunner {
         chunkSizes: [Int] = [320, 256, 160, 512, 128]
     ) -> [Float] {
         conditioner.reset()
+        return stream(conditioner, scenario: scenario, chunkSizes: chunkSizes)
+    }
+
+    static func runWithDiagnostics(
+        _ conditioner: any MicConditioning,
+        scenario: MeetingAecScenario,
+        chunkSizes: [Int] = [320, 256, 160, 512, 128]
+    ) -> (output: [Float], diagnostics: MeetingEchoSuppressionDiagnostics) {
+        conditioner.reset()
+        let baseline = conditioner.diagnostics
+        let output = stream(conditioner, scenario: scenario, chunkSizes: chunkSizes)
+        return (output, conditioner.diagnostics.subtracting(baseline))
+    }
+
+    private static func stream(
+        _ conditioner: any MicConditioning,
+        scenario: MeetingAecScenario,
+        chunkSizes: [Int]
+    ) -> [Float] {
         var output: [Float] = []
         output.reserveCapacity(scenario.sampleCount)
         var cursor = 0
@@ -259,6 +453,26 @@ enum MeetingAecRunner {
         }
         output += conditioner.flush()
         return output
+    }
+}
+
+private extension MeetingEchoSuppressionDiagnostics {
+    func subtracting(_ baseline: MeetingEchoSuppressionDiagnostics) -> MeetingEchoSuppressionDiagnostics {
+        MeetingEchoSuppressionDiagnostics(
+            processorName: processorName,
+            loaded: loaded,
+            micFrames: max(0, micFrames - baseline.micFrames),
+            processedFrames: max(0, processedFrames - baseline.processedFrames),
+            rawFallbackFrames: max(0, rawFallbackFrames - baseline.rawFallbackFrames),
+            fullReferenceFrames: max(0, fullReferenceFrames - baseline.fullReferenceFrames),
+            partialReferenceFrames: max(0, partialReferenceFrames - baseline.partialReferenceFrames),
+            missingReferenceFrames: max(0, missingReferenceFrames - baseline.missingReferenceFrames),
+            processingFailures: max(0, processingFailures - baseline.processingFailures),
+            currentDelaySamples: currentDelaySamples,
+            delayConfidence: delayConfidence,
+            delayEstimateCount: max(0, delayEstimateCount - baseline.delayEstimateCount),
+            rejectedDelayEstimates: max(0, rejectedDelayEstimates - baseline.rejectedDelayEstimates)
+        )
     }
 }
 

@@ -15,6 +15,7 @@ final class MeetingAecMeasurementTests: XCTestCase {
         taps: [(delay: 120, gain: 0.6), (delay: 180, gain: 0.25), (delay: 240, gain: 0.12)]
     )
     private let trueDelay = 120
+    private let doubleTalkSIRs = [0.0, 6.0, 12.0]
 
     // MARK: Harness sanity — pass-through changes nothing, so ERLE is ~0 dB.
 
@@ -150,6 +151,147 @@ final class MeetingAecMeasurementTests: XCTestCase {
             "naive NLMS (no double-talk detector) does not meaningfully reduce error under continuous double-talk")
         XCTAssertGreaterThan(singleTalkERLE - improvement, 10.0,
             "double-talk extracts a large penalty vs the no-near-end case (the local voice perturbs adaptation)")
+    }
+
+    func testNLMSDoubleTalkSIRSweepReportsOverlapAccuracyAndEchoOnlyResidual() {
+        print("[AEC] NLMS double-talk SIR sweep (nearErr lower is better; echoResid should approach silence):")
+        print("        SIR    dtRaw   dtNLMS  dtImpr  echoRaw echoNLMS    ERLE")
+        for sir in doubleTalkSIRs {
+            let doubleTalk = MeetingAecScenarioFactory.makeDoubleTalk(
+                name: "double-talk-\(Int(sir))db",
+                echoPath: multiTapEcho,
+                signalToInterferenceDB: sir
+            )
+            let window = doubleTalk.steadyStateWindow
+            let suppressor = StreamingMeetingEchoSuppressor(
+                processor: MeetingAecNLMSProcessor(),
+                referenceDelaySamples: trueDelay
+            )
+            let processed = MeetingAecRunner.run(suppressor, scenario: doubleTalk)
+            let passthrough = MeetingAecRunner.run(PassthroughMicConditioner(), scenario: doubleTalk)
+            let processedError = MeetingAecMetrics.nearEndErrorDB(
+                output: processed,
+                nearEnd: doubleTalk.nearEnd,
+                over: window
+            )
+            let rawError = MeetingAecMetrics.nearEndErrorDB(
+                output: passthrough,
+                nearEnd: doubleTalk.nearEnd,
+                over: window
+            )
+
+            let echoOnly = MeetingAecScenarioFactory.makeEchoOnlyAtDoubleTalkLevel(
+                name: "echo-only-\(Int(sir))db",
+                echoPath: multiTapEcho,
+                signalToInterferenceDB: sir
+            )
+            let echoWindow = echoOnly.steadyStateWindow
+            let echoSuppressor = StreamingMeetingEchoSuppressor(
+                processor: MeetingAecNLMSProcessor(),
+                referenceDelaySamples: trueDelay
+            )
+            let echoProcessed = MeetingAecRunner.run(echoSuppressor, scenario: echoOnly)
+            let echoRaw = MeetingAecRunner.run(PassthroughMicConditioner(), scenario: echoOnly)
+            let echoProcessedResidual = MeetingAecMetrics.relativePowerDB(
+                signal: echoProcessed,
+                reference: doubleTalk.nearEnd,
+                over: echoWindow
+            )
+            let echoRawResidual = MeetingAecMetrics.relativePowerDB(
+                signal: echoRaw,
+                reference: doubleTalk.nearEnd,
+                over: echoWindow
+            )
+            let echoERLE = MeetingAecMetrics.erleDB(
+                mic: echoOnly.mic,
+                output: echoProcessed,
+                over: echoWindow
+            )
+            let improvement = rawError - processedError
+
+            print(String(
+                format: "      %+4.0f %8.1f %8.1f %7.1f %8.1f %8.1f %7.1f",
+                sir,
+                rawError,
+                processedError,
+                improvement,
+                echoRawResidual,
+                echoProcessedResidual,
+                echoERLE
+            ))
+
+            XCTAssertTrue(processedError.isFinite)
+            XCTAssertTrue(rawError.isFinite)
+            XCTAssertLessThan(
+                echoProcessedResidual,
+                echoRawResidual,
+                "echo-only residual should drop at SIR \(sir) dB")
+        }
+    }
+
+    func testDoubleTalkScenarioKeepsEchoPathConsistentWhenPathIsNonlinear() {
+        let targetSIR = 6.0
+        let nonlinearEcho = MeetingAecEchoPath(
+            taps: [(delay: 120, gain: 0.6), (delay: 180, gain: 0.25)],
+            nonlinearity: 0.4
+        )
+        let scenario = MeetingAecScenarioFactory.makeDoubleTalk(
+            name: "nonlinear-double-talk",
+            echoPath: nonlinearEcho,
+            signalToInterferenceDB: targetSIR
+        )
+
+        let recomputedEcho = nonlinearEcho.apply(to: scenario.farEnd)
+        let worstDrift = MeetingAecMetrics.maxAbsDifference(recomputedEcho, scenario.echo)
+        XCTAssertLessThan(worstDrift, 1e-6, "scenario echo must remain the echo path applied to farEnd")
+
+        let nearPower = MeetingAecMetrics.power(scenario.nearEnd, over: scenario.steadyStateWindow)
+        let echoPower = MeetingAecMetrics.power(scenario.echo, over: scenario.steadyStateWindow)
+        let measuredSIR = 10 * log10(nearPower / max(echoPower, 1e-12))
+        XCTAssertEqual(measuredSIR, targetSIR, accuracy: 0.05)
+    }
+
+    func testShortScenarioSteadyStateWindowAndMetricsStayFinite() {
+        let scenario = MeetingAecScenarioFactory.makeDoubleTalk(
+            name: "short-double-talk",
+            echoPath: singleTapEcho,
+            signalToInterferenceDB: 0,
+            sampleCount: 300
+        )
+
+        XCTAssertTrue(scenario.steadyStateWindow.isEmpty)
+        XCTAssertEqual(MeetingAecMetrics.power(scenario.mic, over: scenario.steadyStateWindow), 0)
+        let output = MeetingAecRunner.run(PassthroughMicConditioner(), scenario: scenario)
+        XCTAssertEqual(output.count, scenario.sampleCount)
+        XCTAssertEqual(
+            MeetingAecMetrics.relativePowerDB(
+                signal: output,
+                reference: scenario.nearEnd,
+                over: scenario.steadyStateWindow
+            ),
+            0
+        )
+        XCTAssertEqual(
+            MeetingAecMetrics.rmsRatio(output, reference: scenario.nearEnd, over: scenario.steadyStateWindow),
+            0
+        )
+
+        let quietMic = [Float](repeating: Float(sqrt(0.5e-12)), count: 4)
+        let subFloorOutput = [Float](repeating: Float(sqrt(0.8e-12)), count: 4)
+        XCTAssertEqual(
+            MeetingAecMetrics.erleDB(mic: quietMic, output: subFloorOutput, over: 0..<4),
+            0,
+            accuracy: 0.0001
+        )
+        let aboveFloorOutput = [Float](repeating: Float(sqrt(2.0e-12)), count: 4)
+        XCTAssertLessThan(
+            MeetingAecMetrics.erleDB(mic: quietMic, output: aboveFloorOutput, over: 0..<4),
+            0
+        )
+        XCTAssertEqual(
+            MeetingAecMetrics.erleDB(mic: [0], output: [0], over: 0..<1),
+            0
+        )
     }
 
     // MARK: Formatting helpers
