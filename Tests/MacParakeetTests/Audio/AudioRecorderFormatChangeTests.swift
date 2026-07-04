@@ -201,9 +201,14 @@ final class AudioRecorderFormatChangeTests: XCTestCase {
 
         let startTask = Task { try await recorder.start() }
         let waitingForFirstBuffer = await pollUntil(timeout: .seconds(2)) {
-            stream.diagnostics.activeSubscriberCount == 1 && stream.diagnostics.engineRunning
+            await recorder.isRecording
+                && stream.diagnostics.activeSubscriberCount == 1
+                && stream.diagnostics.engineRunning
         }
-        XCTAssertTrue(waitingForFirstBuffer, "expected start() to own a subscriber before first-buffer gate")
+        XCTAssertTrue(
+            waitingForFirstBuffer,
+            "expected start() to claim the recorder before waiting on the first-buffer gate"
+        )
 
         do {
             _ = try await recorder.stop()
@@ -1098,14 +1103,14 @@ final class AudioRecorderFormatChangeTests: XCTestCase {
 
     private func pollUntil(
         timeout: Duration,
-        condition: @Sendable () -> Bool
+        condition: @Sendable () async -> Bool
     ) async -> Bool {
         let deadline = ContinuousClock.now.advanced(by: timeout)
         while ContinuousClock.now < deadline {
-            if condition() { return true }
+            if await condition() { return true }
             try? await Task.sleep(for: .milliseconds(10))
         }
-        return condition()
+        return await condition()
     }
 
     private func makeFormat(
