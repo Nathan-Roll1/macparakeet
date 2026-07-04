@@ -490,6 +490,7 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
             transcription.errorMessage = nil
             transcription.userNotes = transcription.userNotes ?? recording.userNotes
             transcription.meetingStartContext = transcription.meetingStartContext ?? recording.startContext
+            transcription.calendarEventSnapshot = transcription.calendarEventSnapshot ?? recording.calendarEventSnapshot
             transcription.updatedAt = Date()
             try transcriptionRepo.save(transcription)
 
@@ -581,6 +582,7 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
         transcription.fileSizeBytes = (try? FileManager.default.attributesOfItem(atPath: recording.mixedAudioURL.path)[.size] as? Int)
             .flatMap { $0 } ?? original.fileSizeBytes
         transcription.userNotes = original.userNotes ?? recording.userNotes
+        transcription.calendarEventSnapshot = original.calendarEventSnapshot ?? recording.calendarEventSnapshot
         let operation = TranscriptionOperationContext(
             source: .meeting,
             inputKind: .meeting,
@@ -1130,7 +1132,8 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
             sourceType: .meeting,
             userNotes: recording.userNotes,
             meetingStartContext: recording.startContext,
-            engine: recording.speechEngine.engine.rawValue
+            engine: recording.speechEngine.engine.rawValue,
+            calendarEventSnapshot: recording.calendarEventSnapshot
         )
     }
 
