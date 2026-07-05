@@ -508,7 +508,8 @@ struct TranscribeCommand: AsyncParsableCommand, CLITelemetryMetadataProviding {
                 )
                 let createdSTTClient = STTClient(
                     parakeetModelVariant: parakeetVariant,
-                    defaults: defaults
+                    defaults: defaults,
+                    customWordRepository: customWordRepo
                 )
                 sttClient = createdSTTClient
                 sttTranscriber = createdSTTClient

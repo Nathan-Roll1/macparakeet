@@ -60,6 +60,91 @@ extension STTRuntimeProtocol {
     }
 }
 
+enum CustomVocabularyBoostingPreparationMode {
+    case awaitPreparation
+    case backgroundIfNeeded
+}
+
+private final class BackgroundCustomVocabularyPreparationCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var task: Task<Void, Never>?
+    private var cancelled = false
+    private var startAllowed = false
+    private var startWaiter: CheckedContinuation<Void, Never>?
+
+    func setTask(_ task: Task<Void, Never>) throws {
+        lock.lock()
+        let shouldCancel = cancelled
+        if !shouldCancel {
+            self.task = task
+        }
+        lock.unlock()
+
+        if shouldCancel {
+            task.cancel()
+            throw CancellationError()
+        }
+    }
+
+    func cancel() {
+        lock.lock()
+        cancelled = true
+        let task = task
+        let startWaiter = startWaiter
+        self.startWaiter = nil
+        lock.unlock()
+
+        startWaiter?.resume()
+        task?.cancel()
+    }
+
+    func checkCancellation() throws {
+        lock.lock()
+        let shouldCancel = cancelled
+        lock.unlock()
+
+        if shouldCancel {
+            throw CancellationError()
+        }
+    }
+
+    func allowStart() throws {
+        lock.lock()
+        let shouldCancel = cancelled
+        let startWaiter = startWaiter
+        startAllowed = true
+        self.startWaiter = nil
+        lock.unlock()
+
+        startWaiter?.resume()
+
+        if shouldCancel {
+            throw CancellationError()
+        }
+    }
+
+    func waitUntilStartAllowed() async throws {
+        try checkCancellation()
+        await withCheckedContinuation { continuation in
+            var shouldResume = false
+
+            lock.lock()
+            if startAllowed || cancelled {
+                shouldResume = true
+            } else {
+                startWaiter = continuation
+            }
+            lock.unlock()
+
+            if shouldResume {
+                continuation.resume()
+            }
+        }
+        try Task.checkCancellation()
+        try checkCancellation()
+    }
+}
+
 /// Sole owner of the shared local speech-engine lifecycle.
 ///
 /// The runtime stays process-wide and singular at the app boundary, but it keeps
@@ -80,6 +165,8 @@ public actor STTRuntime: STTRuntimeProtocol {
     /// every STT engine and lane contends on one Neural Engine mutex in
     /// production.
     private let inferenceGate: ANEInferenceGate
+    private let customVocabularyProvider: (any CustomVocabularyBoostingTermProviding)?
+    private let customVocabularyRescorer: any CustomVocabularyRescoring
 
     private var interactiveManager: AsrManager?
     private var backgroundManager: AsrManager?
@@ -148,7 +235,9 @@ public actor STTRuntime: STTRuntimeProtocol {
         nemotronModelVariant: NemotronModelVariant = SpeechEnginePreference.defaultNemotronModelVariant,
         whisperModelVariant: String = SpeechEnginePreference.defaultWhisperModelVariant,
         defaults: UserDefaults = .standard,
-        inferenceGate: ANEInferenceGate = .shared
+        inferenceGate: ANEInferenceGate = .shared,
+        customVocabularyProvider: (any CustomVocabularyBoostingTermProviding)? = nil,
+        customVocabularyRescorer: (any CustomVocabularyRescoring)? = nil
     ) {
         self.currentParakeetVariant = parakeetModelVariant
         // `.unified` has no TDT version; the TDT path is never taken for it, so a
@@ -160,6 +249,8 @@ public actor STTRuntime: STTRuntimeProtocol {
         self.whisperModelVariant = WhisperEngine.normalizeModelVariant(whisperModelVariant)
         self.defaults = defaults
         self.inferenceGate = inferenceGate
+        self.customVocabularyProvider = customVocabularyProvider
+        self.customVocabularyRescorer = customVocabularyRescorer ?? FluidAudioCustomVocabularyRescorer()
     }
 
     #if DEBUG
@@ -513,10 +604,16 @@ public actor STTRuntime: STTRuntimeProtocol {
                     let result = try await inferenceGate.withExclusiveAccess {
                         try await manager.transcribe(paddedSamples, decoderState: &decoderState)
                     }
+                    try Task.checkCancellation()
+                    let boostedResult = try await applyCustomVocabularyBoostingIfAvailable(
+                        to: result,
+                        preparationMode: .backgroundIfNeeded,
+                        loadAudioSamples: { paddedSamples }
+                    )
                     onProgress?(100, 100)
                     return STTResult(
-                        text: result.text,
-                        words: STTWordTimingBuilder.words(from: result.tokenTimings),
+                        text: boostedResult.text,
+                        words: STTWordTimingBuilder.words(from: boostedResult.tokenTimings),
                         language: "en",
                         engine: .parakeet,
                         engineVariant: ParakeetModelVariant(asrModelVersion: modelVersion).rawValue
@@ -563,7 +660,14 @@ public actor STTRuntime: STTRuntimeProtocol {
             let result = try await inferenceGate.withExclusiveAccess {
                 try await manager.transcribe(audioURL, decoderState: &decoderState)
             }
-            let words = STTWordTimingBuilder.words(from: result.tokenTimings)
+            try Task.checkCancellation()
+            let boostedResult = try await applyCustomVocabularyBoostingIfAvailable(
+                to: result,
+                preparationMode: .awaitPreparation
+            ) {
+                try Self.customVocabularySidecarSamples(audioPath: audioPath)
+            }
+            let words = STTWordTimingBuilder.words(from: boostedResult.tokenTimings)
             onProgress?(100, 100)
             // Telemetry `language` is attributed "en": MacParakeet positions
             // Parakeet as English-first (v2 is English-only; v3 multilingual is
@@ -572,7 +676,7 @@ public actor STTRuntime: STTRuntimeProtocol {
             // `engineVariant` carries the active build (v2/v3) so adoption and
             // impact can be measured without exposing transcript content.
             return STTResult(
-                text: result.text,
+                text: boostedResult.text,
                 words: words,
                 language: "en",
                 engine: .parakeet,
@@ -642,7 +746,17 @@ public actor STTRuntime: STTRuntimeProtocol {
     /// loaded into memory (the caller keeps FluidAudio's disk-backed URL path).
     /// Dictation clips are short, so a qualifying file is read in one buffer.
     static func loadShortDictationSamples16k(path: String, maxSamples: Int) -> [Float]? {
+        loadShortDictationSamples16k(path: path, maxSamples: maxSamples, checkCancellation: {})
+    }
+
+    static func loadShortDictationSamples16k(
+        path: String,
+        maxSamples: Int,
+        checkCancellation: () throws -> Void
+    ) rethrows -> [Float]? {
+        try checkCancellation()
         guard let file = try? AVAudioFile(forReading: URL(fileURLWithPath: path)) else { return nil }
+        try checkCancellation()
         let sourceRate = file.processingFormat.sampleRate
         guard
             sourceRate > 0,
@@ -651,20 +765,381 @@ public actor STTRuntime: STTRuntimeProtocol {
         else {
             return nil
         }
+        try checkCancellation()
         // Dictation WAVs are written at 16 kHz mono; estimate the 16 kHz length
         // so the guard holds even if that capture format ever changes.
         let estimated16kSamples = Int(
             (Double(file.length) * Double(ASRConstants.sampleRate) / sourceRate).rounded(.up)
         )
+        guard estimated16kSamples <= maxSamples else { return nil }
+        try checkCancellation()
         guard
-            estimated16kSamples <= maxSamples,
             let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: frameCount),
             (try? file.read(into: buffer)) != nil
         else {
             return nil
         }
+        try checkCancellation()
         return AudioChunker.extractAndResample(from: buffer)
     }
+
+    static func customVocabularySidecarSamples(audioPath: String) throws -> [Float] {
+        try loadShortDictationSamples16k(
+            path: audioPath,
+            maxSamples: CustomVocabularyBoostingConfiguration.maxSidecarSampleCount,
+            checkCancellation: {
+                try Task.checkCancellation()
+            }
+        ) ?? []
+    }
+
+    private func applyCustomVocabularyBoostingIfAvailable(
+        to result: ASRResult,
+        preparationMode: CustomVocabularyBoostingPreparationMode,
+        loadAudioSamples: () throws -> [Float]
+    ) async throws -> ASRResult {
+        guard let customVocabularyProvider else { return result }
+        try Task.checkCancellation()
+        let capabilities = SpeechEngineCapabilityRegistry.capabilities(for: .parakeet(currentParakeetVariant))
+        guard capabilities.supportsCustomVocabulary else { return result }
+        let vocabulary = await customVocabularyProvider.currentVocabulary()
+        try Task.checkCancellation()
+        guard !vocabulary.isEmpty else { return result }
+        guard let tokenTimings = result.tokenTimings, !tokenTimings.isEmpty else { return result }
+        let audioSamples = try loadAudioSamples()
+        try Task.checkCancellation()
+        return try await Self.applyCustomVocabularyBoosting(
+            to: result,
+            audioSamples: audioSamples,
+            capabilities: capabilities,
+            vocabulary: vocabulary,
+            rescorer: customVocabularyRescorer,
+            inferenceGate: inferenceGate,
+            preparationMode: preparationMode,
+            logger: logger
+        )
+    }
+
+    static func applyCustomVocabularyBoosting(
+        to result: ASRResult,
+        audioSamples: [Float],
+        capabilities: SpeechEngineCapabilities,
+        vocabulary: CustomVocabularyBoostingVocabulary,
+        rescorer: any CustomVocabularyRescoring,
+        inferenceGate: ANEInferenceGate,
+        preparationMode: CustomVocabularyBoostingPreparationMode = .awaitPreparation,
+        logger: Logger? = nil,
+        backgroundPreparationTaskRegistered: (@Sendable () async -> Void)? = nil
+    ) async throws -> ASRResult {
+        try Task.checkCancellation()
+        guard capabilities.supportsCustomVocabulary,
+              !vocabulary.isEmpty,
+              !audioSamples.isEmpty,
+              let tokenTimings = result.tokenTimings,
+              !tokenTimings.isEmpty
+        else {
+            return result
+        }
+
+        do {
+            try Task.checkCancellation()
+            switch preparationMode {
+            case .awaitPreparation:
+                try await rescorer.prepare(vocabulary: vocabulary)
+            case .backgroundIfNeeded:
+                guard await rescorer.isPrepared(vocabulary: vocabulary) else {
+                    let cancellation = BackgroundCustomVocabularyPreparationCancellation()
+                    return try await withTaskCancellationHandler {
+                        try Task.checkCancellation()
+                        let preparationTask = startBackgroundCustomVocabularyPreparation(
+                            vocabulary: vocabulary,
+                            rescorer: rescorer,
+                            cancellation: cancellation,
+                            logger: logger
+                        )
+                        try cancellation.setTask(preparationTask)
+                        if let backgroundPreparationTaskRegistered {
+                            await backgroundPreparationTaskRegistered()
+                        }
+                        try Task.checkCancellation()
+                        try cancellation.allowStart()
+                        return result
+                    } onCancel: {
+                        cancellation.cancel()
+                    }
+                }
+            }
+            try Task.checkCancellation()
+            let rescored = try await inferenceGate.withExclusiveAccess {
+                try await rescorer.rescore(
+                    CustomVocabularyRescoringRequest(
+                        transcript: result.text,
+                        tokenTimings: tokenTimings,
+                        audioSamples: audioSamples,
+                        vocabulary: vocabulary
+                    )
+                )
+            }
+            try Task.checkCancellation()
+            return Self.resultByApplyingCustomVocabularyRescoring(
+                rescored,
+                to: result,
+                originalTokenTimings: tokenTimings,
+                logger: logger
+            )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            logger?.warning(
+                "custom_vocabulary_boost_failed error_type=\(String(describing: type(of: error)), privacy: .public)"
+            )
+            return result
+        }
+    }
+
+    private static func startBackgroundCustomVocabularyPreparation(
+        vocabulary: CustomVocabularyBoostingVocabulary,
+        rescorer: any CustomVocabularyRescoring,
+        cancellation: BackgroundCustomVocabularyPreparationCancellation,
+        logger: Logger?
+    ) -> Task<Void, Never> {
+        // Dictation finalize must not wait on the first-use CTC download/load.
+        // This deliberate fire-and-forget exception protects interactive paste
+        // latency; a later utterance uses the prepared cache once this finishes.
+        Task.detached {
+            do {
+                try await cancellation.waitUntilStartAllowed()
+                try await rescorer.prepare(vocabulary: vocabulary)
+            } catch is CancellationError {
+                // The caller either cancelled before release or already returned
+                // the unboosted dictation result.
+            } catch {
+                logger?.warning(
+                    "custom_vocabulary_prepare_background_failed error_type=\(String(describing: type(of: error)), privacy: .public)"
+                )
+            }
+        }
+    }
+
+    private static func resultByApplyingCustomVocabularyRescoring(
+        _ rescored: CustomVocabularyRescoringResult,
+        to result: ASRResult,
+        originalTokenTimings: [TokenTiming],
+        logger: Logger?
+    ) -> ASRResult {
+        guard rescored.text != result.text else {
+            return result.withRescoring(
+                text: rescored.text,
+                detected: rescored.detectedTerms,
+                applied: rescored.appliedTerms
+            )
+        }
+
+        guard
+            let tokenTimings = synthesizedTokenTimings(
+                for: rescored.text,
+                replacing: originalTokenTimings
+            )
+        else {
+            logger?.warning(
+                "custom_vocabulary_boost_skipped reason=timing_synthesis_failed"
+            )
+            return result
+        }
+
+        return ASRResult(
+            text: rescored.text,
+            confidence: result.confidence,
+            duration: result.duration,
+            processingTime: result.processingTime,
+            tokenTimings: tokenTimings,
+            performanceMetrics: result.performanceMetrics,
+            ctcDetectedTerms: rescored.detectedTerms,
+            ctcAppliedTerms: rescored.appliedTerms
+        )
+    }
+
+    private static func synthesizedTokenTimings(
+        for rescoredText: String,
+        replacing originalTokenTimings: [TokenTiming]
+    ) -> [TokenTiming]? {
+        let rescoredWords = rescoredText.split(whereSeparator: \.isWhitespace).map(String.init)
+        let originalWords = STTWordTimingBuilder.words(from: originalTokenTimings)
+        guard !rescoredWords.isEmpty,
+              let firstWord = originalWords.first,
+              let lastWord = originalWords.last
+        else {
+            return nil
+        }
+
+        if rescoredWords.count == originalWords.count {
+            return zip(rescoredWords, originalWords).enumerated().map { index, pair in
+                let (word, timing) = pair
+                return TokenTiming(
+                    token: "▁\(word)",
+                    tokenId: -1 - index,
+                    startTime: Double(timing.startMs) / 1_000,
+                    endTime: Double(timing.endMs) / 1_000,
+                    confidence: Float(timing.confidence)
+                )
+            }
+        }
+
+        let matches = wordTimingAlignmentMatches(
+            originalWords: originalWords,
+            rescoredWords: rescoredWords
+        )
+        var synthesized: [TokenTiming] = []
+        var originalCursor = 0
+        var rescoredCursor = 0
+        var syntheticTokenIndex = 0
+
+        func appendTiming(word: String, startMs: Int, endMs: Int, confidence: Float) {
+            synthesized.append(
+                TokenTiming(
+                    token: "▁\(word)",
+                    tokenId: -1 - syntheticTokenIndex,
+                    startTime: Double(startMs) / 1_000,
+                    endTime: Double(endMs) / 1_000,
+                    confidence: confidence
+                )
+            )
+            syntheticTokenIndex += 1
+        }
+
+        func appendSyntheticSegment(originalRange: Range<Int>, rescoredRange: Range<Int>) {
+            guard !rescoredRange.isEmpty else { return }
+
+            let segmentStartMs: Int
+            let segmentEndMs: Int
+            if !originalRange.isEmpty {
+                segmentStartMs = originalWords[originalRange.lowerBound].startMs
+                segmentEndMs = originalWords[originalRange.upperBound - 1].endMs
+            } else {
+                segmentStartMs =
+                    originalRange.lowerBound > 0
+                    ? originalWords[originalRange.lowerBound - 1].endMs
+                    : firstWord.startMs
+                segmentEndMs =
+                    originalRange.lowerBound < originalWords.count
+                    ? originalWords[originalRange.lowerBound].startMs
+                    : lastWord.endMs
+            }
+
+            let boundedSegmentEndMs = max(segmentEndMs, segmentStartMs)
+            let durationPerWord = Double(boundedSegmentEndMs - segmentStartMs) / Double(rescoredRange.count)
+            for (offset, wordIndex) in rescoredRange.enumerated() {
+                let wordStartMs = segmentStartMs + Int((durationPerWord * Double(offset)).rounded())
+                let wordEndMs =
+                    offset == rescoredRange.count - 1
+                    ? boundedSegmentEndMs
+                    : segmentStartMs + Int((durationPerWord * Double(offset + 1)).rounded())
+                appendTiming(
+                    word: rescoredWords[wordIndex],
+                    startMs: wordStartMs,
+                    endMs: wordEndMs,
+                    confidence: 0
+                )
+            }
+        }
+
+        for match in matches {
+            appendSyntheticSegment(
+                originalRange: originalCursor..<match.originalIndex,
+                rescoredRange: rescoredCursor..<match.rescoredIndex
+            )
+
+            let timing = originalWords[match.originalIndex]
+            appendTiming(
+                word: rescoredWords[match.rescoredIndex],
+                startMs: timing.startMs,
+                endMs: timing.endMs,
+                confidence: Float(timing.confidence)
+            )
+
+            originalCursor = match.originalIndex + 1
+            rescoredCursor = match.rescoredIndex + 1
+        }
+
+        appendSyntheticSegment(
+            originalRange: originalCursor..<originalWords.count,
+            rescoredRange: rescoredCursor..<rescoredWords.count
+        )
+
+        guard !synthesized.isEmpty else {
+            return nil
+        }
+
+        return synthesized
+    }
+
+    private static func wordTimingAlignmentMatches(
+        originalWords: [TimestampedWord],
+        rescoredWords: [String]
+    ) -> [(originalIndex: Int, rescoredIndex: Int)] {
+        let normalizedOriginalWords = originalWords.map { normalizedTimingWord($0.word) }
+        let normalizedRescoredWords = rescoredWords.map(normalizedTimingWord)
+        var matches: [(originalIndex: Int, rescoredIndex: Int)] = []
+        var originalSearchStart = 0
+
+        for (rescoredIndex, normalizedRescoredWord) in normalizedRescoredWords.enumerated() {
+            guard !normalizedRescoredWord.isEmpty else { continue }
+            var originalIndex = originalSearchStart
+            while originalIndex < normalizedOriginalWords.count {
+                if normalizedOriginalWords[originalIndex] == normalizedRescoredWord {
+                    matches.append((originalIndex: originalIndex, rescoredIndex: rescoredIndex))
+                    originalSearchStart = originalIndex + 1
+                    break
+                }
+                originalIndex += 1
+            }
+        }
+
+        return matches
+    }
+
+    private static func normalizedTimingWord(_ word: String) -> String {
+        word
+            .unicodeScalars
+            .filter {
+                CharacterSet.alphanumerics.contains($0)
+            }
+            .map(String.init)
+            .joined()
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+    }
+
+    #if DEBUG
+    static func applyCustomVocabularyBoostingForTesting(
+        transcript: String,
+        tokenTimings: [TokenTiming]?,
+        audioSamples: [Float],
+        capabilities: SpeechEngineCapabilities,
+        vocabulary: CustomVocabularyBoostingVocabulary,
+        rescorer: any CustomVocabularyRescoring,
+        inferenceGate: ANEInferenceGate = ANEInferenceGate(serializationRequired: false),
+        preparationMode: CustomVocabularyBoostingPreparationMode = .awaitPreparation,
+        backgroundPreparationTaskRegistered: (@Sendable () async -> Void)? = nil
+    ) async throws -> ASRResult {
+        let result = ASRResult(
+            text: transcript,
+            confidence: 1,
+            duration: 0,
+            processingTime: 0,
+            tokenTimings: tokenTimings
+        )
+        return try await applyCustomVocabularyBoosting(
+            to: result,
+            audioSamples: audioSamples,
+            capabilities: capabilities,
+            vocabulary: vocabulary,
+            rescorer: rescorer,
+            inferenceGate: inferenceGate,
+            preparationMode: preparationMode,
+            backgroundPreparationTaskRegistered: backgroundPreparationTaskRegistered
+        )
+    }
+    #endif
 
     private func transcribeParakeetPreview(samples: [Float]) async throws -> STTResult {
         // Parakeet Unified drives live dictation through its native streaming
