@@ -3674,7 +3674,7 @@ private struct EngineOptionCard: View {
             switch parakeetVariant {
             case .v3: "Fast local default • word timestamps"
             case .v2: "English stability • word timestamps"
-            case .unified: "Readable English • no word timestamps"
+            case .unified: "Readable English • word timestamps"
             }
         case .nemotron:
             nemotronVariant.isEnglishOnly
