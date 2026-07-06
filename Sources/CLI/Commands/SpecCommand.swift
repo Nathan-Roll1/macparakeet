@@ -150,9 +150,13 @@ private extension CLISpecCommand {
     )
 
     static let llmInlineOptions: [CLISpecParameter] = [
-        CLISpecParameter.option("--provider", valueName: "ID", required: true, summary: "LLM provider: anthropic, openai, openaiCompatible, gemini, openrouter, ollama, lmstudio, or cli."),
-        CLISpecParameter.option("--api-key", valueName: "KEY", summary: "API key literal; prefer --api-key-env for scripts."),
-        CLISpecParameter.option("--api-key-env", valueName: "ENV", summary: "Environment variable containing the API key."),
+        CLISpecParameter.option(
+            "--provider", valueName: "ID", required: true,
+            summary: "LLM provider: anthropic, openai, openaiCompatible, gemini, openrouter, ollama, lmstudio, or cli."),
+        CLISpecParameter.option(
+            "--api-key", valueName: "KEY", summary: "API key literal; prefer --api-key-env for scripts."),
+        CLISpecParameter.option(
+            "--api-key-env", valueName: "ENV", summary: "Environment variable containing the API key."),
         CLISpecParameter.option("--model", valueName: "MODEL", summary: "Provider model name."),
         CLISpecParameter.option("--base-url", valueName: "URL", summary: "Provider base URL override."),
         CLISpecParameter.flag("--allow-insecure-http", summary: "Allow non-loopback http:// base URLs intentionally."),
@@ -168,12 +172,16 @@ private extension CLISpecCommand {
         ),
         CLISpecCommand(
             ["health"],
-            summary: "Check database, speech stack, helper binaries, and local runtime readiness; repair flags mutate local caches.",
+            summary:
+                "Check database, speech stack, helper binaries, and local runtime readiness; repair flags mutate local caches.",
             readOnly: false,
             options: [
                 CLISpecParameter.flag("--repair-models", summary: "Mutating: attempt to prepare local speech models."),
-                CLISpecParameter.option("--repair-attempts", valueName: "N", summary: "Maximum repair attempts when --repair-models is set."),
-                CLISpecParameter.flag("--repair-binaries", summary: "Mutating: install or update helper binaries such as yt-dlp."),
+                CLISpecParameter.option(
+                    "--repair-attempts", valueName: "N", summary: "Maximum repair attempts when --repair-models is set."
+                ),
+                CLISpecParameter.flag(
+                    "--repair-binaries", summary: "Mutating: install or update helper binaries such as yt-dlp."),
             ],
             output: "HealthReport object."
         ),
@@ -186,55 +194,111 @@ private extension CLISpecCommand {
                 .argument(
                     "input...",
                     required: false,
-                    summary: "Zero or more file paths, folders, Apple Podcasts links, or HTTP(S) media URLs supported by yt-dlp. Omit when using --podcast."
-                ),
+                    summary:
+                        "Zero or more file paths, folders, Apple Podcasts links, or HTTP(S) media URLs supported by yt-dlp. Omit when using --podcast."
+                )
             ],
             options: [
-                CLISpecParameter.option("--podcast", valueName: "QUERY", summary: "Search Apple Podcasts by show/episode text and transcribe the selected episode."),
-                CLISpecParameter.option("--output-dir", valueName: "DIR", summary: "Write one transcript file per input to this directory; implies batch mode."),
-                CLISpecParameter.option("--format", valueName: "text|transcript|json|srt|vtt", summary: "Output format for stdout or written transcript files."),
-                CLISpecParameter.option("--mode", valueName: "raw|clean|app-default", summary: "Text processing mode for this run."),
-                CLISpecParameter.option("--engine", valueName: "parakeet|nemotron|whisper|cohere|app-default", summary: "Speech engine for this run."),
-                CLISpecParameter.option("--language", valueName: "CODE", summary: "Language hint for Nemotron, Whisper, or Cohere; Cohere has no auto-detect."),
-                CLISpecParameter.option("--parakeet-model", valueName: "app-default|v3|v2|unified", summary: "Parakeet build: v3 supported languages, v2 English timestamps, or Unified readable English timestamps."),
-                CLISpecParameter.option("--nemotron-model", valueName: "app-default|multilingual-1120ms|english-1120ms", summary: "Nemotron Beta build for this run; ignored for Parakeet, Cohere, and Whisper."),
-                CLISpecParameter.option("--downloaded-audio", valueName: "app-default|keep|delete", summary: "Downloaded media retention policy."),
-                CLISpecParameter.option("--speaker-detection", valueName: "app-default|on|off", summary: "Speaker detection behavior for this run."),
-                CLISpecParameter.option("--speaker-count", valueName: "N", summary: "Exact known speaker count; implies speaker detection unless explicitly disabled."),
-                CLISpecParameter.option("--speaker-min", valueName: "N", summary: "Minimum speaker count bound for diarization."),
-                CLISpecParameter.option("--speaker-max", valueName: "N", summary: "Maximum speaker count bound for diarization."),
-                CLISpecParameter.option("--media-audio-quality", valueName: "app-default|m4a|best-available", summary: "Downloaded media audio quality."),
+                CLISpecParameter.option(
+                    "--podcast", valueName: "QUERY",
+                    summary: "Search Apple Podcasts by show/episode text and transcribe the selected episode."),
+                CLISpecParameter.option(
+                    "--output-dir", valueName: "DIR",
+                    summary: "Write one transcript file per input to this directory; implies batch mode."),
+                CLISpecParameter.option(
+                    "--format", valueName: "text|transcript|json|srt|vtt",
+                    summary: "Output format for stdout or written transcript files."),
+                CLISpecParameter.option(
+                    "--mode", valueName: "raw|clean|app-default", summary: "Text processing mode for this run."),
+                CLISpecParameter.option(
+                    "--engine", valueName: "parakeet|nemotron|whisper|cohere|app-default",
+                    summary: "Speech engine for this run."),
+                CLISpecParameter.option(
+                    "--language", valueName: "CODE",
+                    summary: "Language hint for Nemotron, Whisper, or Cohere; Cohere has no auto-detect."),
+                CLISpecParameter.option(
+                    "--parakeet-model", valueName: "app-default|v3|v2|unified",
+                    summary:
+                        "Parakeet build: v3 supported languages, v2 English timestamps, or Unified readable English timestamps."
+                ),
+                CLISpecParameter.option(
+                    "--nemotron-model", valueName: "app-default|multilingual-1120ms|english-1120ms",
+                    summary: "Nemotron Beta build for this run; ignored for Parakeet, Cohere, and Whisper."),
+                CLISpecParameter.option(
+                    "--downloaded-audio", valueName: "app-default|keep|delete",
+                    summary: "Downloaded media retention policy."),
+                CLISpecParameter.option(
+                    "--speaker-detection", valueName: "app-default|on|off",
+                    summary: "Speaker detection behavior for this run."),
+                CLISpecParameter.option(
+                    "--speaker-count", valueName: "N",
+                    summary: "Exact known speaker count; implies speaker detection unless explicitly disabled."),
+                CLISpecParameter.option(
+                    "--speaker-min", valueName: "N", summary: "Minimum speaker count bound for diarization."),
+                CLISpecParameter.option(
+                    "--speaker-max", valueName: "N", summary: "Maximum speaker count bound for diarization."),
+                CLISpecParameter.option(
+                    "--media-audio-quality", valueName: "app-default|m4a|best-available",
+                    summary: "Downloaded media audio quality."),
                 CLISpecParameter.flag("--no-history", summary: "Do not persist the completed transcription."),
                 databaseOption,
             ],
-            output: "Single Transcription object for stdout mode; one transcript file per input in batch/output-dir mode."
+            output:
+                "Single Transcription object for stdout mode; one transcript file per input in batch/output-dir mode."
         ),
         CLISpecCommand(
             ["retranscribe"],
-            summary: "Retranscribe retained source audio for an existing saved dictation, transcription, or meeting in place.",
+            summary:
+                "Retranscribe retained source audio for an existing saved dictation, transcription, or meeting in place.",
             readOnly: false,
             jsonMode: "--json|--envelope",
             arguments: [
-                .argument("record", summary: "Saved record UUID, UUID prefix, or exact transcription/meeting title."),
+                .argument("record", summary: "Saved record UUID, UUID prefix, or exact transcription/meeting title.")
             ],
             options: [
-                CLISpecParameter.option("--kind", valueName: "auto|dictation|transcription|meeting", summary: "Constrain record resolution; auto fails on ambiguous matches."),
-                CLISpecParameter.flag("--update", summary: "Required confirmation that the command updates the existing saved record in place."),
+                CLISpecParameter.option(
+                    "--kind", valueName: "auto|dictation|transcription|meeting",
+                    summary: "Constrain record resolution; auto fails on ambiguous matches."),
+                CLISpecParameter.flag(
+                    "--update",
+                    summary: "Required confirmation that the command updates the existing saved record in place."),
                 CLISpecParameter.flag("--json", summary: "Emit the updated record payload as JSON."),
                 CLISpecParameter.flag("--envelope", summary: "Emit a success/failure envelope."),
-                CLISpecParameter.option("--mode", valueName: "raw|clean|app-default", summary: "Text processing mode for this rerun."),
-                CLISpecParameter.option("--engine", valueName: "parakeet|nemotron|whisper|cohere|app-default", summary: "Speech engine for this rerun."),
-                CLISpecParameter.option("--language", valueName: "CODE", summary: "Language hint for Nemotron, Whisper, or Cohere; Cohere has no auto-detect."),
-                CLISpecParameter.option("--parakeet-model", valueName: "app-default|v3|v2|unified", summary: "Parakeet build: v3 supported languages, v2 English timestamps, or Unified readable English timestamps."),
-                CLISpecParameter.option("--nemotron-model", valueName: "app-default|multilingual-1120ms|english-1120ms", summary: "Nemotron Beta build for this rerun; ignored for Parakeet, Cohere, and Whisper."),
-                CLISpecParameter.option("--speaker-detection", valueName: "app-default|on|off", summary: "Speaker detection for saved transcriptions and meetings; app-default follows the record type's saved preference."),
-                CLISpecParameter.option("--speaker-count", valueName: "N", summary: "Exact known speaker count for saved transcriptions and meetings."),
-                CLISpecParameter.option("--speaker-min", valueName: "N", summary: "Minimum speaker count bound for saved transcriptions and meetings."),
-                CLISpecParameter.option("--speaker-max", valueName: "N", summary: "Maximum speaker count bound for saved transcriptions and meetings."),
+                CLISpecParameter.option(
+                    "--mode", valueName: "raw|clean|app-default", summary: "Text processing mode for this rerun."),
+                CLISpecParameter.option(
+                    "--engine", valueName: "parakeet|nemotron|whisper|cohere|app-default",
+                    summary: "Speech engine for this rerun."),
+                CLISpecParameter.option(
+                    "--language", valueName: "CODE",
+                    summary: "Language hint for Nemotron, Whisper, or Cohere; Cohere has no auto-detect."),
+                CLISpecParameter.option(
+                    "--parakeet-model", valueName: "app-default|v3|v2|unified",
+                    summary:
+                        "Parakeet build: v3 supported languages, v2 English timestamps, or Unified readable English timestamps."
+                ),
+                CLISpecParameter.option(
+                    "--nemotron-model", valueName: "app-default|multilingual-1120ms|english-1120ms",
+                    summary: "Nemotron Beta build for this rerun; ignored for Parakeet, Cohere, and Whisper."),
+                CLISpecParameter.option(
+                    "--speaker-detection", valueName: "app-default|on|off",
+                    summary:
+                        "Speaker detection for saved transcriptions and meetings; app-default follows the record type's saved preference."
+                ),
+                CLISpecParameter.option(
+                    "--speaker-count", valueName: "N",
+                    summary: "Exact known speaker count for saved transcriptions and meetings."),
+                CLISpecParameter.option(
+                    "--speaker-min", valueName: "N",
+                    summary: "Minimum speaker count bound for saved transcriptions and meetings."),
+                CLISpecParameter.option(
+                    "--speaker-max", valueName: "N",
+                    summary: "Maximum speaker count bound for saved transcriptions and meetings."),
                 CLISpecParameter.flag("--no-diarize", summary: "Compatibility alias for --speaker-detection off."),
                 databaseOption,
             ],
-            output: "RetranscribeResult with kind, id, sourcePath, updatedAt, and the updated Dictation or Transcription record."
+            output:
+                "RetranscribeResult with kind, id, sourcePath, updatedAt, and the updated Dictation or Transcription record."
         ),
         CLISpecCommand(
             ["config", "list"],
@@ -244,7 +308,13 @@ private extension CLISpecCommand {
         CLISpecCommand(
             ["config", "get"],
             summary: "Read one shared app/CLI configuration value.",
-            arguments: [.argument("key", summary: "Configuration key, such as speech-engine, parakeet-model, nemotron-model, nemotron-language, whisper-language, cohere-language, voice-return-enabled, voice-return-triggers, prefer-built-in-mic-bluetooth-output, meeting-artifacts-folder, or meeting-hook-timeout.")],
+            arguments: [
+                .argument(
+                    "key",
+                    summary:
+                        "Configuration key, such as speech-engine, parakeet-model, nemotron-model, nemotron-language, whisper-language, cohere-language, voice-return-enabled, voice-return-triggers, prefer-built-in-mic-bluetooth-output, meeting-artifacts-folder, or meeting-hook-timeout."
+                )
+            ],
             output: "Configuration value."
         ),
         CLISpecCommand(
@@ -286,10 +356,9 @@ private extension CLISpecCommand {
             ["models", "delete"],
             summary: "Delete one downloaded speech model.",
             readOnly: false,
-            jsonMode: "none",
             arguments: [.argument("model-id", summary: "Model ID from models list.")],
             options: [CLISpecParameter.flag("--force", summary: "Delete even when the model is currently in use.")],
-            output: "Human-readable deletion confirmation or no-op line."
+            output: "ModelDeleteResult for --json; human-readable deletion confirmation or no-op line otherwise."
         ),
         CLISpecCommand(
             ["models", "warm-up"],
@@ -311,8 +380,7 @@ private extension CLISpecCommand {
             ["models", "clear"],
             summary: "Delete cached speech and speaker models.",
             readOnly: false,
-            jsonMode: "none",
-            output: "Human-readable cache clear confirmation."
+            output: "ModelCacheClearResult for --json; human-readable cache clear confirmation otherwise."
         ),
         CLISpecCommand(
             ["history", "dictations"],
@@ -356,36 +424,34 @@ private extension CLISpecCommand {
             ["history", "delete-dictation"],
             summary: "Delete one saved dictation and its owned dictation audio.",
             readOnly: false,
-            jsonMode: "none",
             arguments: [.argument("id", summary: "Dictation UUID or UUID prefix.")],
             options: [databaseOption],
-            output: "Human-readable deletion confirmation."
+            output: "Delete result with kind and id for --json; human-readable deletion confirmation otherwise."
         ),
         CLISpecCommand(
             ["history", "delete-transcription"],
             summary: "Delete one saved transcription and owned local assets.",
             readOnly: false,
-            jsonMode: "none",
             arguments: [.argument("id", summary: "Transcription UUID or UUID prefix.")],
             options: [databaseOption],
-            output: "Human-readable deletion confirmation."
+            output: "Delete result with kind and id for --json; human-readable deletion confirmation otherwise."
         ),
         CLISpecCommand(
             ["history", "delete-meeting-audio"],
-            summary: "Detach and delete stored audio for one meeting transcript while keeping the transcript row; removed audio cannot be used for re-transcription or speaker detection/backfill.",
+            summary:
+                "Detach and delete stored audio for one meeting transcript while keeping the transcript row; removed audio cannot be used for re-transcription or speaker detection/backfill.",
             readOnly: false,
-            jsonMode: "none",
             arguments: [.argument("id", summary: "Meeting transcription UUID, UUID prefix, or file name.")],
             options: [databaseOption],
-            output: "Human-readable deletion or no-op confirmation."
+            output: "Meeting audio delete result for --json; human-readable deletion or no-op confirmation otherwise."
         ),
         CLISpecCommand(
             ["history", "clear-meeting-audio"],
             summary: "Delete all managed meeting audio while keeping saved meeting transcripts.",
             readOnly: false,
-            jsonMode: "none",
             options: [databaseOption],
-            output: "Human-readable deletion confirmation."
+            output:
+                "Meeting audio clear result with deletedCount and ids for --json; human-readable deletion confirmation otherwise."
         ),
         CLISpecCommand(
             ["history", "favorites"],
@@ -415,7 +481,8 @@ private extension CLISpecCommand {
             ["prompts", "list"],
             summary: "List result prompts in the prompt library.",
             options: [
-                CLISpecParameter.option("--filter", valueName: "all|visible|auto-run", summary: "Which prompts to list."),
+                CLISpecParameter.option(
+                    "--filter", valueName: "all|visible|auto-run", summary: "Which prompts to list."),
                 databaseOption,
             ],
             output: "Array of Prompt objects."
@@ -451,7 +518,9 @@ private extension CLISpecCommand {
                 CLISpecParameter.flag("--hidden", summary: "Hide the prompt and disable auto-run."),
                 CLISpecParameter.flag("--auto-run", summary: "Enable global auto-run."),
                 CLISpecParameter.flag("--no-auto-run", summary: "Disable auto-run."),
-                CLISpecParameter.option("--source", valueName: "file|youtube|podcast|meeting", summary: "Scope --auto-run/--no-auto-run to one source; omit for global all-source behavior."),
+                CLISpecParameter.option(
+                    "--source", valueName: "file|youtube|podcast|meeting",
+                    summary: "Scope --auto-run/--no-auto-run to one source; omit for global all-source behavior."),
                 databaseOption,
             ],
             output: "Updated Prompt object when --json is used."
@@ -479,10 +548,12 @@ private extension CLISpecCommand {
             readOnly: false,
             arguments: [.argument("prompt", summary: "Prompt ID, UUID prefix, or exact name.")],
             options: llmInlineOptions + [
-                CLISpecParameter.option("--transcription", valueName: "ID", required: true, summary: "Saved transcription ID or prefix."),
+                CLISpecParameter.option(
+                    "--transcription", valueName: "ID", required: true, summary: "Saved transcription ID or prefix."),
                 CLISpecParameter.flag("--no-store", summary: "Do not save a PromptResult."),
                 CLISpecParameter.flag("--stream", summary: "Stream tokens; incompatible with --json."),
-                CLISpecParameter.option("--extra", valueName: "TEXT", summary: "Append extra instructions for this run."),
+                CLISpecParameter.option(
+                    "--extra", valueName: "TEXT", summary: "Append extra instructions for this run."),
                 databaseOption,
             ],
             output: "LLMResult envelope when --json is used."
@@ -500,7 +571,7 @@ private extension CLISpecCommand {
             readOnly: false,
             arguments: [.argument("input", summary: "Path to text file; use '-' for stdin.")],
             options: llmInlineOptions + [
-                CLISpecParameter.flag("--stream", summary: "Stream tokens; incompatible with --json."),
+                CLISpecParameter.flag("--stream", summary: "Stream tokens; incompatible with --json.")
             ],
             output: "LLMResult envelope when --json is used."
         ),
@@ -510,7 +581,8 @@ private extension CLISpecCommand {
             readOnly: false,
             arguments: [.argument("input", summary: "Path to transcript text file; use '-' for stdin.")],
             options: llmInlineOptions + [
-                CLISpecParameter.option("--question", valueName: "TEXT", required: true, summary: "Question to ask about the transcript."),
+                CLISpecParameter.option(
+                    "--question", valueName: "TEXT", required: true, summary: "Question to ask about the transcript."),
                 CLISpecParameter.flag("--stream", summary: "Stream tokens; incompatible with --json."),
             ],
             output: "LLMResult envelope when --json is used."
@@ -521,7 +593,8 @@ private extension CLISpecCommand {
             readOnly: false,
             arguments: [.argument("input", summary: "Path to text file; use '-' for stdin.")],
             options: llmInlineOptions + [
-                CLISpecParameter.option("--prompt", valueName: "TEXT", required: true, summary: "Transform instruction."),
+                CLISpecParameter.option(
+                    "--prompt", valueName: "TEXT", required: true, summary: "Transform instruction."),
                 CLISpecParameter.flag("--stream", summary: "Stream tokens; incompatible with --json."),
             ],
             output: "LLMResult envelope when --json is used."
@@ -548,7 +621,8 @@ private extension CLISpecCommand {
             summary: "Add a custom Meeting Ask quick prompt.",
             readOnly: false,
             options: [
-                CLISpecParameter.option("--label", valueName: "LABEL", required: true, summary: "Display label shown on the pill."),
+                CLISpecParameter.option(
+                    "--label", valueName: "LABEL", required: true, summary: "Display label shown on the pill."),
                 CLISpecParameter.option("--prompt", valueName: "TEXT", summary: "Prompt body text."),
                 CLISpecParameter.option("--from-file", valueName: "PATH", summary: "Read prompt body from a file."),
                 CLISpecParameter.option("--group", valueName: "LABEL", summary: "Optional group label."),
@@ -603,7 +677,8 @@ private extension CLISpecCommand {
             summary: "Reset built-in quick prompts to canonical values.",
             readOnly: false,
             options: [
-                CLISpecParameter.option("--id", valueName: "ID", summary: "Limit restore to one built-in quick prompt."),
+                CLISpecParameter.option(
+                    "--id", valueName: "ID", summary: "Limit restore to one built-in quick prompt."),
                 databaseOption,
             ],
             output: "Restore result when --json is used."
@@ -613,7 +688,8 @@ private extension CLISpecCommand {
             summary: "Export quick prompts as a versioned JSON bundle.",
             jsonMode: "--json for failure envelopes only",
             options: [
-                CLISpecParameter.option("--out", valueName: "PATH", summary: "Write bundle to a file; stdout if omitted."),
+                CLISpecParameter.option(
+                    "--out", valueName: "PATH", summary: "Write bundle to a file; stdout if omitted."),
                 CLISpecParameter.option("--pinned", valueName: "true|false", summary: "Filter by pin state."),
                 CLISpecParameter.flag("--include-builtins", summary: "Include built-in prompts."),
                 databaseOption,
@@ -652,7 +728,8 @@ private extension CLISpecCommand {
             readOnly: false,
             arguments: [.argument("transform", summary: "Transform ID, UUID prefix, or name.")],
             options: llmInlineOptions + [
-                CLISpecParameter.option("--input", valueName: "PATH", required: true, summary: "Path to text file; use '-' for stdin."),
+                CLISpecParameter.option(
+                    "--input", valueName: "PATH", required: true, summary: "Path to text file; use '-' for stdin."),
                 CLISpecParameter.flag("--stream", summary: "Stream tokens; incompatible with --json."),
                 databaseOption,
             ],
@@ -684,7 +761,11 @@ private extension CLISpecCommand {
             summary: "Restore built-in Transform defaults.",
             readOnly: false,
             options: [
-                CLISpecParameter.option("--transform", valueName: "ID|NAME", summary: "Reset one built-in Transform; omit to re-show hidden built-ins and re-seed missing built-ins without overwriting edits."),
+                CLISpecParameter.option(
+                    "--transform", valueName: "ID|NAME",
+                    summary:
+                        "Reset one built-in Transform; omit to re-show hidden built-ins and re-seed missing built-ins without overwriting edits."
+                ),
                 databaseOption,
             ],
             output: "Restore result when --json is used."
@@ -739,7 +820,8 @@ private extension CLISpecCommand {
                 CLISpecParameter.option("--source", valueName: "all|manual|learned", summary: "Filter by source."),
                 databaseOption,
             ],
-            output: "Array of CustomWord objects for --json; human output also reports recognition-boosting support for the current app-default engine."
+            output:
+                "Array of CustomWord objects for --json; human output also reports recognition-boosting support for the current app-default engine."
         ),
         CLISpecCommand(
             ["vocab", "words", "add"],
@@ -748,7 +830,11 @@ private extension CLISpecCommand {
             jsonMode: "none",
             arguments: [
                 .argument("word", summary: "Word or phrase to match."),
-                .argument("replacement", required: false, summary: "Replacement text; omit for a vocabulary anchor that can boost supported Parakeet TDT recognition."),
+                .argument(
+                    "replacement", required: false,
+                    summary:
+                        "Replacement text; omit for a vocabulary anchor that can boost supported Parakeet TDT recognition."
+                ),
             ],
             options: [databaseOption],
             output: "Human-readable add confirmation."
@@ -769,10 +855,9 @@ private extension CLISpecCommand {
             ["vocab", "words", "delete"],
             summary: "Delete a custom word by UUID prefix.",
             readOnly: false,
-            jsonMode: "none",
             arguments: [.argument("id", summary: "Word UUID or UUID prefix.")],
             options: [databaseOption],
-            output: "Human-readable delete confirmation."
+            output: "Delete result with id and label for --json; human-readable delete confirmation otherwise."
         ),
         CLISpecCommand(
             ["vocab", "snippets", "list"],
@@ -810,17 +895,17 @@ private extension CLISpecCommand {
             ["vocab", "snippets", "delete"],
             summary: "Delete a text snippet by UUID prefix.",
             readOnly: false,
-            jsonMode: "none",
             arguments: [.argument("id", summary: "Snippet UUID or UUID prefix.")],
             options: [databaseOption],
-            output: "Human-readable delete confirmation."
+            output: "Delete result with id and label for --json; human-readable delete confirmation otherwise."
         ),
         CLISpecCommand(
             ["vocab", "export"],
             summary: "Export custom words and snippets as a vocabulary bundle.",
             jsonMode: "bundle JSON",
             options: [
-                CLISpecParameter.option("--output", valueName: "PATH", summary: "Write bundle to a file; stdout if omitted."),
+                CLISpecParameter.option(
+                    "--output", valueName: "PATH", summary: "Write bundle to a file; stdout if omitted."),
                 databaseOption,
             ],
             output: "VocabularyBundle JSON."
@@ -830,7 +915,8 @@ private extension CLISpecCommand {
             summary: "Import a vocabulary bundle.",
             readOnly: false,
             options: [
-                CLISpecParameter.option("--input", valueName: "PATH", summary: "Read bundle from a file; stdin if omitted."),
+                CLISpecParameter.option(
+                    "--input", valueName: "PATH", summary: "Read bundle from a file; stdin if omitted."),
                 CLISpecParameter.option("--policy", valueName: "skip|replace", summary: "Conflict policy."),
                 CLISpecParameter.flag("--dry-run", summary: "Decode and report without writing."),
                 databaseOption,
@@ -867,9 +953,22 @@ private extension CLISpecCommand {
             summary: "List upcoming calendar events visible to MacParakeet.",
             options: [
                 CLISpecParameter.option("--days", valueName: "N", summary: "Number of days to look ahead."),
-                CLISpecParameter.option("--filter", valueName: "link|participants|all", summary: "Meeting trigger filter."),
+                CLISpecParameter.option(
+                    "--filter", valueName: "link|participants|all", summary: "Meeting trigger filter."),
             ],
             output: "Array of CalendarEvent objects when --json is used."
+        ),
+        CLISpecCommand(
+            ["feedback"],
+            summary: "Submit user feedback to MacParakeet support.",
+            readOnly: false,
+            jsonMode: "none",
+            arguments: [.argument("message", summary: "Feedback message.")],
+            options: [
+                CLISpecParameter.option("--category", valueName: "bug|feature|other", summary: "Feedback category."),
+                CLISpecParameter.option("--email", valueName: "EMAIL", summary: "Optional follow-up email."),
+            ],
+            output: "Human-readable submission progress."
         ),
         CLISpecCommand(
             ["meetings", "list"],
@@ -889,7 +988,8 @@ private extension CLISpecCommand {
                 CLISpecParameter.flag("--envelope", summary: "Wrap JSON output in an ok/data/meta success envelope."),
                 databaseOption,
             ],
-            output: "MeetingRecord object with transcript, transcriptSegments, notes, prompt-result count, artifactMarkdownPath, and optional rawMicrophoneAudioPath, cleanedMicrophoneAudioPath, rawSystemAudioPath, and playbackAudioPath."
+            output:
+                "MeetingRecord object with transcript, transcriptSegments, notes, prompt-result count, artifactMarkdownPath, and optional rawMicrophoneAudioPath, cleanedMicrophoneAudioPath, rawSystemAudioPath, and playbackAudioPath."
         ),
         CLISpecCommand(
             ["meetings", "transcript"],
@@ -897,7 +997,8 @@ private extension CLISpecCommand {
             jsonMode: "--format json",
             arguments: [.argument("meeting", summary: "Meeting UUID, UUID prefix, or exact title.")],
             options: [
-                CLISpecParameter.option("--format", valueName: "text|json|srt|vtt", summary: "Transcript output format."),
+                CLISpecParameter.option(
+                    "--format", valueName: "text|json|srt|vtt", summary: "Transcript output format."),
                 databaseOption,
             ],
             output: "MeetingTranscriptRecord object with transcriptSegments for --format json."
@@ -965,11 +1066,15 @@ private extension CLISpecCommand {
             readOnly: false,
             arguments: [.argument("meeting", summary: "Meeting UUID, UUID prefix, or exact title.")],
             options: [
-                CLISpecParameter.option("--name", valueName: "NAME", required: true, summary: "Display name for the saved result."),
+                CLISpecParameter.option(
+                    "--name", valueName: "NAME", required: true, summary: "Display name for the saved result."),
                 CLISpecParameter.option("--content", valueName: "TEXT", summary: "Generated result content to store."),
                 CLISpecParameter.flag("--stdin", summary: "Read generated result content from stdin."),
-                CLISpecParameter.option("--prompt-content", valueName: "TEXT", summary: "Optional prompt/instructions that produced the result."),
-                CLISpecParameter.option("--extra", valueName: "TEXT", summary: "Optional extra instructions or provenance."),
+                CLISpecParameter.option(
+                    "--prompt-content", valueName: "TEXT",
+                    summary: "Optional prompt/instructions that produced the result."),
+                CLISpecParameter.option(
+                    "--extra", valueName: "TEXT", summary: "Optional extra instructions or provenance."),
                 CLISpecParameter.flag("--envelope", summary: "Wrap JSON output in an ok/data/meta success envelope."),
                 databaseOption,
             ],
@@ -984,7 +1089,8 @@ private extension CLISpecCommand {
                 CLISpecParameter.flag("--envelope", summary: "Wrap JSON output in an ok/data/meta success envelope."),
                 databaseOption,
             ],
-            output: "MeetingArtifactSnapshot object with folderPath, manifestPath, markdownPath, transcriptPath, prompt-result paths, and optional rawMicrophoneAudioPath, cleanedMicrophoneAudioPath, rawSystemAudioPath, and playbackAudioPath."
+            output:
+                "MeetingArtifactSnapshot object with folderPath, manifestPath, markdownPath, transcriptPath, prompt-result paths, and optional rawMicrophoneAudioPath, cleanedMicrophoneAudioPath, rawSystemAudioPath, and playbackAudioPath."
         ),
         CLISpecCommand(
             ["meetings", "export"],
@@ -994,11 +1100,13 @@ private extension CLISpecCommand {
             arguments: [.argument("meeting", summary: "Meeting UUID, UUID prefix, or exact title.")],
             options: [
                 CLISpecParameter.option("--format", valueName: "md|json", summary: "Export format."),
-                CLISpecParameter.option("--output", valueName: "PATH", summary: "Output file path; defaults to an auto-generated file."),
+                CLISpecParameter.option(
+                    "--output", valueName: "PATH", summary: "Output file path; defaults to an auto-generated file."),
                 CLISpecParameter.flag("--stdout", summary: "Print export content to stdout."),
                 databaseOption,
             ],
-            output: "Meeting Markdown in the same shape as meeting.md, or MeetingRecord JSON with prompt-result count and artifact paths when --stdout is present; otherwise writes a file and prints its path."
+            output:
+                "Meeting Markdown in the same shape as meeting.md, or MeetingRecord JSON with prompt-result count and artifact paths when --stdout is present; otherwise writes a file and prints its path."
         ),
     ]
 }

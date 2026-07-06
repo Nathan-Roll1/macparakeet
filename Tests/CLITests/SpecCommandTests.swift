@@ -57,13 +57,15 @@ final class SpecCommandTests: XCTestCase {
         XCTAssertEqual(conventions["stderr"] as? String, "Human progress/status messages are written to stderr.")
 
         let failureEnvelope = try XCTUnwrap(conventions["failureEnvelope"] as? [String: Any])
-        XCTAssertEqual(Set(try XCTUnwrap(failureEnvelope["fields"] as? [String])), [
-            "ok",
-            "error",
-            "errorType",
-            "fix",
-            "meta",
-        ])
+        XCTAssertEqual(
+            Set(try XCTUnwrap(failureEnvelope["fields"] as? [String])),
+            [
+                "ok",
+                "error",
+                "errorType",
+                "fix",
+                "meta",
+            ])
         XCTAssertEqual(failureEnvelope["okValueOnFailure"] as? Bool, false)
         XCTAssertEqual(failureEnvelope["appliesAfterArgumentParsing"] as? Bool, true)
     }
@@ -72,13 +74,15 @@ final class SpecCommandTests: XCTestCase {
         let payload = try specPayload()
         let conventions = try XCTUnwrap(payload["conventions"] as? [String: Any])
         let exitCodes = try XCTUnwrap(conventions["exitCodes"] as? [[String: Any]])
-        let meaningsByCode = Dictionary(uniqueKeysWithValues: exitCodes.compactMap { entry -> (Int, String)? in
-            guard let code = entry["code"] as? Int,
-                  let meaning = entry["meaning"] as? String else {
-                return nil
-            }
-            return (code, meaning)
-        })
+        let meaningsByCode = Dictionary(
+            uniqueKeysWithValues: exitCodes.compactMap { entry -> (Int, String)? in
+                guard let code = entry["code"] as? Int,
+                    let meaning = entry["meaning"] as? String
+                else {
+                    return nil
+                }
+                return (code, meaning)
+            })
 
         XCTAssertEqual(Set(meaningsByCode.keys), [0, 1, 2, 130])
         XCTAssertEqual(meaningsByCode[0], "success")
@@ -93,9 +97,10 @@ final class SpecCommandTests: XCTestCase {
         let paths = try commands.map { command in
             try XCTUnwrap(command["path"] as? [String])
         }
-        let registeredTopLevelCommands = Set(CLI.configuration.subcommands.compactMap {
-            $0.configuration.commandName
-        })
+        let registeredTopLevelCommands = Set(
+            CLI.configuration.subcommands.compactMap {
+                $0.configuration.commandName
+            })
         let documentedTopLevelCommands = Set(paths.compactMap(\.first))
 
         XCTAssertEqual(
@@ -104,6 +109,7 @@ final class SpecCommandTests: XCTestCase {
                 "calendar",
                 "config",
                 "export",
+                "feedback",
                 "health",
                 "history",
                 "llm",
@@ -185,6 +191,7 @@ final class SpecCommandTests: XCTestCase {
             ["stats"],
             ["export"],
             ["calendar", "upcoming"],
+            ["feedback"],
         ] {
             XCTAssertTrue(paths.contains(path), "\(path.joined(separator: " ")) missing from spec catalog")
         }
@@ -194,8 +201,11 @@ final class SpecCommandTests: XCTestCase {
         let promptSetOptions = try XCTUnwrap(promptsSet["options"] as? [[String: Any]])
         XCTAssertTrue(promptSetOptions.contains { ($0["name"] as? String) == "--source" })
 
-        let deleteMeetingAudio = try XCTUnwrap(commands.first { ($0["path"] as? [String]) == ["history", "delete-meeting-audio"] })
-        XCTAssertTrue((deleteMeetingAudio["summary"] as? String)?.contains("re-transcription or speaker detection/backfill") == true)
+        let deleteMeetingAudio = try XCTUnwrap(
+            commands.first { ($0["path"] as? [String]) == ["history", "delete-meeting-audio"] })
+        XCTAssertTrue(
+            (deleteMeetingAudio["summary"] as? String)?.contains("re-transcription or speaker detection/backfill")
+                == true)
 
         for path in [
             ["prompts", "run"],
@@ -248,17 +258,20 @@ final class SpecCommandTests: XCTestCase {
         let whisperLanguage = try XCTUnwrap(configKeys.first { ($0["key"] as? String) == "whisper-language" })
         XCTAssertNil(whisperLanguage["allowedValues"] as? [String])
 
-        let meetingAudioRetention = try XCTUnwrap(configKeys.first { ($0["key"] as? String) == "meeting-audio-retention" })
+        let meetingAudioRetention = try XCTUnwrap(
+            configKeys.first { ($0["key"] as? String) == "meeting-audio-retention" })
         XCTAssertNil(meetingAudioRetention["allowedValues"] as? [String])
 
         let voiceReturnTriggers = try XCTUnwrap(configKeys.first { ($0["key"] as? String) == "voice-return-triggers" })
         XCTAssertEqual(voiceReturnTriggers["valueSyntax"] as? String, "phrase[|phrase...]")
         XCTAssertNil(voiceReturnTriggers["allowedValues"] as? [String])
 
-        let bluetoothMicPreference = try XCTUnwrap(configKeys.first { ($0["key"] as? String) == "prefer-built-in-mic-bluetooth-output" })
+        let bluetoothMicPreference = try XCTUnwrap(
+            configKeys.first { ($0["key"] as? String) == "prefer-built-in-mic-bluetooth-output" })
         XCTAssertEqual(bluetoothMicPreference["allowedValues"] as? [String], ["on", "off"])
 
-        let meetingSpeakerDetection = try XCTUnwrap(configKeys.first { ($0["key"] as? String) == "meeting-speaker-detection" })
+        let meetingSpeakerDetection = try XCTUnwrap(
+            configKeys.first { ($0["key"] as? String) == "meeting-speaker-detection" })
         XCTAssertEqual(meetingSpeakerDetection["allowedValues"] as? [String], ["on", "off"])
 
         let timeout = try XCTUnwrap(configKeys.first { ($0["key"] as? String) == "meeting-hook-timeout" })
@@ -369,13 +382,41 @@ final class SpecCommandTests: XCTestCase {
 
         let modelsDelete = try XCTUnwrap(commands.first { ($0["path"] as? [String]) == ["models", "delete"] })
         XCTAssertEqual(modelsDelete["readOnly"] as? Bool, false)
+        XCTAssertEqual(modelsDelete["jsonMode"] as? String, "--json")
         let options = try XCTUnwrap(modelsDelete["options"] as? [[String: Any]])
         XCTAssertTrue(options.contains { ($0["name"] as? String) == "--force" })
+
+        let modelsClear = try XCTUnwrap(commands.first { ($0["path"] as? [String]) == ["models", "clear"] })
+        XCTAssertEqual(modelsClear["jsonMode"] as? String, "--json")
 
         let health = try XCTUnwrap(commands.first { ($0["path"] as? [String]) == ["health"] })
         XCTAssertEqual(health["readOnly"] as? Bool, false)
         let healthOptions = try XCTUnwrap(health["options"] as? [[String: Any]])
         XCTAssertTrue(healthOptions.contains { ($0["name"] as? String) == "--repair-attempts" })
+
+        let feedback = try XCTUnwrap(commands.first { ($0["path"] as? [String]) == ["feedback"] })
+        XCTAssertEqual(feedback["readOnly"] as? Bool, false)
+        XCTAssertEqual(feedback["jsonMode"] as? String, "none")
+    }
+
+    func testSpecDocumentsJSONForDestructiveMutators() throws {
+        let payload = try specPayload()
+        let commands = try XCTUnwrap(payload["commands"] as? [[String: Any]])
+
+        for path in [
+            ["history", "delete-dictation"],
+            ["history", "delete-transcription"],
+            ["history", "delete-meeting-audio"],
+            ["history", "clear-meeting-audio"],
+            ["models", "delete"],
+            ["models", "clear"],
+            ["vocab", "words", "delete"],
+            ["vocab", "snippets", "delete"],
+        ] {
+            let command = try XCTUnwrap(commands.first { ($0["path"] as? [String]) == path })
+            XCTAssertEqual(command["readOnly"] as? Bool, false)
+            XCTAssertEqual(command["jsonMode"] as? String, "--json")
+        }
     }
 
     func testSpecDocumentsMeetingNotesAndExportSurface() throws {

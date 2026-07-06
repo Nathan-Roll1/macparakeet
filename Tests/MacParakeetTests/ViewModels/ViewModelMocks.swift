@@ -33,10 +33,9 @@ final class MockDictationRepository: DictationRepositoryProtocol, @unchecked Sen
 
     func search(query: String, limit: Int?) throws -> [Dictation] {
         let filtered = dictations.filter {
-            !$0.hidden && (
-                $0.rawTranscript.localizedCaseInsensitiveContains(query)
-                || ($0.cleanTranscript?.localizedCaseInsensitiveContains(query) ?? false)
-            )
+            !$0.hidden
+                && ($0.rawTranscript.localizedCaseInsensitiveContains(query)
+                    || ($0.cleanTranscript?.localizedCaseInsensitiveContains(query) ?? false))
         }
         let sorted = filtered.sorted { $0.createdAt > $1.createdAt }
         if let limit { return Array(sorted.prefix(limit)) }
@@ -282,17 +281,23 @@ final class MockTranscriptionRepository: TranscriptionRepositoryProtocol, @unche
         }
     }
 
-    func clearStoredAudioPathsForMeetingTranscriptions(under directoryPath: String) throws {
+    @discardableResult
+    func clearStoredAudioPathsForMeetingTranscriptions(under directoryPath: String) throws -> [UUID] {
         let root = URL(fileURLWithPath: directoryPath, isDirectory: true).standardizedFileURL.path
+        var clearedIDs: [UUID] = []
         for i in transcriptions.indices {
             guard transcriptions[i].sourceType == .meeting,
-                  let filePath = transcriptions[i].filePath else { continue }
+                let filePath = transcriptions[i].filePath
+            else { continue }
             let target = URL(fileURLWithPath: filePath).standardizedFileURL.path
             guard target.hasPrefix(root + "/") else { continue }
-            transcriptions[i].meetingArtifactFolderPath = transcriptions[i].meetingArtifactFolderPath
+            transcriptions[i].meetingArtifactFolderPath =
+                transcriptions[i].meetingArtifactFolderPath
                 ?? URL(fileURLWithPath: filePath).deletingLastPathComponent().standardizedFileURL.path
             transcriptions[i].filePath = nil
+            clearedIDs.append(transcriptions[i].id)
         }
+        return clearedIDs
     }
 
     func updateFavorite(id: UUID, isFavorite: Bool) throws {
@@ -500,11 +505,12 @@ actor MockTranscriptionService: SpeechEngineOverrideTranscriptionService {
             return result
         }
 
-        return transcribeResult ?? Transcription(
-            fileName: fileName,
-            rawTranscript: "Mock transcription",
-            status: .completed
-        )
+        return transcribeResult
+            ?? Transcription(
+                fileName: fileName,
+                rawTranscript: "Mock transcription",
+                status: .completed
+            )
     }
 
     func transcribeTransient(
@@ -535,13 +541,14 @@ actor MockTranscriptionService: SpeechEngineOverrideTranscriptionService {
             throw error
         }
 
-        return transcribeResult ?? Transcription(
-            fileName: recording.displayName,
-            filePath: recording.mixedAudioURL.path,
-            rawTranscript: "Mock meeting transcription",
-            status: .completed,
-            sourceType: .meeting
-        )
+        return transcribeResult
+            ?? Transcription(
+                fileName: recording.displayName,
+                filePath: recording.mixedAudioURL.path,
+                rawTranscript: "Mock meeting transcription",
+                status: .completed,
+                sourceType: .meeting
+            )
     }
 
     func prepareMeetingTranscription(
@@ -595,13 +602,15 @@ actor MockTranscriptionService: SpeechEngineOverrideTranscriptionService {
             throw error
         }
 
-        var result = transcribeResult ?? Transcription(
-            fileName: recording.displayName,
-            filePath: recording.mixedAudioURL.path,
-            rawTranscript: "Mock meeting transcription",
-            status: .completed,
-            sourceType: .meeting
-        )
+        var result =
+            transcribeResult
+            ?? Transcription(
+                fileName: recording.displayName,
+                filePath: recording.mixedAudioURL.path,
+                rawTranscript: "Mock meeting transcription",
+                status: .completed,
+                sourceType: .meeting
+            )
         result.id = transcriptionID
         result.filePath = result.filePath ?? recording.mixedAudioURL.path
         result.meetingArtifactFolderPath = result.meetingArtifactFolderPath ?? recording.folderURL.path
@@ -631,7 +640,9 @@ actor MockTranscriptionService: SpeechEngineOverrideTranscriptionService {
         return try await transcribeMeeting(recording: recording, onProgress: onProgress)
     }
 
-    func transcribeURL(urlString: String, onProgress: (@Sendable (TranscriptionProgress) -> Void)? = nil) async throws -> Transcription {
+    func transcribeURL(urlString: String, onProgress: (@Sendable (TranscriptionProgress) -> Void)? = nil) async throws
+        -> Transcription
+    {
         transcribeURLCallCount += 1
         lastURLString = urlString
 
@@ -647,12 +658,13 @@ actor MockTranscriptionService: SpeechEngineOverrideTranscriptionService {
             throw error
         }
 
-        return transcribeResult ?? Transcription(
-            fileName: "YouTube Video",
-            rawTranscript: "Mock transcription",
-            status: .completed,
-            sourceURL: urlString
-        )
+        return transcribeResult
+            ?? Transcription(
+                fileName: "YouTube Video",
+                rawTranscript: "Mock transcription",
+                status: .completed,
+                sourceURL: urlString
+            )
     }
 
     func transcribeURLTransient(
@@ -785,7 +797,9 @@ final class MockLLMService: LLMServiceProtocol, @unchecked Sendable {
         return summarizeResult
     }
 
-    func chat(question: String, transcript: String, userNotes: String?, history: [ChatMessage], source: TelemetryChatSource) async throws -> String {
+    func chat(
+        question: String, transcript: String, userNotes: String?, history: [ChatMessage], source: TelemetryChatSource
+    ) async throws -> String {
         chatCallCount += 1
         lastChatQuestion = question
         lastChatTranscript = transcript
@@ -806,8 +820,11 @@ final class MockLLMService: LLMServiceProtocol, @unchecked Sendable {
         return LLMResult(output: output, provider: "mock", model: "mock-model", latencyMs: 0)
     }
 
-    func chatDetailed(question: String, transcript: String, userNotes: String?, history: [ChatMessage], source: TelemetryChatSource) async throws -> LLMResult {
-        let output = try await chat(question: question, transcript: transcript, userNotes: userNotes, history: history, source: source)
+    func chatDetailed(
+        question: String, transcript: String, userNotes: String?, history: [ChatMessage], source: TelemetryChatSource
+    ) async throws -> LLMResult {
+        let output = try await chat(
+            question: question, transcript: transcript, userNotes: userNotes, history: history, source: source)
         return LLMResult(output: output, provider: "mock", model: "mock-model", latencyMs: 0)
     }
 
@@ -891,7 +908,9 @@ final class MockLLMService: LLMServiceProtocol, @unchecked Sendable {
         }
     }
 
-    func chatStream(question: String, transcript: String, userNotes: String?, history: [ChatMessage], source: TelemetryChatSource) -> AsyncThrowingStream<String, Error> {
+    func chatStream(
+        question: String, transcript: String, userNotes: String?, history: [ChatMessage], source: TelemetryChatSource
+    ) -> AsyncThrowingStream<String, Error> {
         chatCallCount += 1
         lastChatQuestion = question
         lastChatTranscript = transcript

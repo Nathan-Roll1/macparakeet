@@ -437,7 +437,8 @@ final class MeetingRecordingRecoveryServiceTests: XCTestCase {
         let staleCleanedURL = fixture.folderURL.appendingPathComponent("microphone-cleaned.m4a")
         try writeM4A(to: staleCleanedURL)
         let conditionerProbe = RecoveryMicConditionerFactoryProbe()
-        let threshold = MeetingCleanedMicrophoneReadinessPolicy.production.capSeconds
+        let threshold =
+            MeetingCleanedMicrophoneReadinessPolicy.production.capSeconds
             * MeetingCleanedMicrophoneReadinessPolicy.bestMeasuredRealtimeFactor
         transcriptionService.sourceResolutionPolicy = .production
         recoveryService = MeetingRecordingRecoveryService(
@@ -1101,7 +1102,8 @@ private final class RecordingTranscriptionRepository: TranscriptionRepositoryPro
     func updateChatMessages(id: UUID, chatMessages: [ChatMessage]?) throws {}
     func updateSpeakers(id: UUID, speakers: [SpeakerInfo]?) throws {}
     func clearStoredAudioPathsForURLTranscriptions() throws {}
-    func clearStoredAudioPathsForMeetingTranscriptions(under directoryPath: String) throws {}
+    @discardableResult
+    func clearStoredAudioPathsForMeetingTranscriptions(under directoryPath: String) throws -> [UUID] { [] }
     func updateFavorite(id: UUID, isFavorite: Bool) throws {}
     func fetchFavorites() throws -> [Transcription] { [] }
 }

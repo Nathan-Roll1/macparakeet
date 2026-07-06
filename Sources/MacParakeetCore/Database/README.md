@@ -45,7 +45,12 @@ Each migration is a `migrator.registerMigration("vX.Y-name") { db in
 the migration ledger doubles as a release-version trail. Migrations
 run once and are never edited after a release ships — to change a
 shipped schema, register a *new* migration that performs the
-adjustment.
+adjustment. The registered identifiers are exposed via
+`DatabaseManager.registeredMigrationIdentifiers`, and
+`unknownAppliedMigrationIdentifiers(at:)` compares them (read-only)
+against a database's `grdb_migrations` ledger — the CLI `health`
+command uses this to report schema skew when a stale CLI opens a
+database migrated by a newer app.
 
 **One repository per table. Don't combine tables in one repo.**
 Each repository implements a `…Protocol` so callers can be tested

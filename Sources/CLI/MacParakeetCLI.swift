@@ -8,11 +8,12 @@ struct CLI: AsyncParsableCommand {
     /// distinguishable from synthesized Bundle.main values (the bare executable
     /// has no Info.plist and macOS otherwise reports an SDK marker like "16.0").
     /// Bump in lockstep with `Sources/CLI/CHANGELOG.md`.
-    static let cliVersion = "2.11.0"
+    static let cliVersion = "2.12.0"
 
     static let configuration = CommandConfiguration(
         commandName: "macparakeet-cli",
-        abstract: "Local STT, transcription, and prompt automation for Apple Silicon. Powered by Parakeet TDT, with optional Nemotron Beta, Cohere, and Whisper recognition.",
+        abstract:
+            "Local STT, transcription, and prompt automation for Apple Silicon. Powered by Parakeet TDT, with optional Nemotron Beta, Cohere, and Whisper recognition.",
         version: cliVersion,
         subcommands: [
             TranscribeCommand.self,

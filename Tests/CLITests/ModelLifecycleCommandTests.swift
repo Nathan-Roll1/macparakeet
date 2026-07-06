@@ -1,5 +1,6 @@
 import ArgumentParser
 import CoreAudio
+import Foundation
 import XCTest
 @testable import MacParakeetCore
 @testable import CLI
@@ -21,6 +22,29 @@ final class ModelLifecycleCommandTests: XCTestCase {
         XCTAssertTrue(command.repairModels)
         XCTAssertEqual(command.repairAttempts, 6)
         XCTAssertTrue(command.repairBinaries)
+    }
+
+    func testRegisteredMigrationIdentifiersMatchFreshLedger() throws {
+        let db = try DatabaseManager()
+        XCTAssertEqual(
+            try db.appliedMigrationIdentifiers(),
+            DatabaseManager.registeredMigrationIdentifiers
+        )
+    }
+
+    func testHealthDatabaseProbeReportsSchemaSkewForFutureMigration() throws {
+        let dbURL = temporaryDatabaseURL()
+        defer { try? FileManager.default.removeItem(at: dbURL) }
+        let db = try DatabaseManager(path: dbURL.path)
+        try db.recordAppliedMigrationIdentifierForTesting("v99.0-future-app-migration")
+
+        let report = probeHealthDatabase(at: dbURL.path)
+
+        XCTAssertEqual(report.status, "schema_skew")
+        XCTAssertNil(report.dictations)
+        XCTAssertNil(report.transcriptions)
+        XCTAssertTrue(report.error?.contains("Upgrade macparakeet-cli") == true)
+        XCTAssertTrue(report.error?.contains("v99.0-future-app-migration") == true)
     }
 
     func testResolveWhisperDownloadModelRequiresWhisperPrefix() throws {
@@ -58,76 +82,90 @@ final class ModelLifecycleCommandTests: XCTestCase {
         )
 
         XCTAssertEqual(models.count, 7)
-        XCTAssertEqual(models[0], SelectableSpeechModel(
-            id: "parakeet-v3",
-            name: "Parakeet TDT 0.6B v3 (Multilingual)",
-            engine: "parakeet",
-            variant: "v3",
-            size: "~465 MB",
-            installed: true,
-            selected: false,
-            language: nil
-        ))
-        XCTAssertEqual(models[1], SelectableSpeechModel(
-            id: "parakeet-v2",
-            name: "Parakeet TDT 0.6B v2 (English only)",
-            engine: "parakeet",
-            variant: "v2",
-            size: "~465 MB",
-            installed: false,
-            selected: false,
-            language: "en"
-        ))
-        XCTAssertEqual(models[2], SelectableSpeechModel(
-            id: "parakeet-unified",
-            name: "Parakeet Unified 0.6B (English (Unified))",
-            engine: "parakeet",
-            variant: "unified",
-            size: "~565 MB",
-            installed: false,
-            selected: false,
-            language: "en"
-        ))
-        XCTAssertEqual(models[3], SelectableSpeechModel(
-            id: "nemotron-multilingual-1120ms",
-            name: "Nemotron 3.5 ASR Streaming 0.6B (Multilingual Beta)",
-            engine: "nemotron",
-            variant: "multilingual-1120ms",
-            size: "~1.5 GB",
-            installed: true,
-            selected: false,
-            language: "auto"
-        ))
-        XCTAssertEqual(models[4], SelectableSpeechModel(
-            id: "nemotron-english-1120ms",
-            name: "Nemotron Speech Streaming EN 0.6B (English Beta)",
-            engine: "nemotron",
-            variant: "english-1120ms",
-            size: "~600 MB",
-            installed: false,
-            selected: false,
-            language: "en"
-        ))
-        XCTAssertEqual(models[5], SelectableSpeechModel(
-            id: "cohere-transcribe",
-            name: "Cohere Transcribe",
-            engine: "cohere",
-            variant: nil,
-            size: "~2.1 GB",
-            installed: false,
-            selected: false,
-            language: "en"
-        ))
-        XCTAssertEqual(models[6], SelectableSpeechModel(
-            id: "whisper-large-v3-v20240930-turbo-632MB",
-            name: "Whisper Large v3 Turbo",
-            engine: "whisper",
-            variant: "large-v3-v20240930_turbo_632MB",
-            size: "632 MB",
-            installed: true,
-            selected: true,
-            language: "ko"
-        ))
+        XCTAssertEqual(
+            models[0],
+            SelectableSpeechModel(
+                id: "parakeet-v3",
+                name: "Parakeet TDT 0.6B v3 (Multilingual)",
+                engine: "parakeet",
+                variant: "v3",
+                size: "~465 MB",
+                installed: true,
+                selected: false,
+                language: nil
+            ))
+        XCTAssertEqual(
+            models[1],
+            SelectableSpeechModel(
+                id: "parakeet-v2",
+                name: "Parakeet TDT 0.6B v2 (English only)",
+                engine: "parakeet",
+                variant: "v2",
+                size: "~465 MB",
+                installed: false,
+                selected: false,
+                language: "en"
+            ))
+        XCTAssertEqual(
+            models[2],
+            SelectableSpeechModel(
+                id: "parakeet-unified",
+                name: "Parakeet Unified 0.6B (English (Unified))",
+                engine: "parakeet",
+                variant: "unified",
+                size: "~565 MB",
+                installed: false,
+                selected: false,
+                language: "en"
+            ))
+        XCTAssertEqual(
+            models[3],
+            SelectableSpeechModel(
+                id: "nemotron-multilingual-1120ms",
+                name: "Nemotron 3.5 ASR Streaming 0.6B (Multilingual Beta)",
+                engine: "nemotron",
+                variant: "multilingual-1120ms",
+                size: "~1.5 GB",
+                installed: true,
+                selected: false,
+                language: "auto"
+            ))
+        XCTAssertEqual(
+            models[4],
+            SelectableSpeechModel(
+                id: "nemotron-english-1120ms",
+                name: "Nemotron Speech Streaming EN 0.6B (English Beta)",
+                engine: "nemotron",
+                variant: "english-1120ms",
+                size: "~600 MB",
+                installed: false,
+                selected: false,
+                language: "en"
+            ))
+        XCTAssertEqual(
+            models[5],
+            SelectableSpeechModel(
+                id: "cohere-transcribe",
+                name: "Cohere Transcribe",
+                engine: "cohere",
+                variant: nil,
+                size: "~2.1 GB",
+                installed: false,
+                selected: false,
+                language: "en"
+            ))
+        XCTAssertEqual(
+            models[6],
+            SelectableSpeechModel(
+                id: "whisper-large-v3-v20240930-turbo-632MB",
+                name: "Whisper Large v3 Turbo",
+                engine: "whisper",
+                variant: "large-v3-v20240930_turbo_632MB",
+                size: "632 MB",
+                installed: true,
+                selected: true,
+                language: "ko"
+            ))
     }
 
     func testLoadSelectableSpeechModelsReadsDisplayMetadataFromCapabilityRegistry() throws {
@@ -366,7 +404,8 @@ final class ModelLifecycleCommandTests: XCTestCase {
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        XCTAssertEqual(nemotronDownloadVariant(from: "nemotron-multilingual-1120ms", defaults: defaults), .multilingual1120)
+        XCTAssertEqual(
+            nemotronDownloadVariant(from: "nemotron-multilingual-1120ms", defaults: defaults), .multilingual1120)
         XCTAssertEqual(nemotronDownloadVariant(from: "nemotron:beta", defaults: defaults), .multilingual1120)
         XCTAssertEqual(nemotronDownloadVariant(from: "nemotron_multilingual", defaults: defaults), .multilingual1120)
         XCTAssertEqual(nemotronDownloadVariant(from: "nemotron-english-1120ms", defaults: defaults), .english1120)
@@ -633,7 +672,8 @@ final class ModelLifecycleCommandTests: XCTestCase {
                 defaults: defaults
             )
         )
-        XCTAssertFalse(isModelInUse(.init(kind: .nemotron(.multilingual1120), displayName: "nemotron"), defaults: defaults))
+        XCTAssertFalse(
+            isModelInUse(.init(kind: .nemotron(.multilingual1120), displayName: "nemotron"), defaults: defaults))
         XCTAssertFalse(isModelInUse(.init(kind: .cohere, displayName: "cohere"), defaults: defaults))
     }
 
@@ -650,7 +690,8 @@ final class ModelLifecycleCommandTests: XCTestCase {
         // would load if the user switches back from Whisper.
         XCTAssertTrue(isModelInUse(.init(kind: .parakeet(.v3), displayName: "v3"), defaults: defaults))
         XCTAssertFalse(isModelInUse(.init(kind: .parakeet(.v2), displayName: "v2"), defaults: defaults))
-        XCTAssertFalse(isModelInUse(.init(kind: .nemotron(.multilingual1120), displayName: "nemotron"), defaults: defaults))
+        XCTAssertFalse(
+            isModelInUse(.init(kind: .nemotron(.multilingual1120), displayName: "nemotron"), defaults: defaults))
     }
 
     func testIsModelInUseProtectsNemotronWhenNemotronActive() throws {
@@ -660,8 +701,10 @@ final class ModelLifecycleCommandTests: XCTestCase {
         SpeechEnginePreference.nemotron.save(to: defaults)
 
         // No persisted variant: multilingual is the default Nemotron build.
-        XCTAssertTrue(isModelInUse(.init(kind: .nemotron(.multilingual1120), displayName: "nemotron"), defaults: defaults))
-        XCTAssertFalse(isModelInUse(.init(kind: .nemotron(.english1120), displayName: "nemotron-en"), defaults: defaults))
+        XCTAssertTrue(
+            isModelInUse(.init(kind: .nemotron(.multilingual1120), displayName: "nemotron"), defaults: defaults))
+        XCTAssertFalse(
+            isModelInUse(.init(kind: .nemotron(.english1120), displayName: "nemotron-en"), defaults: defaults))
         XCTAssertFalse(
             isModelInUse(
                 .init(kind: .whisper(SpeechEnginePreference.defaultWhisperModelVariant), displayName: "whisper"),
@@ -681,7 +724,8 @@ final class ModelLifecycleCommandTests: XCTestCase {
         // The configured Parakeet build is also protected: it is what Parakeet
         // would load if the user switches back from Cohere.
         XCTAssertTrue(isModelInUse(.init(kind: .parakeet(.v3), displayName: "v3"), defaults: defaults))
-        XCTAssertFalse(isModelInUse(.init(kind: .nemotron(.multilingual1120), displayName: "nemotron"), defaults: defaults))
+        XCTAssertFalse(
+            isModelInUse(.init(kind: .nemotron(.multilingual1120), displayName: "nemotron"), defaults: defaults))
         XCTAssertFalse(
             isModelInUse(
                 .init(kind: .whisper(SpeechEnginePreference.defaultWhisperModelVariant), displayName: "whisper"),
@@ -697,12 +741,16 @@ final class ModelLifecycleCommandTests: XCTestCase {
         SpeechEnginePreference.nemotron.save(to: defaults)
         SpeechEnginePreference.saveNemotronModelVariant(.english1120, defaults: defaults)
 
-        XCTAssertTrue(isModelInUse(.init(kind: .nemotron(.english1120), displayName: "nemotron-en"), defaults: defaults))
-        XCTAssertFalse(isModelInUse(.init(kind: .nemotron(.multilingual1120), displayName: "nemotron"), defaults: defaults))
+        XCTAssertTrue(
+            isModelInUse(.init(kind: .nemotron(.english1120), displayName: "nemotron-en"), defaults: defaults))
+        XCTAssertFalse(
+            isModelInUse(.init(kind: .nemotron(.multilingual1120), displayName: "nemotron"), defaults: defaults))
 
         SpeechEnginePreference.saveNemotronModelVariant(.multilingual1120, defaults: defaults)
-        XCTAssertTrue(isModelInUse(.init(kind: .nemotron(.multilingual1120), displayName: "nemotron"), defaults: defaults))
-        XCTAssertFalse(isModelInUse(.init(kind: .nemotron(.english1120), displayName: "nemotron-en"), defaults: defaults))
+        XCTAssertTrue(
+            isModelInUse(.init(kind: .nemotron(.multilingual1120), displayName: "nemotron"), defaults: defaults))
+        XCTAssertFalse(
+            isModelInUse(.init(kind: .nemotron(.english1120), displayName: "nemotron-en"), defaults: defaults))
     }
 
     func testDeleteCommandParsesForceFlag() throws {
@@ -717,6 +765,52 @@ final class ModelLifecycleCommandTests: XCTestCase {
     func testDeleteFailureIsRuntimeFailure() {
         let error = ModelDeletionError.deleteFailed("Could not delete Parakeet v2.")
         XCTAssertEqual(CLI.normalizedExitCode(for: error), .failure)
+    }
+
+    func testModelsClearJSONReportsCacheFamiliesWithInjectedCaches() async throws {
+        let stt = StubSTTClient()
+        await stt.setReady(true)
+
+        let output = try await captureStandardOutput {
+            try await clearModelCachesForCLI(
+                json: true,
+                sttClient: stt,
+                clearSpeakerCache: {},
+                clearWhisperModels: {}
+            )
+        }
+
+        let decoded = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any])
+        XCTAssertEqual(decoded["ok"] as? Bool, true)
+        XCTAssertEqual(decoded["clearedCacheCount"] as? Int, 3)
+        XCTAssertEqual(decoded["caches"] as? [String], ["speech", "speaker", "whisper"])
+        let sttReady = await stt.isReady()
+        XCTAssertFalse(sttReady)
+    }
+
+    func testModelsClearJSONEmitsFailureEnvelopeWhenWhisperClearFails() async throws {
+        let stt = StubSTTClient()
+        await stt.setReady(true)
+
+        var thrown: Error?
+        let output = try await captureStandardOutput {
+            do {
+                try await clearModelCachesForCLI(
+                    json: true,
+                    sttClient: stt,
+                    clearSpeakerCache: {},
+                    clearWhisperModels: { throw CocoaError(.fileWriteNoPermission) }
+                )
+            } catch {
+                thrown = error
+            }
+        }
+
+        XCTAssertTrue(thrown is CLIJSONEnvelopeExit)
+        let decoded = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any])
+        XCTAssertEqual(decoded["ok"] as? Bool, false)
+        let message = try XCTUnwrap(decoded["error"] as? String)
+        XCTAssertTrue(message.contains("whisper model cache"), "unexpected error message: \(message)")
     }
 
     func testWarmUpRetriesConfiguredAttempts() async {
@@ -955,6 +1049,11 @@ final class ModelLifecycleCommandTests: XCTestCase {
         XCTAssertEqual(diagnostics.storedSelectedUID, "usb-mic")
         XCTAssertEqual(diagnostics.selectedDevice?.uid, "usb-mic")
         XCTAssertEqual(diagnostics.fallbackOrder.map(\.uid), ["usb-mic", "conference-mic"])
+    }
+
+    private func temporaryDatabaseURL() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("macparakeet-cli-\(UUID().uuidString).db")
     }
 }
 

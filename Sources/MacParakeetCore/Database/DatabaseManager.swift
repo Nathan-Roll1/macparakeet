@@ -6,6 +6,12 @@ import Darwin
 public final class DatabaseManager: Sendable {
     public let dbQueue: DatabaseQueue
 
+    /// Identifiers of every migration this build knows, in registration order.
+    /// Derived from the migrator itself so it can never drift from `migrate()`.
+    public static var registeredMigrationIdentifiers: [String] {
+        makeMigrator().migrations
+    }
+
     #if DEBUG
     private static let sqlTraceEnvKey = "MACPARAKEET_DEBUG_SQL"
     #endif
@@ -25,6 +31,47 @@ public final class DatabaseManager: Sendable {
         dbQueue = try DatabaseQueue(configuration: config)
         try migrate()
     }
+
+    public func appliedMigrationIdentifiers() throws -> [String] {
+        try Self.appliedMigrationIdentifiers(in: dbQueue)
+    }
+
+    public static func appliedMigrationIdentifiers(at path: String) throws -> [String] {
+        var config = makeConfiguration()
+        config.readonly = true
+        let queue = try DatabaseQueue(path: path, configuration: config)
+        return try appliedMigrationIdentifiers(in: queue)
+    }
+
+    public static func unknownAppliedMigrationIdentifiers(at path: String) throws -> [String] {
+        let registered = Set(registeredMigrationIdentifiers)
+        return try appliedMigrationIdentifiers(at: path)
+            .filter { !registered.contains($0) }
+            .sorted()
+    }
+
+    private static func appliedMigrationIdentifiers(in queue: DatabaseQueue) throws -> [String] {
+        try queue.read { db in
+            guard try db.tableExists("grdb_migrations") else {
+                return []
+            }
+            return try String.fetchAll(
+                db,
+                sql: "SELECT identifier FROM grdb_migrations ORDER BY rowid"
+            )
+        }
+    }
+
+    #if DEBUG
+    func recordAppliedMigrationIdentifierForTesting(_ identifier: String) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "INSERT INTO grdb_migrations (identifier) VALUES (?)",
+                arguments: [identifier]
+            )
+        }
+    }
+    #endif
 
     private static func makeConfiguration() -> Configuration {
         var config = Configuration()
@@ -55,6 +102,12 @@ public final class DatabaseManager: Sendable {
     #endif
 
     private func migrate() throws {
+        try Self.makeMigrator().migrate(dbQueue)
+        try reconcileBuiltInPrompts()
+        try reconcileBuiltInQuickPrompts()
+    }
+
+    private static func makeMigrator() -> DatabaseMigrator {
         var migrator = DatabaseMigrator()
 
         // v0.1 — Dictations table + FTS5
@@ -79,34 +132,38 @@ public final class DatabaseManager: Sendable {
             )
 
             // FTS5 external content table
-            try db.execute(sql: """
-                CREATE VIRTUAL TABLE dictations_fts USING fts5(
-                    rawTranscript, cleanTranscript,
-                    content='dictations', content_rowid='rowid'
-                )
-            """)
+            try db.execute(
+                sql: """
+                        CREATE VIRTUAL TABLE dictations_fts USING fts5(
+                            rawTranscript, cleanTranscript,
+                            content='dictations', content_rowid='rowid'
+                        )
+                    """)
 
             // Sync triggers
-            try db.execute(sql: """
-                CREATE TRIGGER dictations_ai AFTER INSERT ON dictations BEGIN
-                    INSERT INTO dictations_fts(rowid, rawTranscript, cleanTranscript)
-                    VALUES (new.rowid, new.rawTranscript, new.cleanTranscript);
-                END
-            """)
-            try db.execute(sql: """
-                CREATE TRIGGER dictations_ad AFTER DELETE ON dictations BEGIN
-                    INSERT INTO dictations_fts(dictations_fts, rowid, rawTranscript, cleanTranscript)
-                    VALUES ('delete', old.rowid, old.rawTranscript, old.cleanTranscript);
-                END
-            """)
-            try db.execute(sql: """
-                CREATE TRIGGER dictations_au AFTER UPDATE ON dictations BEGIN
-                    INSERT INTO dictations_fts(dictations_fts, rowid, rawTranscript, cleanTranscript)
-                    VALUES ('delete', old.rowid, old.rawTranscript, old.cleanTranscript);
-                    INSERT INTO dictations_fts(rowid, rawTranscript, cleanTranscript)
-                    VALUES (new.rowid, new.rawTranscript, new.cleanTranscript);
-                END
-            """)
+            try db.execute(
+                sql: """
+                        CREATE TRIGGER dictations_ai AFTER INSERT ON dictations BEGIN
+                            INSERT INTO dictations_fts(rowid, rawTranscript, cleanTranscript)
+                            VALUES (new.rowid, new.rawTranscript, new.cleanTranscript);
+                        END
+                    """)
+            try db.execute(
+                sql: """
+                        CREATE TRIGGER dictations_ad AFTER DELETE ON dictations BEGIN
+                            INSERT INTO dictations_fts(dictations_fts, rowid, rawTranscript, cleanTranscript)
+                            VALUES ('delete', old.rowid, old.rawTranscript, old.cleanTranscript);
+                        END
+                    """)
+            try db.execute(
+                sql: """
+                        CREATE TRIGGER dictations_au AFTER UPDATE ON dictations BEGIN
+                            INSERT INTO dictations_fts(dictations_fts, rowid, rawTranscript, cleanTranscript)
+                            VALUES ('delete', old.rowid, old.rawTranscript, old.cleanTranscript);
+                            INSERT INTO dictations_fts(rowid, rawTranscript, cleanTranscript)
+                            VALUES (new.rowid, new.rawTranscript, new.cleanTranscript);
+                        END
+                    """)
         }
 
         // v0.1 — Transcriptions table
@@ -147,10 +204,11 @@ public final class DatabaseManager: Sendable {
                 t.column("createdAt", .text).notNull()
                 t.column("updatedAt", .text).notNull()
             }
-            try db.execute(sql: """
-                CREATE UNIQUE INDEX idx_custom_words_word
-                ON custom_words(word COLLATE NOCASE)
-            """)
+            try db.execute(
+                sql: """
+                        CREATE UNIQUE INDEX idx_custom_words_word
+                        ON custom_words(word COLLATE NOCASE)
+                    """)
         }
 
         // v0.2 — Text snippets table
@@ -164,10 +222,11 @@ public final class DatabaseManager: Sendable {
                 t.column("createdAt", .text).notNull()
                 t.column("updatedAt", .text).notNull()
             }
-            try db.execute(sql: """
-                CREATE UNIQUE INDEX idx_text_snippets_trigger
-                ON text_snippets("trigger" COLLATE NOCASE)
-            """)
+            try db.execute(
+                sql: """
+                        CREATE UNIQUE INDEX idx_text_snippets_trigger
+                        ON text_snippets("trigger" COLLATE NOCASE)
+                    """)
         }
 
         // v0.3 — Add sourceURL to transcriptions (YouTube URL tracking)
@@ -208,10 +267,12 @@ public final class DatabaseManager: Sendable {
             }
             // Backfill wordCount for existing completed rows.
             // Use DatabaseValue to safely skip rows with corrupt/non-UUID ids.
-            let rows = try Row.fetchAll(db, sql: """
-                SELECT id, COALESCE(cleanTranscript, rawTranscript) AS text
-                FROM dictations WHERE status = 'completed'
-            """)
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                        SELECT id, COALESCE(cleanTranscript, rawTranscript) AS text
+                        FROM dictations WHERE status = 'completed'
+                    """)
             for row in rows {
                 guard let id = UUID.fromDatabaseValue(row["id"] as DatabaseValue) else { continue }
                 let text: String = row["text"] ?? ""
@@ -250,16 +311,19 @@ public final class DatabaseManager: Sendable {
             // no audit trail. Now: skipped rows are logged via OSLog and
             // their chatMessages column is left intact for forensic recovery.
             let logger = Logger(subsystem: "com.macparakeet.core", category: "DatabaseMigration")
-            let rows = try Row.fetchAll(db, sql: """
-                SELECT id, chatMessages FROM transcriptions WHERE chatMessages IS NOT NULL
-            """)
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                        SELECT id, chatMessages FROM transcriptions WHERE chatMessages IS NOT NULL
+                    """)
             let now = Date()
             var migratedRawIDs: [String] = []
             var skippedCount = 0
             for row in rows {
                 let rawIDString: String? = row["id"]
                 guard let transcriptionId = UUID.fromDatabaseValue(row["id"] as DatabaseValue),
-                      let chatMessagesJSON = String.fromDatabaseValue(row["chatMessages"] as DatabaseValue) else {
+                    let chatMessagesJSON = String.fromDatabaseValue(row["chatMessages"] as DatabaseValue)
+                else {
                     skippedCount += 1
                     if let rawIDString {
                         logger.warning(
@@ -276,7 +340,8 @@ public final class DatabaseManager: Sendable {
                 // preserved in chat_conversations.messages.
                 var title = "Chat"
                 if let data = chatMessagesJSON.data(using: .utf8),
-                   let messages = try? JSONDecoder().decode([ChatMessage].self, from: data) {
+                    let messages = try? JSONDecoder().decode([ChatMessage].self, from: data)
+                {
                     if let firstUser = messages.first(where: { $0.role == .user }) {
                         title = String(firstUser.content.prefix(50))
                     }
@@ -287,10 +352,11 @@ public final class DatabaseManager: Sendable {
                 }
 
                 let conversationId = UUID()
-                try db.execute(sql: """
-                    INSERT INTO chat_conversations (id, transcriptionId, title, messages, createdAt, updatedAt)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, arguments: [conversationId, transcriptionId, title, chatMessagesJSON, now, now])
+                try db.execute(
+                    sql: """
+                            INSERT INTO chat_conversations (id, transcriptionId, title, messages, createdAt, updatedAt)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        """, arguments: [conversationId, transcriptionId, title, chatMessagesJSON, now, now])
                 migratedRawIDs.append(rawIDString ?? transcriptionId.uuidString)
             }
 
@@ -336,10 +402,10 @@ public final class DatabaseManager: Sendable {
 
             try db.execute(
                 sql: """
-                    UPDATE transcriptions
-                    SET sourceType = ?
-                    WHERE sourceURL IS NOT NULL
-                """,
+                        UPDATE transcriptions
+                        SET sourceType = ?
+                        WHERE sourceURL IS NOT NULL
+                    """,
                 arguments: ["youtube"]
             )
         }
@@ -365,9 +431,10 @@ public final class DatabaseManager: Sendable {
                 t.column("createdAt", .text).notNull()
                 t.column("updatedAt", .text).notNull()
             }
-            try db.execute(sql: """
-                CREATE UNIQUE INDEX idx_prompts_name ON prompts(name COLLATE NOCASE)
-            """)
+            try db.execute(
+                sql: """
+                        CREATE UNIQUE INDEX idx_prompts_name ON prompts(name COLLATE NOCASE)
+                    """)
 
             let now = Date()
             let legacySummaryPrompt = Prompt.classicSummaryPrompt(now: now)
@@ -417,11 +484,13 @@ public final class DatabaseManager: Sendable {
                 columns: ["transcriptionId"]
             )
 
-            let rows = try Row.fetchAll(db, sql: """
-                SELECT id, summary, createdAt
-                FROM transcriptions
-                WHERE summary IS NOT NULL AND summary != ''
-            """)
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                        SELECT id, summary, createdAt
+                        FROM transcriptions
+                        WHERE summary IS NOT NULL AND summary != ''
+                    """)
 
             for row in rows {
                 guard
@@ -462,20 +531,25 @@ public final class DatabaseManager: Sendable {
         migrator.registerMigration("v0.7.1-prompt-default") { db in
             let columns = try db.columns(in: "prompts")
             // Only add isDefault if neither isDefault nor isAutoRun exists
-            if !columns.contains(where: { $0.name == "isDefault" }) && !columns.contains(where: { $0.name == "isAutoRun" }) {
+            if !columns.contains(where: { $0.name == "isDefault" })
+                && !columns.contains(where: { $0.name == "isAutoRun" })
+            {
                 try db.alter(table: "prompts") { t in
                     t.add(column: "isDefault", .boolean).notNull().defaults(to: false)
                 }
-                try db.execute(sql: """
-                    UPDATE prompts SET isDefault = 1 WHERE name = 'General Summary' AND isBuiltIn = 1
-                """)
+                try db.execute(
+                    sql: """
+                            UPDATE prompts SET isDefault = 1 WHERE name = 'General Summary' AND isBuiltIn = 1
+                        """)
             }
         }
 
         // v0.7.2 - Rename isDefault to isAutoRun for multi-auto-run support
         migrator.registerMigration("v0.7.2-prompt-autorun") { db in
             let columns = try db.columns(in: "prompts")
-            if columns.contains(where: { $0.name == "isDefault" }) && !columns.contains(where: { $0.name == "isAutoRun" }) {
+            if columns.contains(where: { $0.name == "isDefault" })
+                && !columns.contains(where: { $0.name == "isAutoRun" })
+            {
                 try db.alter(table: "prompts") { t in
                     t.rename(column: "isDefault", to: "isAutoRun")
                 }
@@ -483,9 +557,10 @@ public final class DatabaseManager: Sendable {
                 try db.alter(table: "prompts") { t in
                     t.add(column: "isAutoRun", .boolean).notNull().defaults(to: false)
                 }
-                try db.execute(sql: """
-                    UPDATE prompts SET isAutoRun = 1 WHERE name = 'General Summary' AND isBuiltIn = 1
-                """)
+                try db.execute(
+                    sql: """
+                            UPDATE prompts SET isAutoRun = 1 WHERE name = 'General Summary' AND isBuiltIn = 1
+                        """)
             }
         }
 
@@ -617,18 +692,21 @@ public final class DatabaseManager: Sendable {
         }
 
         migrator.registerMigration("v0.10-transcription-library-indexes") { db in
-            try db.execute(sql: """
-                CREATE INDEX IF NOT EXISTS idx_transcriptions_source_type_created_at
-                ON transcriptions(sourceType, createdAt)
-            """)
-            try db.execute(sql: """
-                CREATE INDEX IF NOT EXISTS idx_transcriptions_favorite_created_at
-                ON transcriptions(isFavorite, createdAt)
-            """)
-            try db.execute(sql: """
-                CREATE INDEX IF NOT EXISTS idx_transcriptions_status_created_at
-                ON transcriptions(status, createdAt)
-            """)
+            try db.execute(
+                sql: """
+                        CREATE INDEX IF NOT EXISTS idx_transcriptions_source_type_created_at
+                        ON transcriptions(sourceType, createdAt)
+                    """)
+            try db.execute(
+                sql: """
+                        CREATE INDEX IF NOT EXISTS idx_transcriptions_favorite_created_at
+                        ON transcriptions(isFavorite, createdAt)
+                    """)
+            try db.execute(
+                sql: """
+                        CREATE INDEX IF NOT EXISTS idx_transcriptions_status_created_at
+                        ON transcriptions(status, createdAt)
+                    """)
         }
 
         // v0.11 — Per-day dictation rollup (Stats tab heatmap, current/longest
@@ -640,7 +718,7 @@ public final class DatabaseManager: Sendable {
         // than SQLite's UTC-leaning `date()` function.
         migrator.registerMigration("v0.11-daily-dictation-stats") { db in
             try db.create(table: "daily_dictation_stats") { t in
-                t.column("day", .text).primaryKey()       // YYYY-MM-DD, local day
+                t.column("day", .text).primaryKey()  // YYYY-MM-DD, local day
                 t.column("count", .integer).notNull().defaults(to: 0)
                 t.column("words", .integer).notNull().defaults(to: 0)
                 t.column("durationMs", .integer).notNull().defaults(to: 0)
@@ -747,11 +825,12 @@ public final class DatabaseManager: Sendable {
         // existing developer/prerelease databases from retaining selected-text
         // rewrite history or writing samples after the feature was reverted.
         migrator.registerMigration("v0.16-drop-transform-workbench-tables") { db in
-            let historyAlreadyRestored = try Bool.fetchOne(
-                db,
-                sql: "SELECT EXISTS(SELECT 1 FROM grdb_migrations WHERE identifier = ?)",
-                arguments: ["v0.17-recreate-transform-history"]
-            ) ?? false
+            let historyAlreadyRestored =
+                try Bool.fetchOne(
+                    db,
+                    sql: "SELECT EXISTS(SELECT 1 FROM grdb_migrations WHERE identifier = ?)",
+                    arguments: ["v0.17-recreate-transform-history"]
+                ) ?? false
             try db.execute(sql: "DROP TABLE IF EXISTS transform_profiles")
             try db.execute(sql: "DROP TABLE IF EXISTS writing_samples")
             if !historyAlreadyRestored {
@@ -828,13 +907,14 @@ public final class DatabaseManager: Sendable {
                 t.column("messageCount", .integer)
                 t.column("createdAt", .text).notNull()
                 t.column("updatedAt", .text).notNull()
-                t.check(sql: """
-                    dictationId IS NOT NULL
-                    OR transcriptionId IS NOT NULL
-                    OR promptResultId IS NOT NULL
-                    OR chatConversationId IS NOT NULL
-                    OR transformHistoryId IS NOT NULL
-                    """)
+                t.check(
+                    sql: """
+                        dictationId IS NOT NULL
+                        OR transcriptionId IS NOT NULL
+                        OR promptResultId IS NOT NULL
+                        OR chatConversationId IS NOT NULL
+                        OR transformHistoryId IS NOT NULL
+                        """)
             }
             try db.create(
                 index: "idx_llm_runs_feature_created_at",
@@ -930,22 +1010,23 @@ public final class DatabaseManager: Sendable {
                     t.column("updatedAt", .text).notNull()
                     t.check(sql: "targetKind IN ('bundle', 'category')")
                     t.check(sql: "origin IN ('custom', 'template')")
-                    t.check(sql: """
-                        (
-                            targetKind = 'bundle'
-                            AND bundleIdentifier IS NOT NULL
-                            AND TRIM(bundleIdentifier) != ''
-                            AND bundleIdentifier = LOWER(TRIM(bundleIdentifier))
-                            AND appCategory IS NULL
-                        )
-                        OR (
-                            targetKind = 'category'
-                            AND appCategory IS NOT NULL
-                            AND appCategory IN (\(allowedCategories))
-                            AND bundleIdentifier IS NULL
-                            AND appDisplayName IS NULL
-                        )
-                        """)
+                    t.check(
+                        sql: """
+                            (
+                                targetKind = 'bundle'
+                                AND bundleIdentifier IS NOT NULL
+                                AND TRIM(bundleIdentifier) != ''
+                                AND bundleIdentifier = LOWER(TRIM(bundleIdentifier))
+                                AND appCategory IS NULL
+                            )
+                            OR (
+                                targetKind = 'category'
+                                AND appCategory IS NOT NULL
+                                AND appCategory IN (\(allowedCategories))
+                                AND bundleIdentifier IS NULL
+                                AND appDisplayName IS NULL
+                            )
+                            """)
                 }
                 try db.create(
                     index: "idx_ai_formatter_profiles_enabled_sort",
@@ -957,16 +1038,18 @@ public final class DatabaseManager: Sendable {
                     on: "ai_formatter_profiles",
                     columns: ["targetKind"]
                 )
-                try db.execute(sql: """
-                    CREATE UNIQUE INDEX idx_ai_formatter_profiles_bundle_unique
-                    ON ai_formatter_profiles(LOWER(TRIM(bundleIdentifier)))
-                    WHERE targetKind = 'bundle' AND bundleIdentifier IS NOT NULL
-                    """)
-                try db.execute(sql: """
-                    CREATE UNIQUE INDEX idx_ai_formatter_profiles_category_unique
-                    ON ai_formatter_profiles(appCategory)
-                    WHERE targetKind = 'category' AND appCategory IS NOT NULL
-                    """)
+                try db.execute(
+                    sql: """
+                        CREATE UNIQUE INDEX idx_ai_formatter_profiles_bundle_unique
+                        ON ai_formatter_profiles(LOWER(TRIM(bundleIdentifier)))
+                        WHERE targetKind = 'bundle' AND bundleIdentifier IS NOT NULL
+                        """)
+                try db.execute(
+                    sql: """
+                        CREATE UNIQUE INDEX idx_ai_formatter_profiles_category_unique
+                        ON ai_formatter_profiles(appCategory)
+                        WHERE targetKind = 'category' AND appCategory IS NOT NULL
+                        """)
             }
 
             let existingColumns = try db.columns(in: "dictations").map(\.name)
@@ -982,17 +1065,18 @@ public final class DatabaseManager: Sendable {
                 }
             }
 
-            try db.execute(sql: """
-                UPDATE dictations
-                SET rawTranscript = '',
-                    cleanTranscript = NULL,
-                    audioPath = NULL,
-                    pastedToApp = NULL,
-                    aiFormatterProfileID = NULL,
-                    aiFormatterProfileName = NULL,
-                    aiFormatterProfileMatchKind = NULL
-                WHERE hidden = 1
-                """)
+            try db.execute(
+                sql: """
+                    UPDATE dictations
+                    SET rawTranscript = '',
+                        cleanTranscript = NULL,
+                        audioPath = NULL,
+                        pastedToApp = NULL,
+                        aiFormatterProfileID = NULL,
+                        aiFormatterProfileName = NULL,
+                        aiFormatterProfileMatchKind = NULL
+                    WHERE hidden = 1
+                    """)
         }
 
         // v0.22 — Durable meeting artifact folder locator. `filePath` remains
@@ -1007,18 +1091,20 @@ public final class DatabaseManager: Sendable {
                 }
             }
 
-            let rows = try Row.fetchAll(db, sql: """
-                SELECT id, filePath
-                FROM transcriptions
-                WHERE sourceType = ?
-                  AND filePath IS NOT NULL
-                  AND TRIM(filePath) != ''
-                  AND meetingArtifactFolderPath IS NULL
-            """, arguments: [Transcription.SourceType.meeting.rawValue])
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                        SELECT id, filePath
+                        FROM transcriptions
+                        WHERE sourceType = ?
+                          AND filePath IS NOT NULL
+                          AND TRIM(filePath) != ''
+                          AND meetingArtifactFolderPath IS NULL
+                    """, arguments: [Transcription.SourceType.meeting.rawValue])
 
             for row in rows {
                 guard let rawID = String.fromDatabaseValue(row["id"] as DatabaseValue),
-                      let filePath = String.fromDatabaseValue(row["filePath"] as DatabaseValue)
+                    let filePath = String.fromDatabaseValue(row["filePath"] as DatabaseValue)
                 else { continue }
                 let folderPath = URL(fileURLWithPath: filePath)
                     .deletingLastPathComponent()
@@ -1068,9 +1154,7 @@ public final class DatabaseManager: Sendable {
             }
         }
 
-        try migrator.migrate(dbQueue)
-        try reconcileBuiltInPrompts()
-        try reconcileBuiltInQuickPrompts()
+        return migrator
     }
 
     private static func withMigrationLock<T>(forDatabasePath path: String, _ body: () throws -> T) throws -> T {
@@ -1104,10 +1188,11 @@ public final class DatabaseManager: Sendable {
             // enabled if the user already has at least one auto-run prompt today.
             // This preserves ADR-013's "zero auto-run is a valid state" invariant
             // for users who have explicitly disabled every auto-run prompt.
-            let userHasAnyAutoRunPrompt = try Bool.fetchOne(
-                db,
-                sql: "SELECT EXISTS(SELECT 1 FROM prompts WHERE isAutoRun = 1)"
-            ) ?? false
+            let userHasAnyAutoRunPrompt =
+                try Bool.fetchOne(
+                    db,
+                    sql: "SELECT EXISTS(SELECT 1 FROM prompts WHERE isAutoRun = 1)"
+                ) ?? false
 
             for prompt in builtInPrompts {
                 if let existing = try Prompt.fetchOne(db, key: prompt.id) {
@@ -1186,18 +1271,19 @@ public final class DatabaseManager: Sendable {
 
                 // A custom prompt already owns this name. Preserve the user's prompt and
                 // skip re-inserting the built-in because names are globally unique today.
-                let hasCustomPromptWithSameName = try Bool.fetchOne(
-                    db,
-                    sql: """
-                        SELECT EXISTS(
-                            SELECT 1
-                            FROM prompts
-                            WHERE name = ? COLLATE NOCASE
-                              AND isBuiltIn = 0
-                        )
-                        """,
-                    arguments: [prompt.name]
-                ) ?? false
+                let hasCustomPromptWithSameName =
+                    try Bool.fetchOne(
+                        db,
+                        sql: """
+                            SELECT EXISTS(
+                                SELECT 1
+                                FROM prompts
+                                WHERE name = ? COLLATE NOCASE
+                                  AND isBuiltIn = 0
+                            )
+                            """,
+                        arguments: [prompt.name]
+                    ) ?? false
                 if hasCustomPromptWithSameName {
                     continue
                 }
@@ -1235,7 +1321,7 @@ public final class DatabaseManager: Sendable {
         db: Database
     ) throws -> String? {
         guard let legacyShortcut = legacyTransformOptionDefaults[canonical.name],
-              existing.shortcut == legacyShortcut
+            existing.shortcut == legacyShortcut
         else {
             return existing.keyboardShortcut
         }
@@ -1253,17 +1339,17 @@ public final class DatabaseManager: Sendable {
     private static let legacyTransformOptionDefaults: [String: KeyboardShortcut] = [
         "Polish": KeyboardShortcut(
             modifiers: KeyboardShortcut.ModifierFlag.option.rawValue,
-            keyCode: 0x12, // kVK_ANSI_1
+            keyCode: 0x12,  // kVK_ANSI_1
             keyLabel: "1"
         ),
         "Distill": KeyboardShortcut(
             modifiers: KeyboardShortcut.ModifierFlag.option.rawValue,
-            keyCode: 0x13, // kVK_ANSI_2
+            keyCode: 0x13,  // kVK_ANSI_2
             keyLabel: "2"
         ),
         "Decide": KeyboardShortcut(
             modifiers: KeyboardShortcut.ModifierFlag.option.rawValue,
-            keyCode: 0x14, // kVK_ANSI_3
+            keyCode: 0x14,  // kVK_ANSI_3
             keyLabel: "3"
         ),
     ]
@@ -1273,7 +1359,8 @@ public final class DatabaseManager: Sendable {
         excluding id: UUID,
         db: Database
     ) throws -> Bool {
-        let transforms = try Prompt
+        let transforms =
+            try Prompt
             .filter(Prompt.Columns.category == Prompt.Category.transform.rawValue)
             .fetchAll(db)
         return transforms.contains { $0.id != id && $0.shortcut == shortcut }

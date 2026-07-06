@@ -38,8 +38,10 @@ macparakeet-cli
 │   ├── transcriptions [--limit] [--json]  List recent transcriptions
 │   ├── search <query> [--limit] [--json]  Search dictation history
 │   ├── search-transcriptions <query> [--limit] [--json]  Search transcriptions
-│   ├── delete-dictation <id>            Delete a dictation by ID
-│   ├── delete-transcription <id>        Delete a transcription by ID
+│   ├── delete-dictation <id> [--json]   Delete a dictation by ID
+│   ├── delete-transcription <id> [--json]  Delete a transcription by ID
+│   ├── delete-meeting-audio <id> [--json]  Detach/delete one meeting's stored audio
+│   ├── clear-meeting-audio [--json]     Delete all managed meeting audio
 │   ├── favorites [--json]               List favorite transcriptions
 │   ├── favorite <id>                    Mark a transcription as favorite
 │   └── unfavorite <id>                  Remove from favorites
@@ -56,16 +58,18 @@ macparakeet-cli
 │   ├── select <model-id> [--json]       Set shared app/CLI speech default
 │   ├── status [--json]                  Show model status
 │   ├── download <model-id>              Download explicit speech model
-│   ├── delete <model-id> [--force]      Delete one downloaded speech model
+│   ├── delete <model-id> [--force] [--json]  Delete one downloaded speech model
 │   ├── warm-up [--attempts]             Warm up speech model
 │   ├── repair [--attempts]              Best-effort model repair
-│   └── clear                            Delete cached models
+│   └── clear [--json]                   Delete cached models
 ├── vocab, flow                          Text processing pipeline (`flow` is deprecated)
 │   ├── process <text> [--copy]          Run clean text processing
 │   ├── words {list,add,delete}          Manage custom words
-│   │   └── list [--source manual|learned|all] [--json]
+│   │   ├── list [--source manual|learned|all] [--json]
+│   │   └── delete <id> [--json]
 │   ├── snippets {list,add,delete}       Manage text snippets
-│   │   └── list [--json]
+│   │   ├── list [--json]
+│   │   └── delete <id> [--json]
 │   ├── export [--output path]           Export words/snippets as a JSON bundle
 │   ├── import [--input path] [--policy skip|replace] [--dry-run] [--json]
 │   └── schema [--json]                  Print the vocabulary bundle schema
@@ -455,6 +459,7 @@ swift run macparakeet-cli history delete-transcription <ID>
 ```
 
 IDs support UUID prefix matching with at least 4 characters (e.g., `3a7b` matches `3a7b1234-...`).
+Pass `--json` to get a machine-readable success object with the affected ID(s) instead of the human confirmation line.
 
 ### Favorites
 
@@ -477,6 +482,11 @@ managed or app-bundled `yt-dlp`, but it does not install or update helper
 binaries. `health --repair-binaries` explicitly fetches the latest managed
 `yt-dlp` copy. App-bundled CLI installs include a signed `yt-dlp` seed so
 media URL transcription works without a first-use helper download.
+
+The database probe reports `database.status` as `ok`, `missing`, `schema_skew`,
+or `error`. `schema_skew` means the shared database was migrated by a newer
+MacParakeet app than this CLI build understands — upgrade `macparakeet-cli`
+and retry instead of debugging the database.
 
 ## Meetings
 
