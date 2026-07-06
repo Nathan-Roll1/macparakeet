@@ -75,6 +75,53 @@ private struct RetranscribePick: Sendable {
     let override: SpeechEngineSelection?
 }
 
+struct MeetingTimedTranscriptRecoveryBannerPresentation: Equatable {
+    struct Action: Equatable {
+        let title: String
+        let selection: SpeechEngineSelection
+    }
+
+    let title: String
+    let message: String
+    let action: Action?
+
+    static func make(
+        transcriptText: String,
+        hasRetainedAudio: Bool,
+        timestampCapableRerun: SpeechEngineSelection?
+    ) -> MeetingTimedTranscriptRecoveryBannerPresentation? {
+        guard !transcriptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+
+        let baseMessage = "This meeting has transcript text but no word timestamps, so timed playback, segments, and speaker labels are unavailable."
+        if let timestampCapableRerun {
+            return MeetingTimedTranscriptRecoveryBannerPresentation(
+                title: "No timed transcript",
+                message: "\(baseMessage) Rerun with \(timestampCapableRerun.engine.displayName) to try adding timestamps. Speaker labels depend on the captured audio and may be approximate.",
+                action: Action(
+                    title: "Try timed retranscription",
+                    selection: timestampCapableRerun
+                )
+            )
+        }
+
+        if hasRetainedAudio {
+            return MeetingTimedTranscriptRecoveryBannerPresentation(
+                title: "No timed transcript",
+                message: "\(baseMessage) A timestamp-capable engine would be needed to try adding timestamps, but none is available right now.",
+                action: nil
+            )
+        }
+
+        return MeetingTimedTranscriptRecoveryBannerPresentation(
+            title: "No timed transcript",
+            message: "\(baseMessage) Saved audio is no longer available, so MacParakeet cannot rerun the meeting to try adding timestamps.",
+            action: nil
+        )
+    }
+}
+
 struct TranscriptResultView: View {
     let transcription: Transcription
     @Bindable var viewModel: TranscriptionViewModel
@@ -1129,8 +1176,9 @@ struct TranscriptResultView: View {
                     transcriptPaneHeader
 
                     if activeTranscription.sourceType == .meeting,
-                       !activeTranscription.hasWordTimestamps {
-                        meetingNoWordTimestampsBanner
+                       !activeTranscription.hasWordTimestamps,
+                       let banner = meetingNoWordTimestampsBannerPresentation {
+                        meetingNoWordTimestampsBanner(banner)
                     }
 
                     if shouldShowTranscriptAISetupBanner {
@@ -2686,12 +2734,10 @@ struct TranscriptResultView: View {
         )
     }
 
-    /// Shown above a meeting transcript that has no word timestamps (e.g. it was
-    /// transcribed with Cohere or Parakeet Unified). Makes the "text-only, no
-    /// speaker labels" trade-off visible and offers a timestamp-capable
-    /// re-transcribe path when one is available, so a user can't silently end up
-    /// with an un-diarizable meeting.
-    private var meetingNoWordTimestampsBanner: some View {
+    /// Shown above a meeting transcript that has text but no word timestamps
+    /// (e.g. it was transcribed with Cohere or Parakeet Unified). Makes the
+    /// text-only trade-off visible without promising speaker-label quality.
+    private var meetingNoWordTimestampsBannerPresentation: MeetingTimedTranscriptRecoveryBannerPresentation? {
         let hasRetainedAudio =
             onRetranscribe != nil
             && (activeTranscription.filePath.map { FileManager.default.fileExists(atPath: $0) } ?? false)
@@ -2702,34 +2748,41 @@ struct TranscriptResultView: View {
             ? viewModel.retranscriptionEngineOption(for: activeTranscription)?
                 .firstTimestampCapableChoice?.selection
             : nil
+        return MeetingTimedTranscriptRecoveryBannerPresentation.make(
+            transcriptText: transcriptText,
+            hasRetainedAudio: hasRetainedAudio,
+            timestampCapableRerun: timestampCapableRerun
+        )
+    }
+
+    private func meetingNoWordTimestampsBanner(
+        _ presentation: MeetingTimedTranscriptRecoveryBannerPresentation
+    ) -> some View {
         return HStack(alignment: .top, spacing: DesignSystem.Spacing.sm) {
-            Image(systemName: "person.2.slash")
+            Image(systemName: "clock")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(DesignSystem.Colors.accent)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("No speaker labels")
+                Text(presentation.title)
                     .font(DesignSystem.Typography.body.weight(.semibold))
                     .foregroundStyle(DesignSystem.Colors.textPrimary)
-                Text(meetingNoWordTimestampsMessage(
-                    hasRetainedAudio: hasRetainedAudio,
-                    timestampCapableRerun: timestampCapableRerun
-                ))
+                Text(presentation.message)
                     .font(DesignSystem.Typography.bodySmall)
                     .foregroundStyle(DesignSystem.Colors.textSecondary)
             }
 
             Spacer()
 
-            if let timestampCapableRerun {
+            if let action = presentation.action {
                 Button {
                     retranscriptionConfirmation = RetranscriptionConfirmation(
                         transcriptionID: activeTranscription.id,
-                        speechEngineOverride: timestampCapableRerun
+                        speechEngineOverride: action.selection
                     )
                 } label: {
                     Label(
-                        "Retranscribe with \(timestampCapableRerun.engine.displayName)",
+                        action.title,
                         systemImage: "arrow.trianglehead.2.clockwise"
                     )
                 }
@@ -2742,21 +2795,6 @@ struct TranscriptResultView: View {
             RoundedRectangle(cornerRadius: DesignSystem.Layout.rowCornerRadius)
                 .fill(DesignSystem.Colors.accentLight)
         )
-    }
-
-    private func meetingNoWordTimestampsMessage(
-        hasRetainedAudio: Bool,
-        timestampCapableRerun: SpeechEngineSelection?
-    ) -> String {
-        if let timestampCapableRerun {
-            return "This meeting has no word timestamps, so it has no speaker labels or timed segments. Re-transcribe it with \(timestampCapableRerun.engine.displayName) to add them."
-        }
-
-        if hasRetainedAudio {
-            return "This meeting has no word timestamps, so it has no speaker labels or timed segments. Re-transcribing with a timestamps-capable engine would add them, but none is available right now."
-        }
-
-        return "This meeting has no word timestamps, so it has no speaker labels or timed segments. Re-transcribing with a timestamps-capable engine would add them, but the meeting audio is no longer available."
     }
 
     @ViewBuilder
