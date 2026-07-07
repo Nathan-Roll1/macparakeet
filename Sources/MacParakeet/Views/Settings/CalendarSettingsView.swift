@@ -133,7 +133,7 @@ struct CalendarSettingsView: View {
                 requestPermission()
             } label: {
                 if isRequestingPermission {
-                    ProgressView().controlSize(.small)
+                    ParakeetSpinner(.inline)
                 } else {
                     Text("Turn On…")
                 }

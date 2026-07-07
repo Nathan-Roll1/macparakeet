@@ -79,8 +79,7 @@ struct BulkTranscriptionSelectionBar: View {
     private var selectionSummary: some View {
         HStack(spacing: 8) {
             if isPerformingOperation {
-                ProgressView()
-                    .controlSize(.small)
+                ParakeetSpinner(.inline)
             } else {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 14, weight: .semibold))

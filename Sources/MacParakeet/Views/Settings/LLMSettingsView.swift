@@ -459,8 +459,7 @@ struct LLMSettingsView: View {
                 }
             case .verifying:
                 HStack(spacing: 8) {
-                    ProgressView()
-                        .controlSize(.small)
+                    ParakeetSpinner(.inline)
                     Text("Verifying files and testing the local runtime.")
                         .font(DesignSystem.Typography.caption)
                         .foregroundStyle(.secondary)
@@ -1412,8 +1411,7 @@ struct LLMSettingsView: View {
                 LazyVStack(alignment: .leading, spacing: 2) {
                     if isLoadingAIFormatterInstalledApps, aiFormatterInstalledApps.isEmpty {
                         HStack(spacing: DesignSystem.Spacing.sm) {
-                            ProgressView()
-                                .controlSize(.small)
+                            ParakeetSpinner(.inline)
                             Text("Loading apps...")
                                 .font(DesignSystem.Typography.caption)
                                 .foregroundStyle(.secondary)
@@ -1970,8 +1968,7 @@ struct LLMSettingsView: View {
             EmptyView()
         case .testing:
             HStack(spacing: 4) {
-                ProgressView()
-                    .controlSize(.small)
+                ParakeetSpinner(.inline)
                 Text("Testing...")
                     .font(DesignSystem.Typography.caption)
                     .foregroundStyle(.secondary)

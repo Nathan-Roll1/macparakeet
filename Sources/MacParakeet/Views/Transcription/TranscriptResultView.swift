@@ -2622,10 +2622,10 @@ struct TranscriptResultView: View {
                     ChatLoadingSweep()
                 } else {
                     let bubbleShape = UnevenRoundedRectangle(
-                        topLeadingRadius: 16,
-                        bottomLeadingRadius: isUser ? 16 : 4,
-                        bottomTrailingRadius: isUser ? 4 : 16,
-                        topTrailingRadius: 16
+                        topLeadingRadius: DesignSystem.Layout.cornerRadius,
+                        bottomLeadingRadius: isUser ? DesignSystem.Layout.cornerRadius : 4,
+                        bottomTrailingRadius: isUser ? 4 : DesignSystem.Layout.cornerRadius,
+                        topTrailingRadius: DesignSystem.Layout.cornerRadius
                     )
 
                     VStack(alignment: .leading, spacing: 0) {

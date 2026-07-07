@@ -303,8 +303,7 @@ struct EngineDownloadBanner: View {
                 .accessibilityLabel("Download \(title)")
         case .downloading:
             HStack(spacing: DesignSystem.Spacing.xs) {
-                ProgressView()
-                    .controlSize(.small)
+                ParakeetSpinner(.inline)
                 Text("Downloading…")
                     .font(DesignSystem.Typography.caption)
                     .foregroundStyle(.secondary)

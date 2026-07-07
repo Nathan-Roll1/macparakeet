@@ -375,8 +375,7 @@ struct MeetingRecordingPanelView: View {
                 .frame(width: 8, height: 8)
                 .animation(.easeInOut(duration: 0.2), value: viewModel.isPaused)
         case .transcribing:
-            ProgressView()
-                .controlSize(.small)
+            ParakeetSpinner(.inline, tint: DesignSystem.Colors.accent)
         case .error:
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(DesignSystem.Colors.warningAmber)

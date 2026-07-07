@@ -832,8 +832,7 @@ struct TranscriptionLibraryView: View {
     private var loadingState: some View {
         VStack {
             Spacer()
-            ProgressView()
-                .controlSize(.small)
+            ParakeetSpinner(.inline)
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -854,8 +853,7 @@ struct TranscriptionLibraryView: View {
                 Spacer()
             }
         } else if viewModel.isLoading {
-            ProgressView()
-                .controlSize(.small)
+            ParakeetSpinner(.inline)
                 .frame(maxWidth: .infinity)
         }
     }

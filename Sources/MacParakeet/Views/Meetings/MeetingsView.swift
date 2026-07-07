@@ -918,8 +918,7 @@ private struct CalendarInlineControlsRow: View {
         case .notDetermined:
             Button(action: connectCalendar) {
                 if isRequestingPermission {
-                    ProgressView()
-                        .controlSize(.small)
+                    ParakeetSpinner(.inline)
                         .frame(maxWidth: .infinity)
                 } else {
                     Label("Connect Calendar", systemImage: "calendar.badge.plus")
@@ -1230,8 +1229,7 @@ private struct MeetingsLoadingRow: View {
 
     var body: some View {
         HStack(spacing: DesignSystem.Spacing.sm) {
-            ProgressView()
-                .controlSize(.small)
+            ParakeetSpinner(.inline)
             Text(title)
                 .font(DesignSystem.Typography.bodySmall)
                 .foregroundStyle(DesignSystem.Colors.textSecondary)

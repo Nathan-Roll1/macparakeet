@@ -2648,8 +2648,7 @@ struct SettingsView: View {
 
     private func speechEngineSwitchBanner(title: String, detail: String) -> some View {
         HStack(alignment: .center, spacing: DesignSystem.Spacing.md) {
-            ProgressView()
-                .controlSize(.small)
+            ParakeetSpinner(.inline)
                 .frame(width: 18, height: 18)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -3413,8 +3412,7 @@ struct SettingsView: View {
                         .help(overflowActions.count == 1 ? (overflowActions[0].help ?? "More actions") : "More actions")
                         .accessibilityLabel("More actions")
                     } else if isWorking || status == .checking || status == .repairing || status == .preparing {
-                        ProgressView()
-                            .controlSize(.small)
+                        ParakeetSpinner(.inline)
                             .frame(width: 22, height: 22)
                     } else {
                         Color.clear.frame(width: 22, height: 22)

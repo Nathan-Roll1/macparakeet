@@ -232,8 +232,7 @@ struct MeetingRecordingTile: View {
     private var backgroundTranscriptionBadge: some View {
         if viewModel.backgroundTranscriptionCount > 0 {
             HStack(spacing: 5) {
-                ProgressView()
-                    .controlSize(.small)
+                ParakeetSpinner(.inline)
                     .scaleEffect(0.55)
                     .frame(width: 12, height: 12)
                 Text(backgroundTranscriptionText)

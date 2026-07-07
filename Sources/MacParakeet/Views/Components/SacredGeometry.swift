@@ -32,6 +32,7 @@ struct SpinnerRingView: View {
     var size: CGFloat = 26
     var revolutionDuration: Double = 3.0
     var tintColor: Color = .white
+    var animate: Bool = true
 
     @State private var rotationCW: Double = 0
     @State private var rotationCCW: Double = 0
@@ -39,6 +40,10 @@ struct SpinnerRingView: View {
     @State private var vertexPulse: Double = 0.6
 
     private var radius: CGFloat { size * 0.423 }
+    private var displayedRotationCW: Double { animate ? rotationCW : 0 }
+    private var displayedRotationCCW: Double { animate ? rotationCCW : 60 }
+    private var displayedCenterPulse: Double { animate ? centerPulse : 0.7 }
+    private var displayedVertexPulse: Double { animate ? vertexPulse : 0.85 }
 
     var body: some View {
         ZStack {
@@ -46,29 +51,29 @@ struct SpinnerRingView: View {
                 .stroke(tintColor.opacity(0.05), lineWidth: 0.5)
                 .frame(width: size, height: size)
 
-            triangleLayer(rotation: rotationCW, opacity: 0.7, vertexOpacity: vertexPulse)
-            triangleLayer(rotation: rotationCCW, opacity: 0.4, vertexOpacity: vertexPulse * 0.7)
+            triangleLayer(rotation: displayedRotationCW, opacity: 0.7, vertexOpacity: displayedVertexPulse)
+            triangleLayer(rotation: displayedRotationCCW, opacity: 0.4, vertexOpacity: displayedVertexPulse * 0.7)
 
             // Center nexus — shadow for glow instead of blur
             Circle()
-                .fill(tintColor.opacity(centerPulse))
+                .fill(tintColor.opacity(displayedCenterPulse))
                 .frame(width: size * 0.115, height: size * 0.115)
-                .shadow(color: tintColor.opacity(centerPulse * 0.5), radius: size * 0.154)
+                .shadow(color: tintColor.opacity(displayedCenterPulse * 0.5), radius: size * 0.154)
         }
         .frame(width: size, height: size)
         .drawingGroup()
         .onAppear {
-            withAnimation(.linear(duration: revolutionDuration).repeatForever(autoreverses: false)) {
-                rotationCW = 360
+            if animate {
+                startAnimation()
+            } else {
+                resetAnimationState()
             }
-            withAnimation(.linear(duration: revolutionDuration).repeatForever(autoreverses: false)) {
-                rotationCCW = -360
-            }
-            withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) {
-                centerPulse = 0.9
-            }
-            withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
-                vertexPulse = 1.0
+        }
+        .onChange(of: animate) { _, shouldAnimate in
+            if shouldAnimate {
+                startAnimation()
+            } else {
+                resetAnimationState()
             }
         }
     }
@@ -96,6 +101,34 @@ struct SpinnerRingView: View {
             .frame(width: size * 0.096, height: size * 0.096)
             .shadow(color: tintColor.opacity(vertexOpacity * 0.4), radius: size * 0.115)
             .offset(x: x, y: y)
+    }
+
+    private func startAnimation() {
+        resetAnimationState()
+        withAnimation(.linear(duration: revolutionDuration).repeatForever(autoreverses: false)) {
+            rotationCW = 360
+        }
+        withAnimation(.linear(duration: revolutionDuration).repeatForever(autoreverses: false)) {
+            rotationCCW = -360
+        }
+        withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) {
+            centerPulse = 0.9
+        }
+        withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
+            vertexPulse = 1.0
+        }
+    }
+
+    private func resetAnimationState() {
+        // A plain state write does not cancel an attached `.repeatForever`
+        // animation; the zero-duration override does, so the spinner stops
+        // costing CPU once `animate` flips off (e.g. Reduce Motion enabled).
+        withAnimation(.linear(duration: 0)) {
+            rotationCW = 0
+            rotationCCW = 0
+            centerPulse = 0.3
+            vertexPulse = 0.6
+        }
     }
 }
 

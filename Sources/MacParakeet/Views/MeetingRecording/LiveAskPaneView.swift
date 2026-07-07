@@ -343,11 +343,11 @@ struct LiveAskPaneView: View {
                 .disabled(!viewModel.canSendMessage)
                 .onSubmit { send() }
                 .background(
-                    RoundedRectangle(cornerRadius: 14)
+                    RoundedRectangle(cornerRadius: DesignSystem.Layout.cardCornerRadius)
                         .fill(DesignSystem.Colors.surfaceElevated)
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 14)
+                    RoundedRectangle(cornerRadius: DesignSystem.Layout.cardCornerRadius)
                         .strokeBorder(DesignSystem.Colors.border.opacity(0.3), lineWidth: 1)
                 )
 
