@@ -46,6 +46,69 @@ public final class SettingsViewModel {
     }
     public var launchAtLoginDetail: String = ""
     public var launchAtLoginError: String?
+    public var commandLineToolStatus: CommandLineToolInstallStatus = .notInstalled
+    public var commandLineToolStatusChecking = false
+    public var commandLineToolInstallInProgress = false
+    public var commandLineToolError: String?
+    public var pendingCommandLineToolOverwriteTarget: String?
+    public var commandLineToolStatusLabel: String {
+        if commandLineToolStatusChecking {
+            return "Checking..."
+        }
+
+        switch commandLineToolStatus {
+        case .installed:
+            return "Installed"
+        case .notInstalled:
+            return "Not installed"
+        case .staleSymlink:
+            return "Needs review"
+        case .pathConflict:
+            return "Blocked"
+        case .unsupportedTranslocated, .unsupportedEnvironment:
+            return "Unavailable"
+        }
+    }
+    public var commandLineToolDetail: String {
+        if commandLineToolStatusChecking {
+            return "Checking /usr/local/bin/macparakeet-cli."
+        }
+
+        switch commandLineToolStatus {
+        case .installed:
+            return "macparakeet-cli is linked into /usr/local/bin and ready in Terminal."
+        case .notInstalled:
+            return "Install a symlink into /usr/local/bin so Terminal can run macparakeet-cli."
+        case .staleSymlink(let currentTarget):
+            return "macparakeet-cli already points to \(currentTarget). Review before replacing it."
+        case .pathConflict(let path):
+            return "\(path) already exists and is not a symlink."
+        case .unsupportedTranslocated:
+            return "Move MacParakeet to /Applications, relaunch it, then try again."
+        case .unsupportedEnvironment(let message):
+            return message
+        }
+    }
+    public var commandLineToolActionTitle: String {
+        switch commandLineToolStatus {
+        case .installed:
+            return "Installed"
+        case .staleSymlink:
+            return "Replace Link..."
+        default:
+            return "Install"
+        }
+    }
+    public var canInstallCommandLineTool: Bool {
+        guard !commandLineToolStatusChecking, !commandLineToolInstallInProgress else { return false }
+
+        switch commandLineToolStatus {
+        case .notInstalled, .staleSymlink:
+            return true
+        case .installed, .pathConflict, .unsupportedTranslocated, .unsupportedEnvironment:
+            return false
+        }
+    }
     public var menuBarOnlyMode: Bool {
         didSet {
             defaults.set(menuBarOnlyMode, forKey: AppPreferences.menuBarOnlyModeKey)
@@ -636,6 +699,7 @@ public final class SettingsViewModel {
     private var snippetRepo: TextSnippetRepositoryProtocol?
     private var entitlementsService: EntitlementsService?
     private var launchAtLoginService: LaunchAtLoginControlling?
+    private var commandLineToolInstallService: CommandLineToolInstalling?
     private var meetingRecoveryService: MeetingRecordingRecoveryServicing?
     private var sharedMicStream: SharedMicrophoneStream?
     private let defaults: UserDefaults
@@ -1053,6 +1117,7 @@ public final class SettingsViewModel {
         transformHistoryRepo: TransformHistoryRepositoryProtocol? = nil,
         entitlementsService: EntitlementsService,
         launchAtLoginService: LaunchAtLoginControlling? = nil,
+        commandLineToolInstallService: CommandLineToolInstalling? = nil,
         checkoutURL: URL?,
         customWordRepo: CustomWordRepositoryProtocol? = nil,
         snippetRepo: TextSnippetRepositoryProtocol? = nil,
@@ -1068,6 +1133,7 @@ public final class SettingsViewModel {
         self.transformHistoryRepo = transformHistoryRepo
         self.entitlementsService = entitlementsService
         self.launchAtLoginService = launchAtLoginService
+        self.commandLineToolInstallService = commandLineToolInstallService
         self.checkoutURL = checkoutURL
         self.customWordRepo = customWordRepo
         self.snippetRepo = snippetRepo
@@ -1079,6 +1145,7 @@ public final class SettingsViewModel {
         self.meetingRecoveryService = meetingRecoveryService
         self.sharedMicStream = sharedMicStream
         refreshLaunchAtLoginStatus()
+        refreshCommandLineToolStatus()
         refreshPermissions()
         refreshStats()
         refreshEntitlements()
@@ -1117,6 +1184,70 @@ public final class SettingsViewModel {
 
         applyLaunchAtLoginStatus(service.currentStatus())
         launchAtLoginError = nil
+    }
+
+    public func refreshCommandLineToolStatus() {
+        guard let service = commandLineToolInstallService else {
+            commandLineToolStatusChecking = false
+            commandLineToolStatus = .unsupportedEnvironment("Command line tool installation is unavailable in this build.")
+            commandLineToolError = nil
+            pendingCommandLineToolOverwriteTarget = nil
+            return
+        }
+
+        commandLineToolStatusChecking = true
+        Task {
+            let status = await service.currentStatus()
+            commandLineToolStatus = status
+            commandLineToolStatusChecking = false
+            commandLineToolError = nil
+            pendingCommandLineToolOverwriteTarget = nil
+        }
+    }
+
+    public func installCommandLineTool(overwriteExisting: Bool = false) {
+        guard let service = commandLineToolInstallService else {
+            commandLineToolStatusChecking = false
+            commandLineToolStatus = .unsupportedEnvironment("Command line tool installation is unavailable in this build.")
+            commandLineToolError = "Command line tool installation is unavailable in this build."
+            return
+        }
+
+        if case .staleSymlink(let currentTarget) = commandLineToolStatus, !overwriteExisting {
+            pendingCommandLineToolOverwriteTarget = currentTarget
+            commandLineToolError = nil
+            return
+        }
+
+        commandLineToolInstallInProgress = true
+        commandLineToolStatusChecking = false
+        commandLineToolError = nil
+        pendingCommandLineToolOverwriteTarget = nil
+
+        Task {
+            defer { commandLineToolInstallInProgress = false }
+
+            do {
+                commandLineToolStatus = try await service.install(overwriteExisting: overwriteExisting)
+                commandLineToolStatusChecking = false
+            } catch CommandLineToolInstallError.staleSymlink(let currentTarget) {
+                commandLineToolStatus = .staleSymlink(currentTarget: currentTarget)
+                commandLineToolStatusChecking = false
+                pendingCommandLineToolOverwriteTarget = currentTarget
+            } catch {
+                commandLineToolStatus = await service.currentStatus()
+                commandLineToolStatusChecking = false
+                commandLineToolError = error.localizedDescription
+            }
+        }
+    }
+
+    public func confirmCommandLineToolOverwrite() {
+        installCommandLineTool(overwriteExisting: true)
+    }
+
+    public func cancelCommandLineToolOverwrite() {
+        pendingCommandLineToolOverwriteTarget = nil
     }
 
     public func refreshPermissions() {

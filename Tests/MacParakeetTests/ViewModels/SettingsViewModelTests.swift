@@ -842,6 +842,92 @@ final class SettingsViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.launchAtLoginError, LaunchAtLoginError.invalidSignature.localizedDescription)
     }
 
+    func testConfigureRefreshesCommandLineToolStatus() async throws {
+        let installer = MockCommandLineToolInstallService(status: .installed)
+
+        viewModel.configure(
+            permissionService: mockPermissions,
+            dictationRepo: mockRepo,
+            entitlementsService: entitlements,
+            commandLineToolInstallService: installer,
+            checkoutURL: nil
+        )
+
+        try await waitUntil { !viewModel.commandLineToolStatusChecking }
+        XCTAssertEqual(viewModel.commandLineToolStatus, .installed)
+        XCTAssertEqual(viewModel.commandLineToolStatusLabel, "Installed")
+        XCTAssertFalse(viewModel.canInstallCommandLineTool)
+    }
+
+    func testInstallCommandLineToolUpdatesStatus() async throws {
+        let installer = MockCommandLineToolInstallService(status: .notInstalled, installResult: .installed)
+
+        viewModel.configure(
+            permissionService: mockPermissions,
+            dictationRepo: mockRepo,
+            entitlementsService: entitlements,
+            commandLineToolInstallService: installer,
+            checkoutURL: nil
+        )
+
+        try await waitUntil { !viewModel.commandLineToolStatusChecking }
+        XCTAssertTrue(viewModel.canInstallCommandLineTool)
+
+        viewModel.installCommandLineTool()
+
+        try await waitUntil { !viewModel.commandLineToolInstallInProgress }
+        XCTAssertEqual(installer.installOverwriteCalls, [false])
+        XCTAssertEqual(viewModel.commandLineToolStatus, .installed)
+        XCTAssertNil(viewModel.commandLineToolError)
+    }
+
+    func testInstallCommandLineToolRequiresConfirmForStaleSymlink() async throws {
+        let installer = MockCommandLineToolInstallService(
+            status: .staleSymlink(currentTarget: "/Applications/Old.app/Contents/MacOS/macparakeet-cli")
+        )
+
+        viewModel.configure(
+            permissionService: mockPermissions,
+            dictationRepo: mockRepo,
+            entitlementsService: entitlements,
+            commandLineToolInstallService: installer,
+            checkoutURL: nil
+        )
+
+        try await waitUntil { !viewModel.commandLineToolStatusChecking }
+        viewModel.installCommandLineTool()
+
+        XCTAssertEqual(
+            viewModel.pendingCommandLineToolOverwriteTarget,
+            "/Applications/Old.app/Contents/MacOS/macparakeet-cli"
+        )
+        XCTAssertTrue(installer.installOverwriteCalls.isEmpty)
+    }
+
+    func testConfirmCommandLineToolOverwriteInstallsOverStaleSymlink() async throws {
+        let installer = MockCommandLineToolInstallService(
+            status: .staleSymlink(currentTarget: "/Applications/Old.app/Contents/MacOS/macparakeet-cli"),
+            installResult: .installed
+        )
+
+        viewModel.configure(
+            permissionService: mockPermissions,
+            dictationRepo: mockRepo,
+            entitlementsService: entitlements,
+            commandLineToolInstallService: installer,
+            checkoutURL: nil
+        )
+
+        try await waitUntil { !viewModel.commandLineToolStatusChecking }
+        viewModel.installCommandLineTool()
+        viewModel.confirmCommandLineToolOverwrite()
+
+        try await waitUntil { !viewModel.commandLineToolInstallInProgress }
+        XCTAssertEqual(installer.installOverwriteCalls, [true])
+        XCTAssertNil(viewModel.pendingCommandLineToolOverwriteTarget)
+        XCTAssertEqual(viewModel.commandLineToolStatus, .installed)
+    }
+
     func testSettingMenuBarOnlyModePersists() {
         viewModel.menuBarOnlyMode = true
 
