@@ -301,6 +301,49 @@ private extension CLISpecCommand {
                 "RetranscribeResult with kind, id, sourcePath, updatedAt, and the updated Dictation or Transcription record."
         ),
         CLISpecCommand(
+            ["search"],
+            summary: "Search indexed meeting and file/URL transcript segments with FTS5 query syntax.",
+            arguments: [.argument("query", summary: "FTS5 query; supports phrases, prefixes, and AND/OR.")],
+            options: [
+                CLISpecParameter.option(
+                    "--since", valueName: "ISO-8601",
+                    summary: "Minimum recording time; date-only values use local start of day."),
+                CLISpecParameter.option(
+                    "--until", valueName: "ISO-8601",
+                    summary: "Maximum recording time; date-only values use local end of day."),
+                CLISpecParameter.option("--source", valueName: "meeting|file|url", summary: "Recording source filter."),
+                CLISpecParameter.option("--speaker", valueName: "NAME", summary: "Speaker-label substring filter."),
+                CLISpecParameter.option("--limit", valueName: "N", summary: "Maximum segment hits."),
+                CLISpecParameter.flag("--envelope", summary: "Wrap JSON output in an ok/data/meta success envelope."),
+                databaseOption,
+            ],
+            output: "Array of segment hits with transcriptionId, title, recordedAt, source, seq, optional startMs/speaker, snippet, and optional rank."
+        ),
+        CLISpecCommand(
+            ["search-reindex"],
+            summary: "Deterministically rebuild derived segments and the FTS index from saved transcripts.",
+            readOnly: false,
+            options: [
+                CLISpecParameter.flag("--envelope", summary: "Wrap JSON output in an ok/data/meta success envelope."),
+                databaseOption,
+            ],
+            output: "SegmentReindexResult with transcriptionsIndexed and segmentsIndexed."
+        ),
+        CLISpecCommand(
+            ["transcript"],
+            summary: "Read a segment slice from a saved meeting or file/URL transcript.",
+            arguments: [.argument("id", summary: "Transcription UUID, UUID prefix, or exact title.")],
+            options: [
+                CLISpecParameter.option("--around", valueName: "hh:mm:ss|ms", summary: "Center timestamp."),
+                CLISpecParameter.option("--window", valueName: "DURATION", summary: "Time on either side of --around."),
+                CLISpecParameter.option("--around-seq", valueName: "N", summary: "Center segment sequence number."),
+                CLISpecParameter.option("--context", valueName: "K", summary: "Segments on either side of --around-seq."),
+                CLISpecParameter.flag("--envelope", summary: "Wrap JSON output in an ok/data/meta success envelope."),
+                databaseOption,
+            ],
+            output: "TranscriptSliceRecord with transcription metadata and ordered segment objects."
+        ),
+        CLISpecCommand(
             ["config", "list"],
             summary: "List shared app/CLI configuration values.",
             output: "Dictionary of canonical configuration keys to values."

@@ -62,6 +62,79 @@ final class DatabaseManagerTests: XCTestCase {
         }
     }
 
+    func testSegmentsFTSMigrationCreatesExternalContentIndexAndTriggers() throws {
+        let manager = try DatabaseManager()
+        let transcription = Transcription(
+            fileName: "Tokenizer",
+            rawTranscript: "ộ",
+            status: .completed,
+            sourceType: .file
+        )
+        try TranscriptionRepository(dbQueue: manager.dbQueue).save(transcription)
+        try SegmentRepository(dbQueue: manager.dbQueue).replaceSegments(for: transcription)
+
+        try manager.dbQueue.read { db in
+            XCTAssertTrue(try db.tableExists("segments"))
+            XCTAssertTrue(try db.tableExists("segments_fts"))
+            XCTAssertTrue(try db.indexes(on: "segments").contains {
+                $0.name == "idx_segments_transcription"
+            })
+            let triggerNames = try String.fetchAll(
+                db,
+                sql: "SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'segments'"
+            )
+            let actualTriggerNames: Set<String> = Set(triggerNames)
+            let expectedTriggerNames: Set<String> = ["segments_ai", "segments_ad", "segments_au"]
+            XCTAssertEqual(actualTriggerNames, expectedTriggerNames)
+            let matchedRows = try Int.fetchOne(
+                db,
+                sql: "SELECT count(*) FROM segments_fts WHERE segments_fts MATCH 'cafe'"
+            )
+            XCTAssertNotNil(matchedRows)
+        }
+        let repository = SegmentRepository(dbQueue: manager.dbQueue)
+        let query = SegmentSearchQuery(query: "o", limit: 1)
+        let hits: [SegmentSearchHit] = try repository.search(query)
+        XCTAssertEqual(
+            hits.first?.transcriptionId,
+            transcription.id,
+            "remove_diacritics 2 must fold a character with multiple diacritics"
+        )
+    }
+
+    func testSegmentsMigrationPreservesExistingTranscriptionRows() throws {
+        let dbPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("segments_existing_data_\(UUID().uuidString).db")
+            .path
+        defer { cleanupDatabaseFiles(atPath: dbPath) }
+
+        let first = try DatabaseManager(path: dbPath)
+        let transcription = Transcription(
+            fileName: "Legacy meeting",
+            rawTranscript: "Existing user data remains canonical.",
+            status: .completed,
+            sourceType: .meeting
+        )
+        try TranscriptionRepository(dbQueue: first.dbQueue).save(transcription)
+        try first.dbQueue.write { db in
+            try db.execute(sql: "DROP TABLE segments_fts")
+            try db.execute(sql: "DROP TABLE segments")
+            try db.execute(
+                sql: "DELETE FROM grdb_migrations WHERE identifier = ?",
+                arguments: ["v0.27-segments-fts"]
+            )
+        }
+
+        let migrated = try DatabaseManager(path: dbPath)
+        let fetched = try TranscriptionRepository(dbQueue: migrated.dbQueue).fetch(id: transcription.id)
+        XCTAssertEqual(fetched?.rawTranscript, transcription.rawTranscript)
+        try migrated.dbQueue.read { db in
+            XCTAssertTrue(try db.tableExists("segments"))
+            XCTAssertTrue(try db.tableExists("segments_fts"))
+            XCTAssertEqual(try Segment.fetchCount(db), 0, "migration must not perform a blocking backfill")
+        }
+    }
+
     func testFileBackedConnectionsWaitForShortWriteLock() throws {
         let dbPath = FileManager.default.temporaryDirectory
             .appendingPathComponent("macparakeet-lock-wait-\(UUID().uuidString).db")
