@@ -614,6 +614,44 @@ final class MeetingRecordingFlowCoordinatorTests: XCTestCase {
         )
     }
 
+    func testMeetingWarmUpUsesMeetingEngineSelection() async throws {
+        let stt = MockSTTClient()
+        await stt.setReady(false)
+        let meetingSelection = SpeechEngineSelection(engine: .parakeet)
+        let coordinator = MeetingRecordingFlowCoordinator(
+            meetingRecordingService: MeetingRecordingServiceSpy(output: makeRecordingOutput()),
+            transcriptionService: MockTranscriptionService(),
+            permissionService: MockPermissionService(),
+            transcriptionRepo: MockTranscriptionRepository(),
+            conversationRepo: MockChatConversationRepository(),
+            quickPromptRepo: NoOpQuickPromptRepository(),
+            configStore: NoOpLLMConfigStore(),
+            sttManager: stt,
+            speechEngineSelectionProvider: { meetingSelection },
+            llmService: nil,
+            pillViewModel: MeetingRecordingPillViewModel(),
+            meetingRecordingSettlement: makeSettlement(),
+            onMenuBarIconUpdate: { _ in },
+            onTranscriptionReady: { _ in }
+        )
+
+        XCTAssertNotNil(coordinator.startRecording(trigger: .manual))
+        await coordinator.testHook_waitForActionTask()
+
+        let startedAt = ContinuousClock.now
+        while startedAt.duration(to: .now) <= .seconds(1) {
+            if await stt.routedWarmUpSelectionsSnapshot() == [meetingSelection] {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        let routedWarmUps = await stt.routedWarmUpSelectionsSnapshot()
+        let backgroundWarmUps = await stt.backgroundWarmUpCallCountSnapshot()
+        XCTAssertEqual(routedWarmUps, [meetingSelection])
+        XCTAssertEqual(backgroundWarmUps, 0)
+    }
+
     // MARK: - Quit-time pill teardown (fix/meeting-pill-lingers-on-quit)
 
     /// Hiding the floating pill for a quit decision must be flow-neutral: it

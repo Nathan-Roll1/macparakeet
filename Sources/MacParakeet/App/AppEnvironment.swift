@@ -163,6 +163,7 @@ final class AppEnvironment {
             ),
             sttTranscriber: sttScheduler,
             lockFileStore: meetingRecordingLockFileStore,
+            meetingSpeechEngineSelection: { SpeechEngineSelection.transcription() },
             // Wire the real feature flag here (the service defaults to fixed
             // chunking so tests stay deterministic regardless of the flag).
             isVadLiveChunkingEnabled: { AppFeatures.meetingVadLiveChunkingEnabled }
@@ -365,6 +366,7 @@ final class AppEnvironment {
             shouldKeepDownloadedAudio: { [runtimePreferences] in runtimePreferences.shouldSaveTranscriptionAudio },
             shouldDiarize: { [runtimePreferences] in runtimePreferences.shouldDiarize },
             shouldDiarizeMeetings: { [runtimePreferences] in runtimePreferences.shouldDiarizeMeetings },
+            fileSpeechEngineSelection: { SpeechEngineSelection.transcription() },
             youtubeDownloader: youtubeDownloader,
             podcastResolver: PodcastEpisodeResolver(),
             podcastSearchResolver: PodcastQueryResolver(),

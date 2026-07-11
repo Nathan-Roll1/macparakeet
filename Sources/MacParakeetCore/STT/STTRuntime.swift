@@ -27,10 +27,15 @@ protocol STTRuntimeProtocol: Sendable {
         speechEngine: SpeechEngineSelection
     ) async throws -> STTResult
     func warmUp(onProgress: (@Sendable (String) -> Void)?) async throws
+    func warmUp(
+        speechEngine: SpeechEngineSelection,
+        onProgress: (@Sendable (String) -> Void)?
+    ) async throws
     func backgroundWarmUp() async
     func observeWarmUpProgress() async -> (id: UUID, stream: AsyncStream<STTWarmUpState>)
     func removeWarmUpObserver(id: UUID) async
     func isReady() async -> Bool
+    func isReady(speechEngine: SpeechEngineSelection) async -> Bool
     func shutdown() async
     func clearModelCache() async
     func setSpeechEngine(_ preference: SpeechEnginePreference) async throws
@@ -52,6 +57,17 @@ protocol STTRuntimeProtocol: Sendable {
 }
 
 extension STTRuntimeProtocol {
+    func warmUp(
+        speechEngine: SpeechEngineSelection,
+        onProgress: (@Sendable (String) -> Void)?
+    ) async throws {
+        try await warmUp(onProgress: onProgress)
+    }
+
+    func isReady(speechEngine: SpeechEngineSelection) async -> Bool {
+        await isReady()
+    }
+
     func setSpeechEngine(
         _ preference: SpeechEnginePreference,
         onProgress: (@Sendable (String) -> Void)?
@@ -176,7 +192,6 @@ public actor STTRuntime: STTRuntimeProtocol {
     private var decoderLayerCount: Int?
     private var initializationTask: Task<Void, Error>?
     private var initializationGeneration: UInt64 = 0
-    private var warmUpProgressHandler: (@Sendable (String) -> Void)?
     /// The active Parakeet TDT build (`v2`/`v3`). Mutable because the user can
     /// switch variants at runtime (`setParakeetModelVariant`);
     /// `ensureInitialized()` reads it when loading the shared `AsrManager`.
@@ -1207,44 +1222,61 @@ public actor STTRuntime: STTRuntimeProtocol {
     /// `backgroundWarmUp()` when UI state should flow through the shared
     /// observer stream instead of a one-off callback.
     public func warmUp(onProgress: (@Sendable (String) -> Void)?) async throws {
-        warmUpProgressHandler = onProgress
-        defer {
-            warmUpProgressHandler = nil
-        }
-
         onProgress?("Loading model into memory...")
+        let activeSpeechEngine = effectiveSpeechEnginePreference()
+        try await performWarmUp(
+            speechEngine: SpeechEngineSelection(
+                engine: activeSpeechEngine,
+                language: defaultLanguage(for: activeSpeechEngine)
+            ),
+            onProgress: onProgress
+        )
+    }
 
+    /// Prepares an explicitly routed engine without changing the dictation
+    /// engine or publishing into the dictation warm-up observer stream.
+    public func warmUp(
+        speechEngine selection: SpeechEngineSelection,
+        onProgress: (@Sendable (String) -> Void)?
+    ) async throws {
+        onProgress?("Loading \(selection.engine.displayName) into memory...")
+
+        try await performWarmUp(speechEngine: selection, onProgress: onProgress)
+    }
+
+    private func performWarmUp(
+        speechEngine selection: SpeechEngineSelection,
+        onProgress: (@Sendable (String) -> Void)?
+    ) async throws {
         let start = ContinuousClock.now
         let operationContext = Observability.childOperationContext()
-        let activeSpeechEngine = effectiveSpeechEnginePreference()
-        let modelKind = telemetryModelKind(for: activeSpeechEngine)
-        let engineVariant = telemetryEngineVariant(for: activeSpeechEngine)
+        let modelKind = telemetryModelKind(for: selection.engine)
+        let engineVariant = telemetryEngineVariant(for: selection.engine)
+
         do {
-            switch activeSpeechEngine {
+            try validateMemoryRequirement(for: selection.engine)
+            switch selection.engine {
             case .parakeet:
-                try await ensureInitialized()
+                try await ensureInitialized(onProgress: onProgress)
             case .nemotron where nemotronModelVariant.isEnglishOnly:
-                let engine = try ensureNemotronEnglishEngine()
-                try await engine.prepare(onProgress: onProgress)
+                try await ensureNemotronEnglishEngine().prepare(onProgress: onProgress)
             case .nemotron:
-                let engine = try await ensureNemotronEngine(
-                    language: SpeechEnginePreference.nemotronDefaultLanguage(defaults: defaults)
-                )
+                let engine = try await ensureNemotronEngine(language: selection.language)
                 try await engine.prepare(onProgress: onProgress)
             case .whisper:
-                let engine = whisperEngine ?? WhisperEngine(model: whisperModelVariant)
-                whisperEngine = engine
+                let engine = try ensureWhisperEngine()
                 try await engine.prepare(onProgress: onProgress)
             case .cohere:
                 let engine = try ensureCohereEngine()
                 try await engine.prepare(onProgress: onProgress)
             }
+
             let elapsed = start.duration(to: .now)
             let seconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
             Telemetry.send(.modelLoaded(
                 loadTimeSeconds: seconds,
                 modelKind: modelKind,
-                speechEngine: activeSpeechEngine,
+                speechEngine: selection.engine,
                 engineVariant: engineVariant
             ))
             Telemetry.send(.modelOperation(
@@ -1254,7 +1286,7 @@ public actor STTRuntime: STTRuntimeProtocol {
                 outcome: .success,
                 stage: .warmUp,
                 modelKind: modelKind,
-                speechEngine: activeSpeechEngine,
+                speechEngine: selection.engine,
                 engineVariant: engineVariant,
                 durationSeconds: seconds,
                 errorType: nil
@@ -1269,7 +1301,7 @@ public actor STTRuntime: STTRuntimeProtocol {
                 outcome: .cancelled,
                 stage: .warmUp,
                 modelKind: modelKind,
-                speechEngine: activeSpeechEngine,
+                speechEngine: selection.engine,
                 engineVariant: engineVariant,
                 durationSeconds: durationSeconds,
                 errorType: "CancellationError"
@@ -1284,7 +1316,7 @@ public actor STTRuntime: STTRuntimeProtocol {
                 outcome: .failure,
                 stage: .warmUp,
                 modelKind: modelKind,
-                speechEngine: activeSpeechEngine,
+                speechEngine: selection.engine,
                 engineVariant: engineVariant,
                 durationSeconds: Observability.durationSeconds(since: operationContext.startedAt),
                 errorType: TelemetryErrorClassifier.classify(mapped)
@@ -1355,7 +1387,16 @@ public actor STTRuntime: STTRuntimeProtocol {
     }
 
     public func isReady() async -> Bool {
-        switch capabilities(for: effectiveSpeechEnginePreference()).key {
+        await isReady(
+            speechEngine: SpeechEngineSelection(
+                engine: effectiveSpeechEnginePreference(),
+                language: defaultLanguage(for: effectiveSpeechEnginePreference())
+            )
+        )
+    }
+
+    public func isReady(speechEngine selection: SpeechEngineSelection) async -> Bool {
+        switch capabilities(for: selection.engine).key {
         case .nemotron(let variant):
             if variant.isEnglishOnly {
                 return await nemotronEnglishEngine?.isReady() ?? false
@@ -1385,7 +1426,6 @@ public actor STTRuntime: STTRuntimeProtocol {
         await unloadNemotron()
         await unloadParakeet()
         await unloadCohere()
-        warmUpProgressHandler = nil
         setBackgroundWarmUpState(.idle)
     }
 
@@ -1599,7 +1639,9 @@ public actor STTRuntime: STTRuntimeProtocol {
             "parakeet_variant_switch_start to=\(variant.rawValue) engine=\(self.speechEngine.rawValue)"
         )
 
-        guard speechEngine == .parakeet else {
+        let parakeetRuntimeIsLoaded =
+            interactiveManager != nil || backgroundManager != nil || parakeetUnifiedEngine != nil
+        guard speechEngine == .parakeet || parakeetRuntimeIsLoaded else {
             // Inactive engine: record the choice; it loads on the next Parakeet use.
             currentParakeetVariant = variant
             if let targetVersion = variant.asrModelVersion {
@@ -1687,7 +1729,8 @@ public actor STTRuntime: STTRuntimeProtocol {
             "nemotron_variant_switch_start to=\(variant.rawValue) engine=\(self.speechEngine.rawValue)"
         )
 
-        guard speechEngine == .nemotron else {
+        let nemotronRuntimeIsLoaded = nemotronEngine != nil || nemotronEnglishEngine != nil
+        guard speechEngine == .nemotron || nemotronRuntimeIsLoaded else {
             // Inactive engine: record the choice; it loads on the next Nemotron use.
             nemotronModelVariant = variant
             logger.notice("nemotron_variant_switch_deferred to=\(variant.rawValue, privacy: .public) reason=engine_inactive")
@@ -2177,12 +2220,14 @@ public actor STTRuntime: STTRuntimeProtocol {
         backgroundWarmUpTask = nil
     }
 
-    private func ensureInitialized() async throws {
+    private func ensureInitialized(
+        onProgress: (@Sendable (String) -> Void)? = nil
+    ) async throws {
         // Parakeet Unified runs on its own engine actor, not the shared TDT
         // `AsrManager` pair — preparing it satisfies "Parakeet is initialized"
         // for warm-up and readiness without ever loading the TDT models.
         if currentParakeetVariant.usesUnifiedEngine {
-            try await ensureParakeetUnifiedEngine().prepare(onProgress: warmUpProgressHandler)
+            try await ensureParakeetUnifiedEngine().prepare(onProgress: onProgress)
             return
         }
 
@@ -2197,11 +2242,10 @@ public actor STTRuntime: STTRuntimeProtocol {
 
         let generation = nextInitializationGeneration()
         let version = modelVersion
-        let warmUpProgressHandler = self.warmUpProgressHandler
         let task = Task {
             var interactiveManager: AsrManager?
             var backgroundManager: AsrManager?
-            let progressHandler = Self.makeDownloadProgressHandler(warmUpProgressHandler)
+            let progressHandler = Self.makeDownloadProgressHandler(onProgress)
 
             let downloadedModels = try await AsrModels.downloadAndLoad(
                 to: AppPaths.fluidAudioModelDirectory(forASRVersion: version),

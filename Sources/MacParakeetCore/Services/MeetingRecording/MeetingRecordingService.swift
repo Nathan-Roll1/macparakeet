@@ -225,6 +225,7 @@ public actor MeetingRecordingService: MeetingRecordingServiceProtocol {
     private let liveChunkTranscriber: LiveChunkTranscriber
     private let lockFileStore: MeetingRecordingLockFileStoring
     private let speechEngineSessionManager: (any SpeechEngineSessionManaging)?
+    private let meetingSpeechEngineSelection: @Sendable () -> SpeechEngineSelection?
     private let micConditionerFactory: @Sendable () -> any MicConditioning
     private let cleanedMicConditionerFactory: @Sendable () -> any MicConditioning
     private let cleanedMicrophoneReadinessScheduler: MeetingCleanedMicrophoneReadinessScheduling
@@ -317,6 +318,7 @@ public actor MeetingRecordingService: MeetingRecordingServiceProtocol {
         sttTranscriber: STTTranscribing,
         lockFileStore: MeetingRecordingLockFileStoring = MeetingRecordingLockFileStore(),
         fileManager: FileManager = .default,
+        meetingSpeechEngineSelection: @escaping @Sendable () -> SpeechEngineSelection? = { nil },
         isVadLiveChunkingEnabled: @escaping @Sendable () -> Bool = { false },
         echoSuppressionConfiguration: MeetingEchoSuppressionConfiguration = .fromEnvironment()
     ) {
@@ -327,6 +329,7 @@ public actor MeetingRecordingService: MeetingRecordingServiceProtocol {
             sttTranscriber: sttTranscriber,
             lockFileStore: lockFileStore,
             fileManager: fileManager,
+            meetingSpeechEngineSelection: meetingSpeechEngineSelection,
             isVadLiveChunkingEnabled: isVadLiveChunkingEnabled,
             micConditionerFactory: {
                 MeetingEchoSuppressionFactory.makeConditioner(
@@ -343,6 +346,7 @@ public actor MeetingRecordingService: MeetingRecordingServiceProtocol {
         sttTranscriber: STTTranscribing,
         lockFileStore: MeetingRecordingLockFileStoring = MeetingRecordingLockFileStore(),
         fileManager: FileManager = .default,
+        meetingSpeechEngineSelection: @escaping @Sendable () -> SpeechEngineSelection? = { nil },
         isVadLiveChunkingEnabled: @escaping @Sendable () -> Bool = { false },
         micConditionerFactory: @escaping @Sendable () -> any MicConditioning,
         cleanedMicConditionerFactory: (@Sendable () -> any MicConditioning)? = nil,
@@ -365,6 +369,7 @@ public actor MeetingRecordingService: MeetingRecordingServiceProtocol {
         self.audioConverter = audioConverter
         self.lockFileStore = lockFileStore
         self.fileManager = fileManager
+        self.meetingSpeechEngineSelection = meetingSpeechEngineSelection
         self.isVadLiveChunkingEnabled = isVadLiveChunkingEnabled
         self.micConditionerFactory = micConditionerFactory
         self.cleanedMicConditionerFactory = cleanedMicConditionerFactory ?? micConditionerFactory
@@ -559,7 +564,17 @@ public actor MeetingRecordingService: MeetingRecordingServiceProtocol {
         // the clock ticked over a minute boundary between them, which is
         // vanishingly rare but trivially avoidable.
         let now = wallClockNow()
-        let speechEngineLease = await speechEngineSessionManager?.beginSpeechEngineSession()
+        let requestedSpeechEngine = meetingSpeechEngineSelection()
+        let speechEngineLease: SpeechEngineLease?
+        if let requestedSpeechEngine,
+            let routedSessionManager = speechEngineSessionManager as? any SpeechEngineRoutedSessionManaging
+        {
+            speechEngineLease = await routedSessionManager.beginSpeechEngineSession(
+                speechEngine: requestedSpeechEngine
+            )
+        } else {
+            speechEngineLease = await speechEngineSessionManager?.beginSpeechEngineSession()
+        }
         currentSpeechEngineLease = speechEngineLease
         let speechEngine: SpeechEngineSelection
         let speechEngineCapabilities: SpeechEngineCapabilities?

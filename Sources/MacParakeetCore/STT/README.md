@@ -202,7 +202,13 @@ gate close over inline. A new call site that invokes `AsrManager.transcribe`
 directly **must** wrap it the same way — calling the manager bare reopens the
 crash for whichever lane runs unguarded.
 
-**Engine routing is per-job.** Parakeet stays default. The selected Parakeet
+**Engine routing is per-job.** Parakeet stays default. Settings persists an
+independent dictation engine and a Meetings & Transcriptions engine. Missing
+workflow-specific state inherits the dictation engine, so upgrades preserve the
+old single-choice behavior. New meetings capture the Meetings & Transcriptions
+selection in their lease/recovery metadata; file, media, and URL jobs pass that
+selection directly to the scheduler. Both routes still use this one shared
+runtime and scheduler. The selected Parakeet
 build is `v3` unless the user opts into `v2` through Settings or the CLI
 (`config set parakeet-model`, `models select parakeet-v2`, or
 `transcribe --parakeet-model v2`). A subscriber can request Nemotron or

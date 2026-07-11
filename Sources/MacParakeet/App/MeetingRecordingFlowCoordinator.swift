@@ -662,7 +662,7 @@ final class MeetingRecordingFlowCoordinator {
                         startContext: startContext,
                         calendarEventSnapshot: calendarEventSnapshot
                     )
-                    let isSpeechModelReady = await self.sttManager?.isReady() ?? true
+                    let isSpeechModelReady = await self.isMeetingSpeechModelReady()
                     switch self.panelViewModel?.liveTranscriptStatus {
                     case .some(.startingAudio) where isSpeechModelReady:
                         self.panelViewModel?.updateLiveTranscriptStatus(.listening)
@@ -1289,6 +1289,43 @@ final class MeetingRecordingFlowCoordinator {
         guard let sttManager else { return }
 
         speechWarmUpObservationTask?.cancel()
+        if let routedManager = sttManager as? any SpeechEngineRoutedWarmUpManaging,
+            let speechEngineSelectionProvider
+        {
+            speechWarmUpObservationTask = Task { @MainActor [weak self, routedManager] in
+                guard let self,
+                    let selection = await speechEngineSelectionProvider()
+                else { return }
+
+                if await routedManager.isReady(speechEngine: selection) {
+                    self.handleSpeechWarmUpState(.ready)
+                    return
+                }
+
+                self.handleSpeechWarmUpState(
+                    .working(message: "Speech model: Loading \(selection.engine.displayName)...", progress: nil)
+                )
+                do {
+                    try await routedManager.warmUp(
+                        speechEngine: selection,
+                        onProgress: { [weak self] message in
+                            Task { @MainActor [weak self] in
+                                self?.handleSpeechWarmUpState(
+                                    .working(message: "Speech model: \(message)", progress: nil)
+                                )
+                            }
+                        }
+                    )
+                    self.handleSpeechWarmUpState(.ready)
+                } catch is CancellationError {
+                    return
+                } catch {
+                    self.handleSpeechWarmUpState(.failed(message: error.localizedDescription))
+                }
+            }
+            return
+        }
+
         speechWarmUpObservationTask = Task { @MainActor [weak self, sttManager] in
             let (observerId, stream) = await sttManager.observeWarmUpProgress()
             defer {
@@ -1304,6 +1341,17 @@ final class MeetingRecordingFlowCoordinator {
                 self?.handleSpeechWarmUpState(state)
             }
         }
+    }
+
+    private func isMeetingSpeechModelReady() async -> Bool {
+        guard let sttManager else { return true }
+        guard let routedManager = sttManager as? any SpeechEngineRoutedWarmUpManaging,
+            let speechEngineSelectionProvider,
+            let selection = await speechEngineSelectionProvider()
+        else {
+            return await sttManager.isReady()
+        }
+        return await routedManager.isReady(speechEngine: selection)
     }
 
     private func stopSpeechWarmUpObservation() {
