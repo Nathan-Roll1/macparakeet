@@ -135,7 +135,12 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
     private var preparedTapHandler: (@Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void)?
 
     deinit {
-        tearDownLocked()
+        if running || prepared {
+            tearDownLocked()
+        } else {
+            removeConfigurationChangeObserverLocked()
+            removeRouteChangeObserversLocked()
+        }
     }
 
     private static func nowNanos() -> UInt64 {
@@ -298,7 +303,16 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
             // closure is never retained past an explicit stop, even when the
             // platform is already stopped.
             lastStartRequestLocked = nil
-            guard running || prepared || defaultInputChangeObserver != nil || defaultOutputChangeObserver != nil else {
+            let hasConfiguredEngine = running || prepared
+            let hasRouteObservers = defaultInputChangeObserver != nil || defaultOutputChangeObserver != nil
+            guard hasConfiguredEngine || hasRouteObservers else {
+                return
+            }
+            // A suppressed Bluetooth/unresolved preparation installs only the
+            // system route listeners. Remove those without asking AVAudioEngine
+            // for its input node, which could itself touch the unsafe route.
+            guard hasConfiguredEngine else {
+                removeRouteChangeObserversLocked()
                 return
             }
             tearDownLocked()
@@ -731,7 +745,6 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
         preparedRouteSnapshot = nil
         preparedTapHandler = nil
         removeConfigurationChangeObserverLocked()
-        removeRouteChangeObserversLocked()
         try? catchingObjCException {
             audioEngine.stop()
         }
@@ -745,7 +758,6 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
         preparedRouteSnapshot = nil
         preparedTapHandler = nil
         removeConfigurationChangeObserverLocked()
-        removeRouteChangeObserversLocked()
         try? catchingObjCException {
             audioEngine.stop()
         }
