@@ -2019,6 +2019,14 @@ final class TranscriptionServiceTests: XCTestCase {
     }
 
     func testRetranscribeMeetingWithoutCapturedSpeechEngineUsesCurrentRouting() async throws {
+        let selection = SpeechEngineSelection(engine: .cohere, language: "fr")
+        service = TranscriptionService(
+            audioProcessor: mockAudio,
+            sttTranscriber: mockSTT,
+            transcriptionRepo: transcriptionRepo,
+            segmentRepo: segmentRepo,
+            fileSpeechEngineSelection: { selection }
+        )
         let recordingFolder = URL(fileURLWithPath: AppPaths.tempDir)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: recordingFolder, withIntermediateDirectories: true)
@@ -2062,7 +2070,7 @@ final class TranscriptionServiceTests: XCTestCase {
         _ = try await service.retranscribeMeeting(existing: original, recording: recording)
 
         let selections = await mockSTT.speechEngineSelections
-        XCTAssertEqual(selections, [])
+        XCTAssertEqual(selections, [selection])
     }
 
     func testRetranscribeMeetingMaterializesExistingPromptResults() async throws {

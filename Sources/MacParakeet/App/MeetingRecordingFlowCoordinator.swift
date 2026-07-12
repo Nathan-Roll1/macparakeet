@@ -662,7 +662,10 @@ final class MeetingRecordingFlowCoordinator {
                         startContext: startContext,
                         calendarEventSnapshot: calendarEventSnapshot
                     )
-                    let isSpeechModelReady = await self.isMeetingSpeechModelReady()
+                    let activeSpeechEngineSelection = await meetingRecordingService.activeSpeechEngineSelection
+                    let isSpeechModelReady = await self.isMeetingSpeechModelReady(
+                        speechEngineSelection: activeSpeechEngineSelection
+                    )
                     switch self.panelViewModel?.liveTranscriptStatus {
                     case .some(.startingAudio) where isSpeechModelReady:
                         self.panelViewModel?.updateLiveTranscriptStatus(.listening)
@@ -1343,14 +1346,22 @@ final class MeetingRecordingFlowCoordinator {
         }
     }
 
-    private func isMeetingSpeechModelReady() async -> Bool {
+    private func isMeetingSpeechModelReady(
+        speechEngineSelection: SpeechEngineSelection? = nil
+    ) async -> Bool {
         guard let sttManager else { return true }
-        guard let routedManager = sttManager as? any SpeechEngineRoutedWarmUpManaging,
-            let speechEngineSelectionProvider,
-            let selection = await speechEngineSelectionProvider()
-        else {
+        guard let routedManager = sttManager as? any SpeechEngineRoutedWarmUpManaging else {
             return await sttManager.isReady()
         }
+        let selection: SpeechEngineSelection?
+        if let speechEngineSelection {
+            selection = speechEngineSelection
+        } else if let speechEngineSelectionProvider {
+            selection = await speechEngineSelectionProvider()
+        } else {
+            selection = nil
+        }
+        guard let selection else { return await sttManager.isReady() }
         return await routedManager.isReady(speechEngine: selection)
     }
 

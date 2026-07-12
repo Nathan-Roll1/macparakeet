@@ -1402,6 +1402,9 @@ public actor STTRuntime: STTRuntimeProtocol {
         switch capabilities(for: selection.engine).key {
         case .nemotron(let variant):
             if variant.isEnglishOnly {
+                // The English-only engine has no language-hint surface. Its
+                // readiness therefore does not depend on the multilingual
+                // language preference retained for a future variant switch.
                 return await nemotronEnglishEngine?.isReady() ?? false
             }
             guard Self.nemotronLanguageMatchesLoadedEngine(

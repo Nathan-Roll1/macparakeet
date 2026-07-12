@@ -436,6 +436,7 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
         onProgress: (@Sendable (TranscriptionProgress) -> Void)? = nil
     ) async throws -> Transcription {
         let operation = meetingOperationContext(for: recording)
+        let speechEngine = resolvedMeetingSpeechEngineSelection(for: recording)
 
         return try await Observability.withOperationContext(operation.operationContext) {
             try await assertCanTranscribeOrEmitPreflight(
@@ -465,6 +466,7 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
                 recording: recording,
                 transcription: &transcription,
                 operation: operation,
+                speechEngineOverride: speechEngine,
                 onProgress: onProgress
             )
         }
@@ -484,6 +486,7 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
         onProgress: (@Sendable (TranscriptionProgress) -> Void)? = nil
     ) async throws -> Transcription {
         let operation = meetingOperationContext(for: recording)
+        let speechEngine = resolvedMeetingSpeechEngineSelection(for: recording)
 
         return try await Observability.withOperationContext(operation.operationContext) {
             try await assertCanTranscribeOrEmitPreflight(
@@ -519,6 +522,7 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
                 recording: recording,
                 transcription: &transcription,
                 operation: operation,
+                speechEngineOverride: speechEngine,
                 onProgress: onProgress
             )
         }
@@ -595,6 +599,10 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
         speechEngineOverride: SpeechEngineSelection? = nil,
         onProgress: (@Sendable (TranscriptionProgress) -> Void)? = nil
     ) async throws -> Transcription {
+        let speechEngine = resolvedMeetingSpeechEngineSelection(
+            for: recording,
+            explicitSelection: speechEngineOverride
+        )
         var transcription = makeRetranscriptionRecord(from: original)
         transcription.fileSizeBytes = (try? FileManager.default.attributesOfItem(atPath: recording.mixedAudioURL.path)[.size] as? Int)
             .flatMap { $0 } ?? original.fileSizeBytes
@@ -623,7 +631,7 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
                 transcription: &transcription,
                 operation: operation,
                 persistFailureStatus: false,
-                speechEngineOverride: speechEngineOverride,
+                speechEngineOverride: speechEngine,
                 onProgress: onProgress
             )
         }
@@ -1148,6 +1156,19 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
         )
     }
 
+    private func resolvedMeetingSpeechEngineSelection(
+        for recording: MeetingRecordingOutput,
+        explicitSelection: SpeechEngineSelection? = nil
+    ) -> SpeechEngineSelection? {
+        if let explicitSelection {
+            return explicitSelection
+        }
+        if recording.speechEngineWasCaptured {
+            return recording.speechEngine
+        }
+        return fileSpeechEngineSelection()
+    }
+
     private func makeMeetingTranscriptionStub(recording: MeetingRecordingOutput) -> Transcription {
         Transcription(
             fileName: recording.displayName,
@@ -1345,7 +1366,7 @@ public actor TranscriptionService: SpeechEngineOverrideTranscriptionService {
     ) async throws -> [MeetingTranscriptFinalizer.SourceTranscript] {
         var outputs: [MeetingTranscriptFinalizer.SourceTranscript] = []
         let activeSources = [AudioSource.microphone, .system].filter { recording.sourceAlignment.track(for: $0) != nil }
-        let speechEngine = speechEngineOverride ?? (recording.speechEngineWasCaptured ? recording.speechEngine : nil)
+        let speechEngine = speechEngineOverride
         let microphoneDecision = activeSources.contains(.microphone)
             ? try await resolveMeetingMicrophoneSource(for: recording)
             : nil

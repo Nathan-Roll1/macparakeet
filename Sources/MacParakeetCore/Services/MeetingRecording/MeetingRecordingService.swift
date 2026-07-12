@@ -74,6 +74,9 @@ public protocol MeetingRecordingServiceProtocol: Sendable {
     func updateNotes(_ notes: String) async
     var isRecording: Bool { get async }
     var activeSessionID: UUID? { get async }
+    /// Speech engine pinned to the active recording session. Consumers should
+    /// use this instead of re-reading a mutable preference after recording starts.
+    var activeSpeechEngineSelection: SpeechEngineSelection? { get async }
     var isPaused: Bool { get async }
     var micLevel: Float { get async }
     var systemLevel: Float { get async }
@@ -115,6 +118,10 @@ public extension MeetingRecordingServiceProtocol {
     }
 
     var activeSessionID: UUID? {
+        get async { nil }
+    }
+
+    var activeSpeechEngineSelection: SpeechEngineSelection? {
         get async { nil }
     }
 
@@ -385,6 +392,10 @@ public actor MeetingRecordingService: MeetingRecordingServiceProtocol {
 
     public var activeSessionID: UUID? {
         currentSession?.id
+    }
+
+    public var activeSpeechEngineSelection: SpeechEngineSelection? {
+        currentSession?.speechEngine
     }
 
     public var isPaused: Bool {

@@ -415,6 +415,10 @@ public actor MockSTTClient: STTClientProtocol, STTDictationPreviewTranscribing, 
         routedWarmUpSelections
     }
 
+    public func routedReadinessSelectionsSnapshot() -> [SpeechEngineSelection] {
+        routedReadinessSelections
+    }
+
     public func backgroundWarmUpCallCountSnapshot() -> Int {
         backgroundWarmUpCallCount
     }
