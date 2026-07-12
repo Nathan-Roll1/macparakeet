@@ -241,6 +241,7 @@ public final class SettingsViewModel {
                 preferBuiltInMicWhenBluetoothOutput,
                 forKey: UserDefaultsAppRuntimePreferences.preferBuiltInMicWhenBluetoothOutputKey
             )
+            NotificationCenter.default.post(name: .macParakeetMicrophoneSelectionDidChange, object: nil)
             Telemetry.send(.settingChanged(
                 setting: .preferBuiltInMicBluetoothOutput,
                 value: Self.settingValue(preferBuiltInMicWhenBluetoothOutput)

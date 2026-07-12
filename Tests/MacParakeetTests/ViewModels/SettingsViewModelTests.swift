@@ -420,9 +420,18 @@ final class SettingsViewModelTests: XCTestCase {
         XCTAssertEqual(settings, [.instantDictation])
     }
 
-    func testPreferBuiltInMicWhenBluetoothOutputPersistsAndEmitsTelemetry() {
+    func testPreferBuiltInMicWhenBluetoothOutputPersistsEmitsTelemetryAndPostsRouteChange() {
         let telemetry = SettingsTelemetrySpy()
         Telemetry.configure(telemetry)
+        var routeChangeCount = 0
+        let observer = NotificationCenter.default.addObserver(
+            forName: .macParakeetMicrophoneSelectionDidChange,
+            object: nil,
+            queue: nil
+        ) { _ in
+            routeChangeCount += 1
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
 
         viewModel.preferBuiltInMicWhenBluetoothOutput = false
 
@@ -449,6 +458,7 @@ final class SettingsViewModelTests: XCTestCase {
             settings,
             [.preferBuiltInMicBluetoothOutput, .preferBuiltInMicBluetoothOutput]
         )
+        XCTAssertEqual(routeChangeCount, 2)
     }
 
     func testLiveDictationPreviewPersistsAndEmitsTelemetry() {

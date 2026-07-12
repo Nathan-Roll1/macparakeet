@@ -89,8 +89,8 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
         category: "AVAudioEngineMicrophonePlatform"
     )
     private let queue = DispatchQueue(label: "com.macparakeet.shared-mic-platform")
-    private let defaultInputListenerQueue = DispatchQueue(
-        label: "com.macparakeet.shared-mic-platform.default-input-listener"
+    private let routeListenerQueue = DispatchQueue(
+        label: "com.macparakeet.shared-mic-platform.route-listener"
     )
     private let deviceAttemptsBuilder: DeviceAttemptsBuilder?
     private let inputDeviceSetter: InputDeviceSetter
@@ -108,6 +108,7 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
     /// trigger for the silent tap-stall under investigation.
     private var configurationChangeObserver: NSObjectProtocol?
     private var defaultInputChangeObserver: AudioObjectPropertyListenerBlock?
+    private var defaultOutputChangeObserver: AudioObjectPropertyListenerBlock?
     /// Parameters from the most recent successful start. Used by the
     /// configuration-change observer to re-run the exact same start sequence
     /// during self-healing recovery. Cleared at the start of each configure
@@ -145,23 +146,21 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
         String(format: "%.3f", Double(end - start) / 1_000_000.0)
     }
 
-    /// Return the leading route attempts that are safe to acquire while idle.
-    /// Every attempt is pinned explicitly to the resolved device so a default
-    /// route cannot change to Bluetooth between validation and preparation.
+    /// Return the leading route attempt when it is safe to acquire while idle.
+    /// Preparation never falls through to a lower-priority device: a transient
+    /// preferred-route failure must be retried on key-down, not silently replaced
+    /// by a prepared fallback. The route is pinned explicitly so a system default
+    /// cannot change to Bluetooth between validation and preparation.
     static func prewarmAttemptPrefix(
         from attempts: [MeetingInputDeviceAttempt],
         transportType: (AudioDeviceID) -> UInt32
     ) -> [MeetingInputDeviceAttempt] {
-        var result: [MeetingInputDeviceAttempt] = []
-        for attempt in attempts {
-            guard let deviceID = attempt.deviceID else { break }
-            let transport = transportType(deviceID)
-            guard transport != kAudioDeviceTransportTypeBluetooth,
-                transport != kAudioDeviceTransportTypeBluetoothLE
-            else { break }
-            result.append(MeetingInputDeviceAttempt(source: attempt.source, deviceID: deviceID))
-        }
-        return result
+        guard let attempt = attempts.first, let deviceID = attempt.deviceID else { return [] }
+        let transport = transportType(deviceID)
+        guard transport != kAudioDeviceTransportTypeBluetooth,
+            transport != kAudioDeviceTransportTypeBluetoothLE
+        else { return [] }
+        return [MeetingInputDeviceAttempt(source: attempt.source, deviceID: deviceID)]
     }
 
     public init(
@@ -251,6 +250,10 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
     ) {
         queue.sync {
             guard engineStarter == nil, !running, !prepared else { return }
+            // Route observation stays active even when preparation is currently
+            // suppressed, so a later move from Bluetooth/unresolved to a safe
+            // device can proactively retry before the next dictation.
+            installRouteChangeObserversLocked()
             // Snapshot the route once and pin every eligible attempt explicitly.
             // Stop at the first unresolved/Bluetooth route: walking past it to a
             // later built-in fallback would change which device a real start uses.
@@ -295,7 +298,9 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
             // closure is never retained past an explicit stop, even when the
             // platform is already stopped.
             lastStartRequestLocked = nil
-            guard running || prepared else { return }
+            guard running || prepared || defaultInputChangeObserver != nil || defaultOutputChangeObserver != nil else {
+                return
+            }
             tearDownLocked()
             logger.info("shared_mic_engine_stopped")
             AudioCaptureDiagnostics.append("shared_mic_engine_stopped")
@@ -640,7 +645,7 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
         }
         running = true
         installConfigurationChangeObserverLocked()
-        installDefaultInputChangeObserverLocked()
+        installRouteChangeObserversLocked()
         let totalMilliseconds = Self.elapsedMilliseconds(
             from: totalStartedAt,
             to: Self.nowNanos()
@@ -662,7 +667,7 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
         preparedVPIO = vpioEnabled
         preparedBufferSize = bufferSize
         preparedTapHandler = tapHandler
-        installDefaultInputChangeObserverLocked()
+        installRouteChangeObserversLocked()
     }
 
     /// Start a prepared engine (only the `audioEngine.start()` cost). Returns
@@ -682,7 +687,7 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
         prepared = false
         preparedRouteSnapshot = nil
         installConfigurationChangeObserverLocked()
-        installDefaultInputChangeObserverLocked()
+        installRouteChangeObserversLocked()
         AudioCaptureDiagnostics.append(
             "shared_mic_engine_started_from_prepared audio_engine_start_ms=\(Self.elapsedMilliseconds(from: phaseStartedAt, to: Self.nowNanos()))"
         )
@@ -694,7 +699,7 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
         preparedRouteSnapshot = nil
         preparedTapHandler = nil
         removeConfigurationChangeObserverLocked()
-        removeDefaultInputChangeObserverLocked()
+        removeRouteChangeObserversLocked()
         guard engineStarter == nil else {
             audioEngine = AVAudioEngine()
             running = false
@@ -726,7 +731,7 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
         preparedRouteSnapshot = nil
         preparedTapHandler = nil
         removeConfigurationChangeObserverLocked()
-        removeDefaultInputChangeObserverLocked()
+        removeRouteChangeObserversLocked()
         try? catchingObjCException {
             audioEngine.stop()
         }
@@ -740,7 +745,7 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
         preparedRouteSnapshot = nil
         preparedTapHandler = nil
         removeConfigurationChangeObserverLocked()
-        removeDefaultInputChangeObserverLocked()
+        removeRouteChangeObserversLocked()
         try? catchingObjCException {
             audioEngine.stop()
         }
@@ -847,48 +852,93 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
         }
     }
 
-    private func installDefaultInputChangeObserverLocked() {
-        guard defaultInputChangeObserver == nil else { return }
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultInputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        let block: AudioObjectPropertyListenerBlock = { _, _ in
-            AudioCaptureDiagnostics.append(
-                "audio_default_input_changed \(AudioCaptureDiagnostics.defaultInputDeviceSummary())"
+    private func installRouteChangeObserversLocked() {
+        if defaultInputChangeObserver == nil {
+            var inputAddress = AudioObjectPropertyAddress(
+                mSelector: kAudioHardwarePropertyDefaultInputDevice,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
             )
-            NotificationCenter.default.post(name: .macParakeetMicrophoneSelectionDidChange, object: nil)
-        }
-        let status = AudioObjectAddPropertyListenerBlock(
-            AudioObjectID(kAudioObjectSystemObject),
-            &address,
-            defaultInputListenerQueue,
-            block
-        )
-        guard status == noErr else {
-            AudioCaptureDiagnostics.append(
-                "audio_default_input_listener_failed status=\(status)"
+            let inputBlock: AudioObjectPropertyListenerBlock = { _, _ in
+                AudioCaptureDiagnostics.append(
+                    "audio_default_input_changed \(AudioCaptureDiagnostics.defaultInputDeviceSummary())"
+                )
+                NotificationCenter.default.post(name: .macParakeetMicrophoneSelectionDidChange, object: nil)
+            }
+            let inputStatus = AudioObjectAddPropertyListenerBlock(
+                AudioObjectID(kAudioObjectSystemObject),
+                &inputAddress,
+                routeListenerQueue,
+                inputBlock
             )
-            return
+            if inputStatus == noErr {
+                defaultInputChangeObserver = inputBlock
+            } else {
+                AudioCaptureDiagnostics.append(
+                    "audio_default_input_listener_failed status=\(inputStatus)"
+                )
+            }
         }
-        defaultInputChangeObserver = block
+
+        if defaultOutputChangeObserver == nil {
+            var outputAddress = AudioObjectPropertyAddress(
+                mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            let outputBlock: AudioObjectPropertyListenerBlock = { _, _ in
+                let bluetooth = AudioDeviceManager.defaultOutputBluetoothState()
+                AudioCaptureDiagnostics.append(
+                    "audio_default_output_changed bluetooth=\(String(describing: bluetooth))"
+                )
+                NotificationCenter.default.post(name: .macParakeetMicrophoneSelectionDidChange, object: nil)
+            }
+            let outputStatus = AudioObjectAddPropertyListenerBlock(
+                AudioObjectID(kAudioObjectSystemObject),
+                &outputAddress,
+                routeListenerQueue,
+                outputBlock
+            )
+            if outputStatus == noErr {
+                defaultOutputChangeObserver = outputBlock
+            } else {
+                AudioCaptureDiagnostics.append(
+                    "audio_default_output_listener_failed status=\(outputStatus)"
+                )
+            }
+        }
     }
 
-    private func removeDefaultInputChangeObserverLocked() {
-        guard let block = defaultInputChangeObserver else { return }
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultInputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        AudioObjectRemovePropertyListenerBlock(
-            AudioObjectID(kAudioObjectSystemObject),
-            &address,
-            defaultInputListenerQueue,
-            block
-        )
-        defaultInputChangeObserver = nil
+    private func removeRouteChangeObserversLocked() {
+        if let inputBlock = defaultInputChangeObserver {
+            var inputAddress = AudioObjectPropertyAddress(
+                mSelector: kAudioHardwarePropertyDefaultInputDevice,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            AudioObjectRemovePropertyListenerBlock(
+                AudioObjectID(kAudioObjectSystemObject),
+                &inputAddress,
+                routeListenerQueue,
+                inputBlock
+            )
+            defaultInputChangeObserver = nil
+        }
+
+        if let outputBlock = defaultOutputChangeObserver {
+            var outputAddress = AudioObjectPropertyAddress(
+                mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMain
+            )
+            AudioObjectRemovePropertyListenerBlock(
+                AudioObjectID(kAudioObjectSystemObject),
+                &outputAddress,
+                routeListenerQueue,
+                outputBlock
+            )
+            defaultOutputChangeObserver = nil
+        }
     }
 }
 
