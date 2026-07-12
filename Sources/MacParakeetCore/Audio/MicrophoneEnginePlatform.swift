@@ -782,9 +782,20 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
             replaceEngineAfterFailureLocked()  // clears prepared
             return false
         }
-        running = true
-        prepared = false
-        preparedRouteSnapshot = nil
+        let configurationStayedCurrent = configurationChangeGeneration.withLock { generation in
+            guard generation == preparedConfigurationGeneration else { return false }
+            running = true
+            prepared = false
+            preparedRouteSnapshot = nil
+            return true
+        }
+        guard configurationStayedCurrent else {
+            AudioCaptureDiagnostics.append(
+                "shared_mic_engine_prepared_discarded reason=configuration_changed_during_start"
+            )
+            tearDownLocked()
+            return false
+        }
         installConfigurationChangeObserverLocked()
         installRouteChangeObserversLocked()
         AudioCaptureDiagnostics.append(
