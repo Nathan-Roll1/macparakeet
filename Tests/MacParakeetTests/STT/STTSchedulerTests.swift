@@ -168,6 +168,11 @@ final class STTSchedulerTests: XCTestCase {
 
         XCTAssertEqual(lease.selection, SpeechEngineSelection(engine: .cohere, language: "fr"))
         XCTAssertEqual(lease.capabilities?.key, .cohere)
+        let capabilitySelections = await runtime.routedCapabilitySelectionSnapshots()
+        XCTAssertEqual(
+            capabilitySelections,
+            [SpeechEngineSelection(engine: .cohere, language: "fr")]
+        )
         let runtimeSelection = await runtime.currentSpeechEngineSelection()
         XCTAssertEqual(runtimeSelection, SpeechEngineSelection(engine: .parakeet))
         await scheduler.endSpeechEngineSession(lease)
@@ -1436,6 +1441,7 @@ private actor MockSTTRuntime: STTRuntimeProtocol {
     private var routedSelections: [String: SpeechEngineSelection] = [:]
     private var routedWarmUpSelections: [SpeechEngineSelection] = []
     private var routedReadinessSelections: [SpeechEngineSelection] = []
+    private var routedCapabilitySelections: [SpeechEngineSelection] = []
 
     private(set) var warmUpCallCount = 0
     private(set) var isReadyCallCount = 0
@@ -1788,6 +1794,17 @@ private actor MockSTTRuntime: STTRuntimeProtocol {
     func currentSpeechEngineCapabilities() async -> SpeechEngineCapabilities {
         capabilitiesReadCount += 1
         return capabilities
+    }
+
+    func speechEngineCapabilities(
+        for selection: SpeechEngineSelection
+    ) async -> SpeechEngineCapabilities {
+        routedCapabilitySelections.append(selection)
+        return Self.defaultCapabilities(for: selection.engine)
+    }
+
+    func routedCapabilitySelectionSnapshots() -> [SpeechEngineSelection] {
+        routedCapabilitySelections
     }
 
     func currentSpeechEngineTelemetryAttribution() async -> SpeechEngineTelemetryAttribution {

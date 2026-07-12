@@ -2611,7 +2611,7 @@ struct SettingsView: View {
     }
 
     private var shouldShowCohereModelRow: Bool {
-        AppFeatures.cohereEngineEnabled || viewModel.engine.speechEnginePreference == .cohere
+        AppFeatures.cohereEngineEnabled || viewModel.engine.usesSpeechEngine(.cohere)
     }
 
     private var currentSpeechEngineSwitchTarget: SpeechEnginePreference {

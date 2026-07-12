@@ -583,6 +583,7 @@ public final class EngineSettingsViewModel {
         guard !speechEngineSwitching else { return }
         guard !nemotronDownloading else { return }
         speechEngineError = nil
+        transcriptionSpeechEngineError = nil
         nemotronDownloading = true
         nemotronModelStatus = .repairing
         let modelVariant = nemotronModelVariant
@@ -681,6 +682,7 @@ public final class EngineSettingsViewModel {
         // preference setter — the only other place that clears it —
         // never fires for the same-state assignment).
         speechEngineError = nil
+        transcriptionSpeechEngineError = nil
         whisperDownloading = true
         whisperModelStatus = .repairing
         let modelVariant = SpeechEnginePreference.whisperModelVariant(defaults: defaults)
@@ -778,6 +780,7 @@ public final class EngineSettingsViewModel {
             return
         }
         speechEngineError = nil
+        transcriptionSpeechEngineError = nil
         cohereDownloading = true
         cohereModelStatus = .repairing
         cohereModelStatusDetail = "Downloading Cohere Transcribe..."
@@ -1283,10 +1286,10 @@ public final class EngineSettingsViewModel {
 
     /// Removes a downloaded Nemotron build. The non-selected build is
     /// deletable any time (Nemotron Model card). The selected build is
-    /// protected while Nemotron is the active engine; when Nemotron is
-    /// inactive it keeps its existing delete affordance (Local Models
-    /// overflow) so the next active use has an explicit download moment
-    /// instead of a surprise re-fetch.
+    /// protected while either workflow route uses Nemotron. When neither route
+    /// uses it, the Local Models overflow keeps its delete affordance so the
+    /// next active use has an explicit download moment instead of a surprise
+    /// re-fetch.
     public func deleteNemotronVariant(_ variant: NemotronModelVariant) {
         guard !speechEngineSwitching, !nemotronDownloading else { return }
         if usesSpeechEngine(.nemotron), nemotronModelVariant == variant { return }
@@ -1313,9 +1316,9 @@ public final class EngineSettingsViewModel {
     }
 
     /// Removes the downloaded Whisper variant, freeing ~632 MB. Only callable
-    /// while Parakeet is the active engine — deleting the model behind the
-    /// active engine would force a silent re-download. State flips to
-    /// "Not Downloaded" immediately; a disk refresh then confirms.
+    /// while neither workflow route uses Whisper — deleting an assigned model
+    /// would force a silent re-download. State flips to "Not Downloaded"
+    /// immediately; a disk refresh then confirms.
     public func deleteWhisperModel() {
         guard !speechEngineSwitching, !whisperDownloading else { return }
         // Protect the in-use engine's model.

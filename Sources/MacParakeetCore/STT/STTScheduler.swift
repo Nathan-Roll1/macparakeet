@@ -522,12 +522,7 @@ public actor STTScheduler: STTManaging, STTDictationPreviewTranscribing, SpeechE
         let capabilities: SpeechEngineCapabilities?
         if let requestedSpeechEngine {
             selection = requestedSpeechEngine
-            capabilities = SpeechEngineCapabilityRegistry.capabilities(
-                for: requestedSpeechEngine.engine,
-                parakeetModelVariant: SpeechEnginePreference.parakeetModelVariant(),
-                nemotronModelVariant: SpeechEnginePreference.nemotronModelVariant(),
-                whisperModelVariant: SpeechEnginePreference.whisperModelVariant()
-            )
+            capabilities = await runtime.speechEngineCapabilities(for: requestedSpeechEngine)
         } else {
             selection = await runtime.currentSpeechEngineSelection()
             capabilities = await runtime.currentSpeechEngineCapabilities()

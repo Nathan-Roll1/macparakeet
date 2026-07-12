@@ -53,6 +53,9 @@ protocol STTRuntimeProtocol: Sendable {
     ) async throws
     func currentSpeechEngineSelection() async -> SpeechEngineSelection
     func currentSpeechEngineCapabilities() async -> SpeechEngineCapabilities
+    func speechEngineCapabilities(
+        for selection: SpeechEngineSelection
+    ) async -> SpeechEngineCapabilities
     func currentSpeechEngineTelemetryAttribution() async -> SpeechEngineTelemetryAttribution
 }
 
@@ -1401,6 +1404,11 @@ public actor STTRuntime: STTRuntimeProtocol {
             if variant.isEnglishOnly {
                 return await nemotronEnglishEngine?.isReady() ?? false
             }
+            guard Self.nemotronLanguageMatchesLoadedEngine(
+                requested: selection.language,
+                loaded: nemotronEngineLanguage
+            )
+            else { return false }
             return await nemotronEngine?.isReady() ?? false
         case .whisper(_):
             return await whisperEngine?.isReady() ?? false
@@ -1836,6 +1844,19 @@ public actor STTRuntime: STTRuntimeProtocol {
 
     public func currentSpeechEngineCapabilities() async -> SpeechEngineCapabilities {
         capabilities(for: effectiveSpeechEnginePreference())
+    }
+
+    public func speechEngineCapabilities(
+        for selection: SpeechEngineSelection
+    ) async -> SpeechEngineCapabilities {
+        capabilities(for: selection.engine)
+    }
+
+    nonisolated static func nemotronLanguageMatchesLoadedEngine(
+        requested: String?,
+        loaded: String?
+    ) -> Bool {
+        SpeechEnginePreference.normalizeNemotronLanguage(requested) == loaded
     }
 
     public func currentSpeechEngineTelemetryAttribution() async -> SpeechEngineTelemetryAttribution {
