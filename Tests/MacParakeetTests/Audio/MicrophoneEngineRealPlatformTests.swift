@@ -172,11 +172,10 @@ final class MicrophoneEngineRealPlatformTests: XCTestCase {
         )
     }
 
-    /// The observer must cover the preparation work itself, not only the idle
-    /// interval after preparation completes. Simulate Core Audio renegotiating
-    /// immediately after device selection and verify the result is never
-    /// published as reusable.
-    func testConfigurationChangeDuringPreparationDiscardsEngine() throws {
+    /// Selecting an input can itself emit a configuration-change notification.
+    /// That setup event must not discard the preparation before it can be used;
+    /// idle changes after preparation remain covered by the preceding test.
+    func testConfigurationChangeDuringDeviceSetupKeepsPreparedEngine() throws {
         platform.stopEngine()
 
         let builtInDeviceID = AudioDeviceManager.builtInMicrophone()
@@ -208,11 +207,9 @@ final class MicrophoneEngineRealPlatformTests: XCTestCase {
             bufferSize: Self.bufferSize,
             tapHandler: { _, _ in }
         )
-        _ = platform.isEngineRunning  // flush queued observer work
-
-        XCTAssertFalse(
+        XCTAssertTrue(
             platform.preparedEngineStateForTesting.prepared,
-            "A configuration change during preparation must prevent prepared-engine reuse."
+            "A configuration notification caused by device setup must not discard preparation."
         )
     }
 

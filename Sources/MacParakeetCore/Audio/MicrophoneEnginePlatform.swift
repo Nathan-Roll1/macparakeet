@@ -315,24 +315,15 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
                 )
                 return
             }
-            // Observe before touching the engine. Core Audio may reconfigure
-            // while device selection, format negotiation, tap installation, or
-            // AVAudioEngine.prepare() is in flight; that entire window must be
-            // covered before the result can be published as reusable.
-            installConfigurationChangeObserverLocked()
-            let preparationConfigurationGeneration = configurationChangeGeneration.withLock { $0 }
             do {
                 try configureAndStartLocked(
                     vpioEnabled: vpioEnabled,
                     bufferSize: bufferSize,
                     tapHandler: tapHandler,
                     startNow: false,
-                    attemptsOverride: prewarmAttempts,
-                    preparationConfigurationGeneration: preparationConfigurationGeneration
+                    attemptsOverride: prewarmAttempts
                 )
-                if prepared {
-                    preparedRouteSnapshot = routeSnapshot
-                }
+                preparedRouteSnapshot = routeSnapshot
             } catch {
                 prepared = false
                 preparedRouteSnapshot = nil
@@ -378,8 +369,7 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
         bufferSize: AVAudioFrameCount,
         tapHandler: @escaping @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void,
         startNow: Bool = true,
-        attemptsOverride: [MeetingInputDeviceAttempt]? = nil,
-        preparationConfigurationGeneration: UInt64? = nil
+        attemptsOverride: [MeetingInputDeviceAttempt]? = nil
     ) throws {
         lastStartRequestLocked = nil
         let currentRouteSnapshot = startNow ? deviceAttemptsBuilder?() : nil
@@ -442,15 +432,11 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
                     tapHandler: tapHandler
                 )
             } else {
-                guard let preparationConfigurationGeneration else { return }
-                guard
-                    markPreparedLocked(
-                        attempt: nil,
-                        vpioEnabled: vpioEnabled,
-                        bufferSize: bufferSize,
-                        startingConfigurationGeneration: preparationConfigurationGeneration
-                    )
-                else { return }
+                markPreparedLocked(
+                    attempt: nil,
+                    vpioEnabled: vpioEnabled,
+                    bufferSize: bufferSize
+                )
             }
             return
         }
@@ -504,15 +490,11 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
                         tapHandler: tapHandler
                     )
                 } else {
-                    guard let preparationConfigurationGeneration else { return }
-                    guard
-                        markPreparedLocked(
-                            attempt: attempt,
-                            vpioEnabled: vpioEnabled,
-                            bufferSize: bufferSize,
-                            startingConfigurationGeneration: preparationConfigurationGeneration
-                        )
-                    else { return }
+                    markPreparedLocked(
+                        attempt: attempt,
+                        vpioEnabled: vpioEnabled,
+                        bufferSize: bufferSize
+                    )
                 }
                 logger.info(
                     "shared_mic_engine_input_device_\(startNow ? "started" : "prepared") source=\(attempt.source.logValue, privacy: .public) transport=\(transport, privacy: .public) vpio=\(vpioEnabled, privacy: .public)"
@@ -740,25 +722,22 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
     private func markPreparedLocked(
         attempt: MeetingInputDeviceAttempt?,
         vpioEnabled: Bool,
-        bufferSize: AVAudioFrameCount,
-        startingConfigurationGeneration: UInt64
-    ) -> Bool {
-        let currentConfigurationGeneration = configurationChangeGeneration.withLock { $0 }
-        guard currentConfigurationGeneration == startingConfigurationGeneration else {
-            AudioCaptureDiagnostics.append(
-                "shared_mic_engine_prepared_discarded reason=configuration_changed_during_prepare"
-            )
-            tearDownLocked()
-            installRouteChangeObserversLocked()
-            return false
-        }
+        bufferSize: AVAudioFrameCount
+    ) {
         prepared = true
         preparedAttempt = attempt
         preparedVPIO = vpioEnabled
         preparedBufferSize = bufferSize
-        preparedConfigurationGeneration = currentConfigurationGeneration
+        // AVAudioEngine can emit a configuration-change notification as a
+        // consequence of selecting and preparing its own input device. Begin
+        // observing only after that setup is complete so this expected event
+        // cannot invalidate every otherwise reusable preparation. Changes
+        // during the idle prepared interval are still generation-checked.
+        preparedConfigurationGeneration = configurationChangeGeneration.withLock { generation in
+            installConfigurationChangeObserverLocked()
+            return generation
+        }
         installRouteChangeObserversLocked()
-        return true
     }
 
     /// Start a prepared engine (only the `audioEngine.start()` cost). Returns
