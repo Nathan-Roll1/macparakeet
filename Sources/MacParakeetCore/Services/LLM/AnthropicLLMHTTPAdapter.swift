@@ -199,9 +199,8 @@ struct AnthropicLLMHTTPAdapter: LLMHTTPAdapter {
             body["system"] = systemPrompt
         }
 
-        if let temp = options.temperature {
-            body["temperature"] = temp
-        }
+        // Newer Claude models return 400 when temperature is present.
+        // Anthropic's API default is appropriate for our use.
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request

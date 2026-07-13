@@ -178,6 +178,26 @@ final class LLMClientTests: XCTestCase {
         XCTAssertEqual(capturedBody?["max_tokens"] as? Int, 1000)
     }
 
+    func testAnthropicOmitsTemperature() async throws {
+        var capturedBody: [String: Any]?
+
+        MockURLProtocol.handler = { request in
+            if let body = self.extractBody(from: request) {
+                capturedBody = body
+            }
+            return (self.okResponse(for: request), self.validAnthropicResponseData())
+        }
+
+        let config = LLMProviderConfig.anthropic(apiKey: "sk-ant-test-key")
+        _ = try await llmClient.chatCompletion(
+            messages: [ChatMessage(role: .user, content: "Hi")],
+            config: config,
+            options: ChatCompletionOptions(temperature: 0.25, maxTokens: 1000)
+        )
+
+        XCTAssertNil(capturedBody?["temperature"])
+    }
+
     func testOllamaUsesNativeAPI() async throws {
         var capturedRequest: URLRequest?
 

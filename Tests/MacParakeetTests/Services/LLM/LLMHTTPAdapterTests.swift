@@ -135,7 +135,7 @@ final class LLMHTTPAdapterTests: XCTestCase {
         XCTAssertEqual(
             try canonicalJSONBody(from: request),
             """
-            {"max_tokens":123,"messages":[{"content":"Hello","role":"user"}],"model":"claude-sonnet-4-6","stream":false,"system":"System","temperature":0.25}
+            {"max_tokens":123,"messages":[{"content":"Hello","role":"user"}],"model":"claude-sonnet-4-6","stream":false,"system":"System"}
             """
         )
     }
