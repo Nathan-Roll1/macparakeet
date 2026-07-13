@@ -199,8 +199,14 @@ struct AnthropicLLMHTTPAdapter: LLMHTTPAdapter {
             body["system"] = systemPrompt
         }
 
-        // Newer Claude models return 400 when temperature is present.
-        // Anthropic's API default is appropriate for our use.
+        // Claude models from Opus 4.7 / Sonnet 5 onward reject `temperature`
+        // with HTTP 400 ("deprecated for this model"), and future models
+        // follow suit. Send it only to the frozen set of legacy models that
+        // still accept it, so callers that want low-variance output (e.g.
+        // knowledge-card JSON at 0.1) keep it where it works.
+        if let temp = options.temperature, Self.modelAcceptsTemperature(config.modelName) {
+            body["temperature"] = temp
+        }
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request
@@ -216,6 +222,26 @@ struct AnthropicLLMHTTPAdapter: LLMHTTPAdapter {
             sawSentinel: sawSentinel,
             yieldedAnyContent: yieldedAnyContent
         )
+    }
+
+    /// Legacy Claude models that still accept `temperature`. This is an
+    /// allow-list on purpose: the set of accepting models is finite and frozen
+    /// (Anthropic removed the parameter from Opus 4.7 / Sonnet 5 / Fable 5 and
+    /// everything after), so unknown/new model IDs correctly default to
+    /// "don't send" and never regress with a new release.
+    static func modelAcceptsTemperature(_ modelName: String) -> Bool {
+        let legacyPrefixes = [
+            "claude-2",
+            "claude-3",
+            "claude-instant",
+            "claude-opus-4-0", "claude-opus-4-1", "claude-opus-4-5", "claude-opus-4-6",
+            "claude-opus-4-2025", // dated claude-opus-4-20250514
+            "claude-sonnet-4-0", "claude-sonnet-4-5", "claude-sonnet-4-6",
+            "claude-sonnet-4-2025", // dated claude-sonnet-4-20250514
+            "claude-haiku-4-5",
+        ]
+        let normalized = modelName.lowercased()
+        return legacyPrefixes.contains { normalized.hasPrefix($0) }
     }
 }
 
