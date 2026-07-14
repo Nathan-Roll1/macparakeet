@@ -198,6 +198,14 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
         return [attempt]
     }
 
+    static func preparedAttemptIsSafe(
+        _ attempt: MeetingInputDeviceAttempt?,
+        bluetoothInputState: (AudioDeviceID) -> Bool?
+    ) -> Bool {
+        guard let deviceID = attempt?.deviceID else { return false }
+        return bluetoothInputState(deviceID) == false
+    }
+
     public init(
         deviceAttemptsBuilder: DeviceAttemptsBuilder? = nil,
         inputDeviceSetter: @escaping InputDeviceSetter = { deviceID, engine in
@@ -378,7 +386,11 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
         // paid, same VPIO/buffer/device) — just start it.
         if startNow, !running, prepared, engineStarter == nil,
             preparedVPIO == vpioEnabled, preparedBufferSize == bufferSize,
-            currentRouteSnapshot == preparedRouteSnapshot
+            currentRouteSnapshot == preparedRouteSnapshot,
+            Self.preparedAttemptIsSafe(
+                preparedAttempt,
+                bluetoothInputState: AudioDeviceManager.bluetoothInputState
+            )
         {
             // The tap itself was installed during preparation. Swap its
             // dispatch target before start so the protocol's current caller,

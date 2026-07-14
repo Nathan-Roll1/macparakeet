@@ -103,4 +103,21 @@ final class MicrophoneEnginePrewarmRoutingTests: XCTestCase {
 
         XCTAssertTrue(result.isEmpty)
     }
+
+    func testPreparedAttemptSafetyRechecksCurrentTransport() {
+        let attempt = MeetingInputDeviceAttempt.implicitSystemDefault(resolvedDeviceID: 10)
+
+        XCTAssertTrue(AVAudioEngineMicrophonePlatform.preparedAttemptIsSafe(
+            attempt,
+            bluetoothInputState: { _ in false }
+        ))
+        XCTAssertFalse(AVAudioEngineMicrophonePlatform.preparedAttemptIsSafe(
+            attempt,
+            bluetoothInputState: { _ in true }
+        ))
+        XCTAssertFalse(AVAudioEngineMicrophonePlatform.preparedAttemptIsSafe(
+            attempt,
+            bluetoothInputState: { _ in nil }
+        ))
+    }
 }
