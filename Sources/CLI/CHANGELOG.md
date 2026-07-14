@@ -93,6 +93,13 @@ by checking exit code first: `2` = misuse, `1` = runtime, `0` = success.
 
 - Inline Anthropic and OpenRouter LLM commands now default to Claude Sonnet 5.
 
+### Removed
+
+- **Breaking:** removed the `prefer-built-in-mic-bluetooth-output` configuration
+  key because capture no longer rewrites microphone routing based on the audio
+  output device. Existing stored values are ignored. Per the CLI compatibility
+  policy, this change must ship in the next major CLI release.
+
 ### Fixed
 
 - Native Anthropic LLM calls no longer send the deprecated `temperature`
