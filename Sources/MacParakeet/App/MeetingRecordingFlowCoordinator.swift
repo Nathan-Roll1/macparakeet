@@ -575,7 +575,6 @@ final class MeetingRecordingFlowCoordinator {
             panelVM.canToggleMicrophoneMute = initialSourceMode.capturesMicrophone
             panelVM.updateLiveTranscriptStatus(.startingAudio)
             panelVM.updatePreviewLines([], isTranscriptionLagging: false)
-            refreshInitialLiveTranscriptStatus(for: panelVM)
             panelVM.onStop = { [weak self] in self?.toggleRecording() }
             panelVM.onPauseToggle = { [weak self] in self?.togglePause() }
             panelVM.onMicrophoneMuteToggle = { [weak self] in self?.toggleMicrophoneMute() }
@@ -630,7 +629,6 @@ final class MeetingRecordingFlowCoordinator {
                 panelController = controller
             }
             refreshFloatingPillVisibility()
-            startSpeechWarmUpObservation()
             startPillPolling()
             startPillGlowPolling()
             startTranscriptObservation()
@@ -662,7 +660,21 @@ final class MeetingRecordingFlowCoordinator {
                         startContext: startContext,
                         calendarEventSnapshot: calendarEventSnapshot
                     )
-                    let activeSpeechEngineSelection = await meetingRecordingService.activeSpeechEngineSelection
+                    var activeSpeechEngineSelection = await meetingRecordingService.activeSpeechEngineSelection
+                    if activeSpeechEngineSelection == nil,
+                        let speechEngineSelectionProvider
+                    {
+                        activeSpeechEngineSelection = await speechEngineSelectionProvider()
+                    }
+                    self.startSpeechWarmUpObservation(
+                        speechEngineSelection: activeSpeechEngineSelection
+                    )
+                    if let panelViewModel = self.panelViewModel {
+                        self.refreshInitialLiveTranscriptStatus(
+                            for: panelViewModel,
+                            speechEngineSelection: activeSpeechEngineSelection
+                        )
+                    }
                     let isSpeechModelReady = await self.isMeetingSpeechModelReady(
                         speechEngineSelection: activeSpeechEngineSelection
                     )
@@ -1288,29 +1300,32 @@ final class MeetingRecordingFlowCoordinator {
         transcriptObservationTask = nil
     }
 
-    private func startSpeechWarmUpObservation() {
+    private func startSpeechWarmUpObservation(
+        speechEngineSelection: SpeechEngineSelection?
+    ) {
         guard let sttManager else { return }
 
         speechWarmUpObservationTask?.cancel()
         if let routedManager = sttManager as? any SpeechEngineRoutedWarmUpManaging,
-            let speechEngineSelectionProvider
+            let speechEngineSelection
         {
             speechWarmUpObservationTask = Task { @MainActor [weak self, routedManager] in
-                guard let self,
-                    let selection = await speechEngineSelectionProvider()
-                else { return }
+                guard let self else { return }
 
-                if await routedManager.isReady(speechEngine: selection) {
+                if await routedManager.isReady(speechEngine: speechEngineSelection) {
                     self.handleSpeechWarmUpState(.ready)
                     return
                 }
 
                 self.handleSpeechWarmUpState(
-                    .working(message: "Speech model: Loading \(selection.engine.displayName)...", progress: nil)
+                    .working(
+                        message: "Speech model: Loading \(speechEngineSelection.engine.displayName)...",
+                        progress: nil
+                    )
                 )
                 do {
                     try await routedManager.warmUp(
-                        speechEngine: selection,
+                        speechEngine: speechEngineSelection,
                         onProgress: { [weak self] message in
                             Task { @MainActor [weak self] in
                                 self?.handleSpeechWarmUpState(
@@ -1390,17 +1405,12 @@ final class MeetingRecordingFlowCoordinator {
         }
     }
 
-    private func refreshInitialLiveTranscriptStatus(for panelViewModel: MeetingRecordingPanelViewModel) {
-        guard let speechEngineSelectionProvider else { return }
-        Task { @MainActor [weak self, weak panelViewModel] in
-            guard let self,
-                let panelViewModel,
-                self.panelViewModel === panelViewModel,
-                let selection = await speechEngineSelectionProvider()
-            else { return }
-            guard selection.engine == .cohere else { return }
-            panelViewModel.updateLiveTranscriptStatus(.previewUnsupported(engine: selection.engine))
-        }
+    private func refreshInitialLiveTranscriptStatus(
+        for panelViewModel: MeetingRecordingPanelViewModel,
+        speechEngineSelection: SpeechEngineSelection?
+    ) {
+        guard speechEngineSelection?.engine == .cohere else { return }
+        panelViewModel.updateLiveTranscriptStatus(.previewUnsupported(engine: .cohere))
     }
 
     nonisolated private static func makePreviewLines(from update: MeetingTranscriptUpdate)

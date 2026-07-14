@@ -45,6 +45,19 @@ Whisper tiles still say that choosing them affects meetings, files, media, and
 retranscription. Those workflows are controlled by the separate Meetings &
 Transcriptions picker.
 
+### Hosted P1 follow-up — meeting startup can warm a different engine
+
+The first hardened head still started meeting warm-up from the mutable
+Meetings & Transcriptions preference before `MeetingRecordingService` finished
+pinning the session selection. A preference change during startup could
+therefore warm one engine while the recording used another; initial preview
+status had the same race.
+
+The follow-up fix starts warm-up, readiness, and preview-status handling from
+the service's single pinned selection after startup succeeds. The mutable
+preference is retained only as a compatibility fallback for service
+implementations that expose no active selection.
+
 ## Spec Coverage
 
 | Workflow | Route contract |
@@ -92,11 +105,15 @@ Completed locally:
   because `SpeechEngineActivity` did not exist, then passed after integration;
 - 465 focused runtime, scheduler, settings, meeting, recovery, persistence, and
   telemetry tests passed;
-- the one final full `swift test` run passed 4,769 tests with 16 expected skips
-  and zero failures;
+- the one allowed full local `swift test` run passed 4,769 tests with 16
+  expected skips and zero failures on the first hardening commit;
+- hosted review then exposed the meeting-startup pinning race; its regression
+  test failed against the reviewed behavior, passed after the fix, and all 21
+  `MeetingRecordingFlowCoordinatorTests` passed;
 - `git diff --check` passed;
 - the preferred `no-mistakes` executable was unavailable, so the documented
   focused/full-test and committed-review fallback is being used.
 - the committed-diff invariant review passed with no findings; the local
   Greptile CLI was unavailable, so hosted Greptile, CodeRabbit, and CI remain
-  the live source of truth for the pushed exact head.
+  the live source of truth for the final pushed exact head, including the full
+  post-follow-up test gate.

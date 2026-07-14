@@ -652,6 +652,51 @@ final class MeetingRecordingFlowCoordinatorTests: XCTestCase {
         XCTAssertEqual(backgroundWarmUps, 0)
     }
 
+    func testMeetingStartupUsesEnginePinnedByStartedSession() async throws {
+        let stt = MockSTTClient()
+        await stt.setReady(false)
+        let pinnedSelection = SpeechEngineSelection(engine: .cohere, language: "fr")
+        let changedPreference = SpeechEngineSelection(engine: .parakeet)
+        let recordingService = MeetingRecordingServiceSpy(
+            output: makeRecordingOutput(),
+            activeSpeechEngineSelection: pinnedSelection
+        )
+        let coordinator = MeetingRecordingFlowCoordinator(
+            meetingRecordingService: recordingService,
+            transcriptionService: MockTranscriptionService(),
+            permissionService: MockPermissionService(),
+            transcriptionRepo: MockTranscriptionRepository(),
+            conversationRepo: MockChatConversationRepository(),
+            quickPromptRepo: NoOpQuickPromptRepository(),
+            configStore: NoOpLLMConfigStore(),
+            sttManager: stt,
+            speechEngineSelectionProvider: { changedPreference },
+            llmService: nil,
+            pillViewModel: MeetingRecordingPillViewModel(),
+            meetingRecordingSettlement: makeSettlement(),
+            onMenuBarIconUpdate: { _ in },
+            onTranscriptionReady: { _ in }
+        )
+
+        XCTAssertNotNil(coordinator.startRecording(trigger: .manual))
+        await coordinator.testHook_waitForActionTask()
+
+        let startedAt = ContinuousClock.now
+        while startedAt.duration(to: .now) <= .seconds(1) {
+            if !(await stt.routedWarmUpSelectionsSnapshot()).isEmpty {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        let routedWarmUps = await stt.routedWarmUpSelectionsSnapshot()
+        XCTAssertEqual(routedWarmUps, [pinnedSelection])
+        XCTAssertEqual(
+            coordinator.testHook_panelViewModel?.liveTranscriptStatus,
+            .previewUnsupported(engine: .cohere)
+        )
+    }
+
     func testMeetingReadinessUsesEnginePinnedByStartedSession() async throws {
         let stt = MockSTTClient()
         let pinnedSelection = SpeechEngineSelection(engine: .cohere, language: "fr")
