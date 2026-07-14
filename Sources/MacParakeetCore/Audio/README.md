@@ -183,6 +183,35 @@ starts/stops, when the setting is disabled, and when the warm engine
 dies. The only persisted audio remains the normal dictation WAV after
 the user starts dictation.
 
+**Idle prepare keeps cold starts cheap without opening the mic.**
+Independent of the Instant Dictation warm hold, the shared stream can
+re-*prepare* the raw dictation engine whenever it goes idle
+(`SharedMicrophoneStream(autoPrewarmWhenIdle:)`, plus a one-shot
+`prewarmDictation()` at launch). Prepare pays the expensive cold-path
+work up front — apply an explicit named-device selection when requested,
+negotiate the output format, install the tap, and call
+`AVAudioEngine.prepare()` — but leaves the engine **stopped**,
+so there is no capture and no mic indicator while idle. The next
+dictation press matches the prepared engine
+(`AVAudioEngineMicrophonePlatform.prepare`/`goPreparedLocked`) and pays
+only `audioEngine.start()` (~tens of ms) instead of the full
+device-acquisition + format negotiation. Raw meetings use the same
+non-VPIO stream configuration and can consume the prepared engine too;
+an explicit VPIO request or different buffer size discards it and does
+a full configure. Idle microphone-route changes trailing-debounce a
+fresh preparation before the next capture. Like the warm hold, prepare
+is **suppressed on Bluetooth or unresolved inputs**: pre-acquiring a
+Bluetooth mic would pin HFP/SCO even while stopped, so the platform
+declines and that press pays the full cold
+path. This is the no-warm-window path: instant first words after
+key-down without holding the mic open.
+
+Idle preparation preserves the active routing contract below: a named
+microphone stays explicitly pinned, while System Default stays implicit.
+Preparation validates the resolved leading input for Bluetooth safety but
+does not convert System Default into a `CurrentDevice` write. A default-input
+change invalidates and trailing-debounces a new preparation.
+
 **The warm hold must never pin a Bluetooth input (issue #481).** An
 idle open Bluetooth microphone forces the headset into HFP/SCO, which
 degrades playback the entire time and can flap the default input.
