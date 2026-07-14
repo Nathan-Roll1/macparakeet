@@ -34,7 +34,7 @@ final class MicrophoneEnginePrewarmRoutingTests: XCTestCase {
         XCTAssertTrue(result.isEmpty)
     }
 
-    func testPrewarmPrefixPinsResolvedSystemDefaultExplicitly() {
+    func testPrewarmPrefixPreservesResolvedImplicitSystemDefault() {
         let attempts = [MeetingInputDeviceAttempt.implicitSystemDefault(resolvedDeviceID: 4)]
 
         let result = AVAudioEngineMicrophonePlatform.prewarmAttemptPrefix(
@@ -43,8 +43,8 @@ final class MicrophoneEnginePrewarmRoutingTests: XCTestCase {
         )
 
         XCTAssertEqual(result.count, 1)
-        XCTAssertEqual(result.first?.explicitDeviceID, 4)
-        XCTAssertFalse(result.first?.usesImplicitSystemDefault ?? true)
+        XCTAssertNil(result.first?.explicitDeviceID)
+        XCTAssertTrue(result.first?.usesImplicitSystemDefault ?? false)
     }
 
     func testPrewarmPrefixNeverUsesLowerPrioritySafeFallback() {

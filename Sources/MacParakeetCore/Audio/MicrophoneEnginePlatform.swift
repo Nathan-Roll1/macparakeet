@@ -186,15 +186,16 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
     /// Return the leading route attempt when it is safe to acquire while idle.
     /// Preparation never falls through to a lower-priority device: a transient
     /// preferred-route failure must be retried on key-down, not silently replaced
-    /// by a prepared fallback. The route is pinned explicitly so a system default
-    /// cannot change to Bluetooth between validation and preparation.
+    /// by a prepared fallback. Preserve the route's semantics: named inputs stay
+    /// explicit, while System Default remains implicit so AVAudioEngine follows
+    /// the macOS route instead of rewriting it through CurrentDevice.
     static func prewarmAttemptPrefix(
         from attempts: [MeetingInputDeviceAttempt],
         bluetoothInputState: (AudioDeviceID) -> Bool?
     ) -> [MeetingInputDeviceAttempt] {
         guard let attempt = attempts.first, let deviceID = attempt.deviceID else { return [] }
         guard bluetoothInputState(deviceID) == false else { return [] }
-        return [MeetingInputDeviceAttempt(source: attempt.source, deviceID: deviceID)]
+        return [attempt]
     }
 
     public init(
@@ -295,9 +296,10 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
             // suppressed, so a later move from Bluetooth/unresolved to a safe
             // device can proactively retry before the next dictation.
             installRouteChangeObserversLocked()
-            // Snapshot the route once and pin every eligible attempt explicitly.
-            // Stop at the first unresolved/Bluetooth route: walking past it to a
-            // later built-in fallback would change which device a real start uses.
+            // Snapshot the route once. Stop at the first unresolved/Bluetooth
+            // route: walking past it to a later built-in fallback would change
+            // which device a real start uses. The attempt retains its routing
+            // mode, including implicit System Default.
             guard let routeSnapshot = deviceAttemptsBuilder?(), !routeSnapshot.isEmpty else {
                 AudioCaptureDiagnostics.append(
                     "shared_mic_engine_prepare_skipped reason=unresolved_route"

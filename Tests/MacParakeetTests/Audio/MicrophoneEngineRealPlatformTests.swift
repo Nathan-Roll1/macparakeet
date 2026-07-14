@@ -116,6 +116,10 @@ final class MicrophoneEngineRealPlatformTests: XCTestCase {
             bufferSize: Self.bufferSize,
             tapHandler: preparedHandler
         )
+        XCTAssertTrue(
+            platform.preparedEngineStateForTesting.prepared,
+            "Resolved System Default should prepare without becoming an explicit device pin."
+        )
 
         let configureStartedAt = ContinuousClock.now
         try platform.configureAndStart(
@@ -564,8 +568,7 @@ final class MicrophoneEngineRealPlatformTests: XCTestCase {
     }
 
     private func makePreparablePlatform() throws -> AVAudioEngineMicrophonePlatform {
-        let builtInDeviceID = AudioDeviceManager.builtInMicrophone()
-        let deviceID = builtInDeviceID ?? AudioDeviceManager.defaultInputDevice()
+        let deviceID = AudioDeviceManager.defaultInputDevice()
         guard let deviceID else {
             throw XCTSkip("Need a resolved input device for stopped-engine preparation.")
         }
@@ -574,9 +577,14 @@ final class MicrophoneEngineRealPlatformTests: XCTestCase {
                 "Stopped-engine preparation is intentionally disabled for Bluetooth or unresolved inputs."
             )
         }
-        let source: MeetingInputDeviceAttempt.Source = builtInDeviceID == nil ? .systemDefault : .builtIn
-        let attempt = MeetingInputDeviceAttempt(source: source, deviceID: deviceID)
-        return AVAudioEngineMicrophonePlatform(deviceAttemptsBuilder: { [attempt] in [attempt] })
+        let attempt = MeetingInputDeviceAttempt.implicitSystemDefault(resolvedDeviceID: deviceID)
+        return AVAudioEngineMicrophonePlatform(
+            deviceAttemptsBuilder: { [attempt] in [attempt] },
+            // If preparation accidentally converts System Default into an
+            // explicit CurrentDevice write, fail the best-effort prepare so
+            // the prepared-state assertion catches the routing regression.
+            inputDeviceSetter: { _, _ in false }
+        )
     }
 
     /// Poll the counter every 20 ms until it increases past `baseline` or the
