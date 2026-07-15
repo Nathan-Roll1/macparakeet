@@ -11,6 +11,7 @@
 > Amended: 2026-06-10 (echo hardening for [issue #480](https://github.com/moona3k/macparakeet/issues/480): confidence-independent simultaneous-echo rule in the final transcript filter, streaming AEC frame carry + reference-delay knob, VPIO experiments now disable AGC)
 > Amended: 2026-06-20 (meeting source mode is configurable per recording: microphone + system audio by default, microphone-only, or system-audio-only; permission prompts are scoped to the selected sources)
 > Amended: 2026-06-27 (Cohere Transcribe can be selected for final meeting transcription through the captured engine lease; it is batch-only, so meeting live-preview chunks stay disabled and finalized Cohere transcripts are plain text without word timestamps/speaker labels)
+> Amended: 2026-07-15 (bound ScreenCaptureKit startup/teardown waits and make Stop during partial meeting startup immediately own durable settlement)
 
 ## Context
 
@@ -41,6 +42,15 @@ Key components:
 - `MicrophoneCapture` - AVAudioEngine input node tap with raw capture by default and explicit VPIO opt-in support
 - `MeetingAudioCaptureService` — Actor combining the selected source streams into an `AsyncStream<MeetingAudioCaptureEvent>`
 - `MeetingAudioStorageWriter` — Writes separate M4A files per selected source (mic and/or system)
+
+`SystemAudioStream` continues to await ordered `SCStream` start and stop, but
+those callback bridges have deadlines because ScreenCaptureKit is not trusted
+to invoke a completion handler. The deadline covers the complete startup
+attempt, including shareable-content discovery. Timeout or cancellation
+invalidates attempt ownership, removes outputs, and runs bounded teardown; a
+late successful start is stopped again and cannot install running state.
+`MeetingAudioCaptureService` likewise owns `starting` as a real lifecycle state
+and tears down any microphone/system source already created when Stop arrives.
 
 ### 3. Reuse Transcription model with sourceType column
 
@@ -82,6 +92,14 @@ It marks the durable stop boundary: source audio, `meeting-playback.m4a`,
 `recording.lock(state=awaitingTranscription)`, and the processing Library row
 exist on disk, so the recorder returns to idle and another meeting can start.
 Final STT runs through `MeetingTranscriptionQueue` and updates that row later.
+
+Stop is durable even in `starting`. It immediately enters `stopping` and runs
+the normal stop-and-queue effect instead of waiting for a `recordingStarted`
+event. The service marks that session as stop-owned before its first teardown
+await, so a stale startup task cannot run failed-start deletion afterward.
+Matching late start success/failure events are ignored once stopping owns the
+generation; they cannot trigger a second stop, overwrite the UI, or emit stale
+start telemetry. Cancel retains its existing discard semantics.
 
 ### 5. New MeetingAudioCaptureService, not an extension of AudioProcessor
 

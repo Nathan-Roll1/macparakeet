@@ -224,6 +224,43 @@ final class MeetingRecordingFlowCoordinatorTests: XCTestCase {
         XCTAssertEqual(transcriptionSnapshot.prepareMeetingCallCount, 1)
     }
 
+    func testStopWhileServiceStartIsPendingSuppressesLateStartSideEffects() async throws {
+        let recordingService = MeetingRecordingServiceSpy(
+            output: makeRecordingOutput(),
+            blocksStart: true
+        )
+        let coordinator = MeetingRecordingFlowCoordinator(
+            meetingRecordingService: recordingService,
+            transcriptionService: MockTranscriptionService(),
+            permissionService: MockPermissionService(),
+            transcriptionRepo: MockTranscriptionRepository(),
+            conversationRepo: MockChatConversationRepository(),
+            quickPromptRepo: NoOpQuickPromptRepository(),
+            configStore: NoOpLLMConfigStore(),
+            llmService: nil,
+            pillViewModel: MeetingRecordingPillViewModel(),
+            meetingRecordingSettlement: makeSettlement(),
+            onMenuBarIconUpdate: { _ in },
+            onTranscriptionReady: { _ in }
+        )
+
+        XCTAssertNotNil(coordinator.startRecording(trigger: .manual))
+        await recordingService.waitUntilStartCalled()
+        XCTAssertEqual(coordinator.testHook_state, .starting)
+
+        XCTAssertTrue(coordinator.stopRecording(operationTrigger: .manual))
+        try await waitForStopCall(on: recordingService, coordinator: coordinator)
+        XCTAssertEqual(coordinator.testHook_state, .idle)
+
+        await recordingService.releaseStart()
+        try await Task.sleep(for: .milliseconds(50))
+
+        let eventNames = telemetry.snapshot().map(\.name)
+        XCTAssertFalse(eventNames.contains(.meetingRecordingStarted))
+        XCTAssertFalse(eventNames.contains(.meetingRecordingFailed))
+        XCTAssertEqual(coordinator.testHook_state, .idle)
+    }
+
     func testCaptureFailureSignalWhilePausedUsesStopTranscribeFlow() async throws {
         let output = makeRecordingOutput()
         let recordingService = MeetingRecordingServiceSpy(output: output)
@@ -1083,6 +1120,7 @@ private actor MeetingRecordingServiceSpy: MeetingRecordingServiceProtocol {
     }
 
     private let output: MeetingRecordingOutput
+    private let blocksStart: Bool
     let activeSpeechEngineSelection: SpeechEngineSelection?
     var startCallCount = 0
     var startCalls: [StartCall] = []
@@ -1093,13 +1131,17 @@ private actor MeetingRecordingServiceSpy: MeetingRecordingServiceProtocol {
     private var captureFailureSessionID = UUID()
     private var captureFailureSignaled = false
     private var captureFailureContinuations: [UUID: AsyncStream<MeetingCaptureFailureSignal>.Continuation] = [:]
+    private var startContinuation: CheckedContinuation<Void, Never>?
+    private var startObservationContinuations: [CheckedContinuation<Void, Never>] = []
 
     init(
         output: MeetingRecordingOutput,
-        activeSpeechEngineSelection: SpeechEngineSelection? = nil
+        activeSpeechEngineSelection: SpeechEngineSelection? = nil,
+        blocksStart: Bool = false
     ) {
         self.output = output
         self.activeSpeechEngineSelection = activeSpeechEngineSelection
+        self.blocksStart = blocksStart
     }
 
     func startRecording(
@@ -1120,6 +1162,29 @@ private actor MeetingRecordingServiceSpy: MeetingRecordingServiceProtocol {
         calendarEventSnapshots.append(calendarEventSnapshot)
         paused = false
         resetCaptureFailureObservationState()
+        let observers = startObservationContinuations
+        startObservationContinuations.removeAll()
+        for observer in observers {
+            observer.resume()
+        }
+        if blocksStart {
+            await withCheckedContinuation { continuation in
+                startContinuation = continuation
+            }
+        }
+    }
+
+    func waitUntilStartCalled() async {
+        guard startCallCount == 0 else { return }
+        await withCheckedContinuation { continuation in
+            startObservationContinuations.append(continuation)
+        }
+    }
+
+    func releaseStart() {
+        let continuation = startContinuation
+        startContinuation = nil
+        continuation?.resume()
     }
 
     func stopRecording() async throws -> MeetingRecordingOutput {
