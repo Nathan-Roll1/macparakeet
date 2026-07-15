@@ -387,11 +387,11 @@ final class MeetingRecordingServiceTests: XCTestCase {
                 microphoneBuffer,
                 AVAudioTime(hostTime: AVAudioTime.hostTime(forSeconds: 100.0))
             ))
-        try await Task.sleep(for: .milliseconds(100))
+
+        await service.cancelRecording()
         let routedSelections = await sttClient.routedSelections
         XCTAssertEqual(routedSelections, [])
 
-        await service.cancelRecording()
         let activeLeaseCountAfterCancel = await sttClient.activeLeaseCount
         XCTAssertEqual(activeLeaseCountAfterCancel, 0)
     }

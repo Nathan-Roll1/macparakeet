@@ -1632,11 +1632,13 @@ authoritative post-meeting pass plus file, drag/drop, media URL, podcast, and
 retranscription jobs; it follows Live Speech unless the user enables an
 Advanced override. New meetings capture both roles at start. Preview uses the
 captured live route only when it provides word timings; finalization and crash
-recovery always use the captured final route and durable recorded audio. There
-is no hidden fallback. A live Cohere route therefore shows no meeting preview,
-while Cohere as only the final override can coexist with another engine's
-preview; Cohere final transcripts remain plain text without word timestamps or
-speaker labels.
+recovery for new schema-v2 artifacts use the captured final route and durable
+recorded audio. Legacy schema-v1 locks and schema-v2 locks without a captured
+`speechEngine` use the current resolved Final Transcription route because they
+do not contain authoritative independent-route provenance. There is no hidden
+fallback. A live Cohere route therefore shows no meeting preview, while Cohere
+as only the final override can coexist with another engine's preview; Cohere
+final transcripts remain plain text without word timestamps or speaker labels.
 
 ### F36: Live Meeting Notepad
 

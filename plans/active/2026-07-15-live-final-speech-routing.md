@@ -1,6 +1,6 @@
 # Live Speech and Final Transcription Routing
 
-> **Status:** READY FOR PR — implementation and local verification complete
+> **Status:** PR OPEN — implementation and local verification complete; hosted review on #813
 > **Priority:** P1 product clarity / P1 meeting-transcript trust
 > **Branch:** `codex/live-final-speech-routing` from live `origin/main`
 > **Risk:** HIGH — meeting recovery metadata, engine lifecycle, Settings, and final transcript provenance
@@ -177,8 +177,9 @@ At stop:
 At recovery:
 
 - new artifacts use the captured final selection;
-- schema-v2 artifacts map their one captured engine to final transcription and
-  retain legacy semantics;
+- schema-v2 artifacts with a captured engine map it to final transcription and
+  retain legacy semantics; schema-v2 artifacts without the field follow the
+  current resolved final-transcription preference;
 - schema-v1 artifacts retain the current behavior of following the current
   final-transcription preference because their old `speechEngine` field was not
   independent-route provenance.

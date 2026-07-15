@@ -145,6 +145,12 @@ its `speechEngine` field keeps the recovery-critical final selection.
 preview provenance for diagnostics. Legacy metadata without preview provenance
 remains readable.
 
+Recovery treats that lock field as authoritative only when a schema-v2 lock
+actually contains it. Schema-v1 locks used `speechEngine` for the former shared
+route, and schema-v2 locks can omit the field; both cases use the current
+resolved Final Transcription route. This compatibility rule is not an engine
+fallback from a captured failure.
+
 Settings cannot switch engine models or delete model data while the live lease
 is active. For back-to-back recording, that lease ends at the durable stop
 boundary; queued finalization still uses the captured final selection through

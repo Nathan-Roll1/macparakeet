@@ -422,11 +422,19 @@ Meeting stop / finalization:
 Saved meeting retranscription from the library:
   meeting-playback.m4a + archived meeting-recording-metadata.json + source files
     → reconstruct MeetingRecordingOutput
-    → same dual-source meetingFinalize path and captured final engine as immediate post-stop finalization
+    → show the captured final engine as the primary explicit choice when attribution exists;
+      otherwise use the current Final Transcription selection snapshotted at job start
+    → same dual-source meetingFinalize path with the chosen engine
     → updated meeting transcript
   Stored-file fallback:
     transcriptions.filePath audio only → .wav → STTScheduler.transcribe(audioPath:, job: .fileTranscription, onProgress:) → queued background-slot STT → updated meeting transcript
 ```
+
+The captured route remains authoritative for immediate post-stop finalization
+and schema-v2 recovery. Library retranscription is user-initiated: attributed
+meetings offer the captured engine as the primary explicit rerun choice plus
+the other available engines. Legacy or unattributed rows that do not supply an
+explicit choice use the current Final Transcription route when the job starts.
 
 ---
 

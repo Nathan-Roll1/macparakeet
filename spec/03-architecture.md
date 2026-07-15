@@ -332,13 +332,13 @@ TranscriptionRepository.save() → persisted to database
 Transcription returned to UI
 
 Saved meeting retranscription from the library:
-Saved meeting audio file
+Archived meeting source files and metadata
     │
     ▼
-AudioProcessor.convert(fileURL:) → 16kHz mono WAV in temp dir
+Captured engine is the primary explicit choice; legacy rows default to current Final Transcription
     │
     ▼
-STTScheduler.transcribe(audioPath:, job: .fileTranscription, onProgress:) → queued background-slot work
+Meeting source reconstruction → per-source `.meetingFinalize` jobs → aligned merge
     │
     ▼
 Updated Transcription persisted with sourceType still = .meeting

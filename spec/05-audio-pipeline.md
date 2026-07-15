@@ -373,7 +373,7 @@ All STT work routes through a process-wide scheduler and shared runtime owner (A
 - meeting live preview best-effort under backlog, with immediate post-stop finalization prioritized on the shared background slot
 - file / YouTube transcription, plus legacy saved-meeting fallbacks without archived metadata, queued behind meeting work on that same background slot
 - saved meetings with archived source metadata reuse the same `meetingFinalize` path as immediate post-stop finalization
-- active meetings hold the Live Speech lease and capture one immutable preview/final plan; recovery uses the captured final engine/language
+- active meetings hold the Live Speech lease and capture one immutable preview/final plan; recovery uses a captured schema-v2 final engine/language when present, otherwise the current resolved Final Transcription route
 
 The primary concurrency use case remains meeting recording + dictation. File transcription may coexist architecturally, but it should never degrade dictation responsiveness.
 
