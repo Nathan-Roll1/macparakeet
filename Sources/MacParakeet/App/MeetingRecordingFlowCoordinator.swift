@@ -658,6 +658,7 @@ final class MeetingRecordingFlowCoordinator {
             pendingTitle = nil
             pendingCalendarEventSnapshot = nil
             pendingAudioSourceMode = nil
+            pendingLivePanelPresentation = false
             pendingStartContext = nil
             let operationContext = currentMeetingOperationContext ?? ObservabilityOperationContext()
             currentMeetingOperationContext = operationContext
@@ -1638,6 +1639,7 @@ extension MeetingRecordingFlowCoordinator {
         pendingTitle = nil
         pendingCalendarEventSnapshot = nil
         pendingAudioSourceMode = nil
+        pendingLivePanelPresentation = false
         pendingStartContext = nil
         _ = stateMachine.handle(.startRequested)
         _ = stateMachine.handle(.permissionsGranted(generation: stateMachine.generation))
