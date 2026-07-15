@@ -929,6 +929,7 @@ final class MeetingRecordingFlowCoordinator {
             pendingTitle = nil
             pendingCalendarEventSnapshot = nil
             pendingAudioSourceMode = nil
+            pendingLivePanelPresentation = false
             pendingStartContext = nil
             actionTask?.cancel()
             actionTask = Task { @MainActor in
