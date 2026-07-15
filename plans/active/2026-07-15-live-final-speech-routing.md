@@ -1,6 +1,6 @@
 # Live Speech and Final Transcription Routing
 
-> **Status:** IMPLEMENTED IN BRANCH — verification and PR review in progress
+> **Status:** READY FOR PR — implementation and local verification complete
 > **Priority:** P1 product clarity / P1 meeting-transcript trust
 > **Branch:** `codex/live-final-speech-routing` from live `origin/main`
 > **Risk:** HIGH — meeting recovery metadata, engine lifecycle, Settings, and final transcript provenance
@@ -398,6 +398,26 @@ Final gates:
 5. committed-diff code review, Greptile/reviewer follow-ups until findings
    converge
 6. hosted CI on the exact PR head
+
+### Verification record
+
+Completed on 2026-07-15 from `codex/live-final-speech-routing`:
+
+- focused routing, scheduler, meeting, Settings, transcription-view-model, and
+  recovery suites passed throughout iteration;
+- the final combined preference/scheduler/meeting-service gate passed 174
+  tests with zero failures;
+- one full `swift test` run passed with exit code 0;
+- `git diff --check` passed;
+- the new test file passed `swift-format lint`; the repository-wide formatter
+  remains report-only and reports existing baseline findings in touched legacy
+  files;
+- a second committed-diff Claude Fable review was completed and every required
+  finding was resolved or explicitly bounded below the requested scope;
+- `no-mistakes` and the Greptile CLI were unavailable in this checkout, so the
+  documented direct-push and hosted-review fallback applies.
+
+Hosted CI and PR review remain the merge-readiness gates after publication.
 
 Manual smoke before merge when the dev app is available:
 

@@ -260,3 +260,16 @@ lower-priority risks.
 After these dispositions, the required migration, lease lifecycle, immutable
 plan, schema-v2 downgrade safety, durable no-fallback failure behavior, and
 live/final UI attribution are all covered by focused tests.
+
+## Final Verification
+
+After resolving the committed-diff findings, the final combined preference,
+scheduler, and meeting-service gate passed 174 tests with zero failures. The
+transcription-view-model suite passed 122 tests, the broader focused routing
+matrix passed 356 tests with one skip and zero failures, and the
+single final full `swift test` run exited successfully. `git diff --check` also
+passed.
+
+The local `no-mistakes` and Greptile CLIs were unavailable, so hosted CI and
+review on the exact PR head are the remaining independent merge-readiness
+checks.
