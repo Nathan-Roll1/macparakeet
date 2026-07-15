@@ -147,9 +147,12 @@ misuse.
 ## Versioning And Compatibility
 
 The current CLI spec schema is `macparakeet.cli.spec` v1. Additive catalog
-fields are v1-compatible. Removing or renaming failure-envelope fields,
-changing exit-code meanings, or moving JSON-mode status text to stdout is a
-breaking contract change and requires explicit version/changelog treatment.
+fields are v1-compatible. Removing a stable catalog entry such as a command,
+option, or configuration key is a breaking CLI-surface change and requires a
+new CLI major even when the catalog envelope stays schema v1. Removing or
+renaming failure-envelope fields, changing exit-code meanings, or moving
+JSON-mode status text to stdout is also breaking and requires explicit
+version/changelog treatment.
 
 ## Tests that enforce this
 
