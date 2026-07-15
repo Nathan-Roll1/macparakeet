@@ -94,7 +94,7 @@ public struct MeetingRecordingMetadata: Sendable, Codable, Equatable {
         let decodedSpeechEngine = try container.decodeIfPresent(SpeechEngineSelection.self, forKey: .speechEngine)
         speechEngine = decodedSpeechEngine ?? SpeechEngineSelection(engine: .parakeet)
         speechEngineWasCaptured = decodedSpeechEngine != nil
-        previewSpeechEngine = try container.decodeIfPresent(
+        previewSpeechEngine = try? container.decodeIfPresent(
             SpeechEngineSelection.self,
             forKey: .previewSpeechEngine
         )

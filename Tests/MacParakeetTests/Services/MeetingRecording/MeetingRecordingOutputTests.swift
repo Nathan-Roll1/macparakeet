@@ -564,6 +564,31 @@ final class MeetingRecordingOutputTests: XCTestCase {
         XCTAssertEqual(decoded.speechEngine, SpeechEngineSelection(engine: .whisper, language: "ja"))
     }
 
+    func testMeetingRecordingMetadataWithMalformedPreviewSpeechEngineStillLoads() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let final = SpeechEngineSelection(engine: .whisper, language: "ja")
+        try MeetingRecordingMetadataStore.save(
+            MeetingRecordingMetadata(
+                sourceAlignment: dualSourceAlignment(),
+                speechEngine: final,
+                previewSpeechEngine: SpeechEngineSelection(engine: .parakeet)
+            ),
+            folderURL: dir
+        )
+
+        let url = MeetingRecordingMetadataStore.metadataURL(for: dir)
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(
+            with: Data(contentsOf: url)
+        ) as? [String: Any])
+        json["previewSpeechEngine"] = ["engine": "future_engine"]
+        try JSONSerialization.data(withJSONObject: json).write(to: url, options: .atomic)
+
+        let metadata = try MeetingRecordingMetadataStore.load(from: dir)
+        XCTAssertNil(metadata.previewSpeechEngine)
+        XCTAssertEqual(metadata.speechEngine, final)
+    }
+
     func testMeetingRecordingMetadataWithMalformedStartContextStillLoads() throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
