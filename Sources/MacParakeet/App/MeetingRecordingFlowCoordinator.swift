@@ -131,6 +131,7 @@ final class MeetingRecordingFlowCoordinator {
     private var currentMeetingOperationContext: ObservabilityOperationContext?
     private var currentMeetingTrigger: TelemetryMeetingOperationTrigger?
     private var pendingAudioSourceMode: MeetingAudioSourceMode?
+    private var pendingLivePanelPresentation = false
 
     init(
         meetingRecordingService: MeetingRecordingServiceProtocol,
@@ -276,11 +277,13 @@ final class MeetingRecordingFlowCoordinator {
     @discardableResult
     func startRecording(
         title: String? = nil,
-        trigger: TelemetryMeetingRecordingTrigger = .manual
+        trigger: TelemetryMeetingRecordingTrigger = .manual,
+        presentLivePanelWhenReady: Bool = false
     ) -> Int? {
         guard stateMachine.state == .idle else { return nil }
         let resolvedTrigger = pendingTrigger ?? trigger
         let sourceMode = meetingAudioSourceModeProvider()
+        pendingLivePanelPresentation = presentLivePanelWhenReady
         pendingTrigger = resolvedTrigger
         pendingTitle = title
         pendingAudioSourceMode = sourceMode
@@ -400,6 +403,7 @@ final class MeetingRecordingFlowCoordinator {
         pendingCalendarEventSnapshot = calendarEventSnapshot
         let sourceMode = meetingAudioSourceModeProvider()
         pendingAudioSourceMode = sourceMode
+        pendingLivePanelPresentation = false
         pendingStartContext = makeStartContext(trigger: .calendarAutoStart, sourceMode: sourceMode)
         currentMeetingOperationContext = ObservabilityOperationContext()
         sendEvent(.startRequested)
@@ -416,6 +420,7 @@ final class MeetingRecordingFlowCoordinator {
         pendingTitle = title
         let sourceMode = meetingAudioSourceModeProvider()
         pendingAudioSourceMode = sourceMode
+        pendingLivePanelPresentation = false
         pendingStartContext = makeStartContext(trigger: .calendarAutoStart, sourceMode: sourceMode)
         pendingCalendarEventSnapshot = nil
         currentMeetingOperationContext = ObservabilityOperationContext()
@@ -442,6 +447,7 @@ final class MeetingRecordingFlowCoordinator {
         pendingTitle = nil
         pendingCalendarEventSnapshot = nil
         pendingAudioSourceMode = nil
+        pendingLivePanelPresentation = false
         pendingStartContext = nil
         currentMeetingOperationContext = nil
         currentMeetingTrigger = nil
@@ -628,6 +634,10 @@ final class MeetingRecordingFlowCoordinator {
                 }
                 panelController = controller
             }
+            if pendingLivePanelPresentation {
+                pendingLivePanelPresentation = false
+                showMeetingPanel()
+            }
             refreshFloatingPillVisibility()
             startPillPolling()
             startPillGlowPolling()
@@ -648,6 +658,7 @@ final class MeetingRecordingFlowCoordinator {
             pendingTitle = nil
             pendingCalendarEventSnapshot = nil
             pendingAudioSourceMode = nil
+            pendingLivePanelPresentation = false
             pendingStartContext = nil
             let operationContext = currentMeetingOperationContext ?? ObservabilityOperationContext()
             currentMeetingOperationContext = operationContext
@@ -918,6 +929,7 @@ final class MeetingRecordingFlowCoordinator {
             pendingTitle = nil
             pendingCalendarEventSnapshot = nil
             pendingAudioSourceMode = nil
+            pendingLivePanelPresentation = false
             pendingStartContext = nil
             actionTask?.cancel()
             actionTask = Task { @MainActor in
@@ -1085,6 +1097,7 @@ final class MeetingRecordingFlowCoordinator {
         panelController?.close()
         panelController = nil
         panelViewModel = nil
+        pendingLivePanelPresentation = false
     }
 
     private func confirmAndCancelRecording() {
@@ -1627,6 +1640,7 @@ extension MeetingRecordingFlowCoordinator {
         pendingTitle = nil
         pendingCalendarEventSnapshot = nil
         pendingAudioSourceMode = nil
+        pendingLivePanelPresentation = false
         pendingStartContext = nil
         _ = stateMachine.handle(.startRequested)
         _ = stateMachine.handle(.permissionsGranted(generation: stateMachine.generation))
@@ -1671,5 +1685,9 @@ extension MeetingRecordingFlowCoordinator {
 
     var testHook_isFloatingPillVisible: Bool {
         pillController?.isVisible == true
+    }
+
+    var testHook_isMeetingPanelVisible: Bool {
+        panelController?.isVisible == true
     }
 }

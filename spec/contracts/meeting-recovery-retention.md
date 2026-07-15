@@ -135,10 +135,11 @@ not final-transcription completion:
 
 ## Versioning And Compatibility
 
-Lock schema v1 accepts older/equal versions and rejects newer versions as
-opaque. Additive optional fields can stay v1 when older readers either ignore
-them or decode with defaults. Required structural changes need a schema bump and
-must preserve the file-presence retention barrier.
+Lock schema v2 accepts supported older/equal versions and rejects newer
+versions as opaque. Additive optional fields can stay at the current schema
+version when older readers either ignore them or decode with defaults. Required
+structural changes need a schema bump and must preserve the file-presence
+retention barrier.
 
 ## Tests that enforce this
 
