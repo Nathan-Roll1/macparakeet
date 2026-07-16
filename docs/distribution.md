@@ -186,8 +186,11 @@ Before building, verify the codebase is ready:
 # All tests must pass
 swift test
 
-# Fresh SwiftPM checkouts must be able to update package submodules.
-git submodule --help >/dev/null
+# Fresh SwiftPM checkouts must be able to update package submodules. The bundle
+# script automatically lends xcodebuild the shell Git helper path when needed.
+{ test -n "${GIT_EXEC_PATH:-}" && test -x "$GIT_EXEC_PATH/git-submodule"; } || \
+  test -x "$(xcrun git --exec-path)/git-submodule" || \
+  test -x "$(env -u GIT_EXEC_PATH git --exec-path)/git-submodule"
 
 # Distribution privacy/entitlement guard runs after signing, but this source
 # file is the expected entitlement surface for the final app.
@@ -386,7 +389,7 @@ npx wrangler r2 object put macparakeet-downloads/MacParakeet.dmg \
 | Homebrew cask stays behind appcast | GitHub release is missing `MacParakeet.dmg` on the new `vX.Y.Z` tag | Upload the exact shipped DMG to the GitHub release with the plain filename `MacParakeet.dmg`, then wait for BrewTestBot's autobump cycle |
 | `notarytool` auth failure | Keychain profile missing | Run `xcrun notarytool store-credentials "AC_PASSWORD"` (see Step 2 above) |
 | Update found but same version | Build number in appcast ≤ installed build | Ensure `sparkle:version` (build number) is strictly greater |
-| Fresh SwiftPM dependency checkout fails with `git: 'submodule' is not a git command` | The active Git executable cannot find its helper commands | Fix the Xcode/Command Line Tools install, or export `GIT_EXEC_PATH=/Library/Developer/CommandLineTools/usr/libexec/git-core` before running SwiftPM/release commands if that helper directory exists |
+| Fresh SwiftPM dependency checkout fails with `git: 'submodule' is not a git command` | Xcode's Apple Git cannot find `git-submodule`, even though the shell Git may have it | Re-run `build_app_bundle.sh`; it now detects this mismatch and lends xcodebuild the shell Git helper path. If neither Git has the helper, repair Xcode/Command Line Tools or export `GIT_EXEC_PATH` to a directory containing `git-submodule`. |
 | `notarytool` bus error / crash | Using `--wait` flag | **Never use `xcrun notarytool submit --wait`.** Submit without `--wait`, then poll with `xcrun notarytool info <submission-id>`. See gotcha #1 below. |
 | `notarytool` stays `In Progress` beyond the normal window | Apple accepted upload but the submission is likely stale/stuck | Stop local pollers, discard release artifacts, rebuild/sign from scratch, and submit a fresh archive. Do not continue from orphaned `In Progress` submissions. See gotcha #1a below. |
 | TCC permissions silently fail | User ran app from DMG volume instead of /Applications | DMG must include Applications symlink. See gotcha #3 below. |

@@ -62,8 +62,8 @@ These decisions are final. Do not second-guess them.
 
 | Channel | Status | Notes |
 |---------|--------|-------|
-| Stable DMG `0.6.24` | User-facing release, recommended for normal use | Dictation, file/media URL transcription, meeting recording, calendar auto-start (opt-in, default off), Transforms, VAD-guided meeting live-preview chunking, optional Nemotron Beta and WhisperKit, exports, vocabulary, AI features |
-| `main` | Development | Latest stable release plus untagged fixes, Cohere Transcribe, recognition-time custom vocabulary boosting, meeting echo-cancellation/cleaned-mic artifact work for the next release train, developer-gated in-process MLX local LLM groundwork, and the flag delta below |
+| Stable DMG `0.7.2` | User-facing release, recommended for normal use | Dictation, file/media URL transcription, meeting recording with cleaned-mic finalization, calendar auto-start and activity-based auto-stop (both opt-in, default off), Transforms, VAD-guided meeting live-preview chunking, optional Nemotron Beta, Cohere, and WhisperKit, exports, vocabulary, AI features |
+| `main` | Development | Latest stable release plus System Default microphone-routing repair, separate live/final speech-engine routes, bounded meeting-capture lifecycle handling, meeting auto-save feedback, CLI 3.0/install support, and other post-v0.7.2 fixes; developer-gated in-process MLX local LLM groundwork remains compiled/tested but hidden from normal users |
 
 Current `main` feature gates in `Sources/MacParakeetCore/AppFeatures.swift`:
 
@@ -71,7 +71,7 @@ Current `main` feature gates in `Sources/MacParakeetCore/AppFeatures.swift`:
 |------|-------|--------------|
 | `meetingRecordingEnabled` | `true` | Shipping meeting-recording surface |
 | `calendarEnabled` | `true` | Shipping calendar reminders/auto-start; per-user auto-start defaults off |
-| `meetingAutoStopEnabled` | `true` | `main` dogfood flag for ADR-023; per-user setting defaults off and is not yet in a tagged release |
+| `meetingAutoStopEnabled` | `true` | Shipping ADR-023 surface; per-user setting defaults off, so recordings stop manually until the user opts in |
 | `meetingCaptureReliabilityEnabled` | `true` | Default-on kill switch for ADR-025 Phase A mic-health telemetry watchdog |
 | `meetingSourceHealthUIEnabled` | `false` | Source-health model/plumbing stay compiled, but health chips/pill glyph/tile mirror are hidden after the 2026-07-04 product review |
 | `meetingActivityDetectionEnabled` | `false` | ADR-024 collectors/detector are compiled but runtime coordinator/UI remain gated |
@@ -127,7 +127,7 @@ All ADRs live in `spec/adr/`. These are locked -- they record decisions already 
 | v0.4 | Polish & Launch | Diarization, custom hotkey, non-blocking progress, direct distribution | **Implemented** |
 | v0.5 | Data, UI & Prompts | Private dictation, favorites, video player, split-pane detail, library grid, prompt library, multi-summary | **Implemented** |
 | v0.6 | Meeting Recording + Multilingual STT + Transforms | System audio + mic capture, concurrent with dictation, local transcription, VAD-guided live-preview chunking, library integration, optional Nemotron Beta and WhisperKit engines, system-wide selected-text rewrites, calendar auto-start | **Implemented** |
-| v0.7 | Post-v0.6 polish | Activity-based auto-stop (ADR-023 implemented behind default-off flag), meeting reliability (ADR-025 Phase A implemented behind default-on kill-switch), activity-based detection (ADR-024 Phases A+B implemented behind default-off flag), Cohere Transcribe on `main`, display-only live dictation transcript preview (`liveDictationStreamingEnabled`, enabled on `main`), meeting echo-cancellation/cleaned-mic artifacts, recognition-time custom vocabulary boosting, meeting audio N-day retention, developer-gated local MLX groundwork, plus other follow-up polish | **In progress on `main`** |
+| v0.7 | Post-v0.6 polish | Activity-based auto-stop (ADR-023, per-user default off), meeting reliability (ADR-025 Phase A behind a default-on kill switch), activity-based detection groundwork (ADR-024 Phases A+B behind a default-off flag), optional Cohere Transcribe, display-only live dictation transcript preview, meeting echo-cancellation/cleaned-mic artifacts, meeting audio N-day retention, System Default microphone-routing repair, split live/final speech-engine routes, bounded meeting-capture lifecycle, CLI 3.0/install support, developer-gated local MLX groundwork, and follow-up polish | **Implemented; stable 0.7.2, 0.7.3 release candidate on `main`** |
 
 ## Version Progress
 
@@ -240,7 +240,7 @@ Dictation + transcription + history + settings. Get audio in, text out, pasted i
 - [x] Meeting recordings get prompt library, multi-summary, chat, and export automatically
 - [x] Meeting cleanup supports full deletion or stored-audio-only removal from Library and Meetings
 - [x] Live transcript preview (chunked transcription during recording)
-- [x] VAD-guided speech-boundary live-preview chunking with fixed 5s / 1s fallback (flag-on release candidate on `main`; final post-stop transcript unchanged)
+- [x] VAD-guided speech-boundary live-preview chunking with fixed 5s / 1s fallback (shipping since v0.6.24; final post-stop transcript unchanged)
 - [x] Joined mic/system frame pairing with raw meeting mic capture by default
 - [x] Dominant-system suppression gate for live mic chunk transcription while preserving recorded mic audio
 - [x] Joiner overflow diagnostics + sync-lag observability for long-running capture sessions

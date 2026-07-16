@@ -114,12 +114,42 @@ build_cli_swiftpm() {
   popd >/dev/null
 }
 
+prepare_xcode_git_submodule_support() {
+  # Xcode invokes its own Apple Git while resolving package dependencies. Some
+  # Xcode installations omit git-submodule even when the shell's Git has it,
+  # which otherwise fails later as the opaque "Couldn't update repository
+  # submodules" package-resolution error.
+  if [[ -n "${GIT_EXEC_PATH:-}" && -x "$GIT_EXEC_PATH/git-submodule" ]]; then
+    return 0
+  fi
+
+  local xcode_git_exec_path
+  xcode_git_exec_path="$(xcrun git --exec-path 2>/dev/null || true)"
+  if [[ -n "$xcode_git_exec_path" && -x "$xcode_git_exec_path/git-submodule" ]]; then
+    return 0
+  fi
+
+  local shell_git_exec_path
+  shell_git_exec_path="$(env -u GIT_EXEC_PATH git --exec-path 2>/dev/null || true)"
+  if [[ -n "$shell_git_exec_path" && -x "$shell_git_exec_path/git-submodule" ]]; then
+    export GIT_EXEC_PATH="$shell_git_exec_path"
+    echo "Using Git helper commands from $GIT_EXEC_PATH for xcodebuild package resolution."
+    return 0
+  fi
+
+  echo "Error: xcodebuild's Git cannot run 'git submodule', which Swift package resolution requires." >&2
+  echo "Install a complete Git/Xcode Command Line Tools setup, or export GIT_EXEC_PATH to a directory containing git-submodule." >&2
+  exit 1
+}
+
 build_xcodebuild() {
   # Prefer xcodebuild so SwiftPM resource bundles are produced (notably mlx-swift_Cmlx.bundle with default.metallib).
   if [[ "$SKIP_BUILD" == "1" ]]; then
     echo "[1/4] Skipping build (SKIP_BUILD=1)…"
     return 0
   fi
+
+  prepare_xcode_git_submodule_support
 
   if [[ "$UNIVERSAL" == "1" ]]; then
     echo "[1/4] Building via xcodebuild (universal Release)…"

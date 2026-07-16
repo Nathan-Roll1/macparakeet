@@ -9,8 +9,10 @@ let enableMLXLocalLLM = ProcessInfo.processInfo.environment["MACPARAKEET_ENABLE_
 let packageDependencies: [Package.Dependency] = [
     // GRDB for SQLite (dictation history + transcription records)
     .package(url: "https://github.com/groue/GRDB.swift", from: "7.0.0"),
-    // FluidAudio for Parakeet and Nemotron STT on CoreML/ANE
-    .package(url: "https://github.com/FluidInference/FluidAudio", .upToNextMinor(from: "0.15.4")),
+    // FluidAudio for Parakeet and Nemotron STT on CoreML/ANE. Keep this exact
+    // until MacParakeet migrates from DownloadUtils to the ModelHub API that
+    // replaced it in the breaking 0.15.5 release.
+    .package(url: "https://github.com/FluidInference/FluidAudio", exact: "0.15.4"),
     // ArgumentParser for CLI
     .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
     // Sparkle for auto-updates (non-App Store distribution)

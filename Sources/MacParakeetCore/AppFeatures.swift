@@ -27,9 +27,8 @@ public enum AppFeatures {
     /// Activity-based meeting auto-stop (ADR-023). When `true`, Settings shows
     /// the opt-in meeting auto-stop toggle and the app constructs the
     /// coordinator that observes meeting-end signals only while a recording is
-    /// active. Enabled on `main` (2026-06-14) so the opt-in toggle is
-    /// dogfoodable; the per-user setting still defaults off, so nothing
-    /// auto-stops until a user turns it on. Not yet in a tagged release.
+    /// active. Shipping since the v0.7 release train; the per-user setting
+    /// still defaults off, so nothing auto-stops until a user turns it on.
     public static let meetingAutoStopEnabled: Bool = true
 
     /// Meeting capture reliability watchdog (ADR-025 Phase A). When `true`,
@@ -86,9 +85,9 @@ public enum AppFeatures {
     /// fixed chunking when VAD is unavailable or errors repeatedly. The final
     /// saved transcript (post-stop full-file STT) is unaffected either way.
     ///
-    /// Enabled for the VAD release candidate after Phase 0/corpus replay showed
-    /// clean inline performance and Phase 4.5 made model prep universal. Keep
-    /// `vad_model_prep` allowlisted and deployed before shipping flag-on builds.
+    /// Shipping since v0.6.24 after Phase 0/corpus replay showed clean inline
+    /// performance and Phase 4.5 made model prep universal. Keep
+    /// `vad_model_prep` allowlisted and deployed for flag-on builds.
     public static let meetingVadLiveChunkingEnabled: Bool = true
 
     /// Display-only live dictation preview. Nemotron and Parakeet Unified use
