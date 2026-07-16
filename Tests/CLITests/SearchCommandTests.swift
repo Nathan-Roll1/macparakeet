@@ -115,6 +115,7 @@ final class SearchCommandTests: XCTestCase {
         let hit = try XCTUnwrap(hits.first)
         let searchKeys: Set<String> = Set(hit.keys)
         XCTAssertEqual(searchKeys, Self.searchHitKeys)
+        XCTAssertEqual(hit["title"] as? String, "legacy.m4a")
         XCTAssertTrue(hit["startMs"] is NSNull)
         XCTAssertTrue(hit["speaker"] is NSNull)
 
@@ -123,6 +124,7 @@ final class SearchCommandTests: XCTestCase {
         ])
         let transcriptOutput = try await captureStandardOutput { try await transcript.run() }
         let payload: [String: Any] = try decodeJSON(transcriptOutput)
+        XCTAssertEqual(payload["title"] as? String, "legacy.m4a")
         let rows = try XCTUnwrap(payload["segments"] as? [[String: Any]])
         let row = try XCTUnwrap(rows.first)
         let transcriptKeys: Set<String> = Set(row.keys)
