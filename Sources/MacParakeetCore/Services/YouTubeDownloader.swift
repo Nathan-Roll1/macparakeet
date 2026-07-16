@@ -31,7 +31,7 @@ extension YouTubeDownloading {
 
 public actor YouTubeDownloader {
     // The packaged yt-dlp helper may need extra time for cold extraction and security scanning.
-    static let metadataTimeout: TimeInterval = 2 * 60
+    private static let metadataTimeout: TimeInterval = 2 * 60
     private static let downloadTimeout: TimeInterval = 60 * 60
     private static let audioFileExtensions: Set<String> = [
         "aac",
