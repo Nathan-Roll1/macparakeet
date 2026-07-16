@@ -188,8 +188,8 @@ swift test
 
 # Fresh SwiftPM checkouts must be able to update package submodules. The bundle
 # script automatically lends xcodebuild the shell Git helper path when needed.
-xcrun git -C "$PWD" submodule status --recursive >/dev/null 2>&1 || \
-  test -x "$(git --exec-path)/git-submodule"
+test -x "$(xcrun git --exec-path)/git-submodule" || \
+  test -x "$(env -u GIT_EXEC_PATH git --exec-path)/git-submodule"
 
 # Distribution privacy/entitlement guard runs after signing, but this source
 # file is the expected entitlement surface for the final app.

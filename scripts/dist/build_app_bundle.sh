@@ -119,7 +119,9 @@ prepare_xcode_git_submodule_support() {
   # Xcode installations omit git-submodule even when the shell's Git has it,
   # which otherwise fails later as the opaque "Couldn't update repository
   # submodules" package-resolution error.
-  if xcrun git -C "$ROOT_DIR" submodule status --recursive >/dev/null 2>&1; then
+  local xcode_git_exec_path
+  xcode_git_exec_path="$(xcrun git --exec-path 2>/dev/null || true)"
+  if [[ -n "$xcode_git_exec_path" && -x "$xcode_git_exec_path/git-submodule" ]]; then
     return 0
   fi
 
@@ -127,10 +129,8 @@ prepare_xcode_git_submodule_support() {
   shell_git_exec_path="$(env -u GIT_EXEC_PATH git --exec-path 2>/dev/null || true)"
   if [[ -n "$shell_git_exec_path" && -x "$shell_git_exec_path/git-submodule" ]]; then
     export GIT_EXEC_PATH="$shell_git_exec_path"
-    if xcrun git -C "$ROOT_DIR" submodule status --recursive >/dev/null 2>&1; then
-      echo "Using Git helper commands from $GIT_EXEC_PATH for xcodebuild package resolution."
-      return 0
-    fi
+    echo "Using Git helper commands from $GIT_EXEC_PATH for xcodebuild package resolution."
+    return 0
   fi
 
   echo "Error: xcodebuild's Git cannot run 'git submodule', which Swift package resolution requires." >&2
