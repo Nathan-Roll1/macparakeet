@@ -2,7 +2,7 @@
 
 > Date: 2026-07-16
 >
-> Baseline: `origin/main` at `ef9d2509c32eba8859bd3eab5dabf19474254293`
+> Baseline: `origin/main` at `6599603c0f775d32009422a7ddad6385a8a932df`
 >
 > Fixed point: public release `v0.7.2` at `afc2eff9`
 >
@@ -30,8 +30,8 @@ before publishing the DMG, appcast, GitHub release, and Homebrew asset.
 The audit used a clean worktree from fetched `origin/main`; the user's dirty
 archive checkout was not changed. Review covered:
 
-- Every first-parent change from `v0.7.2` through PR #819 (143 changed files,
-  about 9.9k insertions and 1.4k deletions).
+- Every first-parent change from `v0.7.2` through merged PR #822 (143 changed
+  files, 9,972 insertions and 1,416 deletions).
 - Capture ownership and teardown, microphone routing, meeting recovery and
   finalization, speech-engine routing and leases, database migrations and
   repositories, auto-save, filename persistence, CLI contracts, telemetry,
@@ -74,7 +74,7 @@ recent merged implementation plans are marked for archival rather than open.
 ## Recent-change review
 
 No new correctness, privacy, persistence, concurrency, or CLI-contract defect
-was found in PRs #775, #783, #785, #795, #801, #802, or #810-#819.
+was found in PRs #775, #783, #785, #795, #801, #802, or #810-#822.
 
 The highest-risk paths have explicit ownership and bounded state transitions:
 
@@ -100,16 +100,19 @@ The highest-risk paths have explicit ownership and bounded state transitions:
 
 ## Verification evidence
 
-- Exact-main hosted CI run `29516728239`: green, including release build, CLI
+- Exact-main hosted CI run `29532380793`: green, including release build, CLI
   smoke, bundle smoke, Swift 6 first-party build, concurrency-warning scan, and
   the full parallel Swift suite.
 - Focused high-risk matrix: 1,220 tests, zero failures. It covered microphone
   routing/prewarm, capture lifecycle, meeting service/recovery/finalization,
   STT routes/scheduler/leases, auto-save, CLI config/search, settings, and text
   processing.
-- Strict unsigned `0.7.3` xcodebuild bundle: passed with required meeting echo
+- Strict unsigned `0.7.3` xcodebuild bundle at the pre-#822 baseline: passed
+  with required meeting echo
   assets, pinned LocalVQE runtime/model checksum, static FFmpeg, yt-dlp, Node,
   Sparkle trust anchor, legal notices, and matching dSYM.
+  PR #822 only changes Settings presentation/search/spec surfaces; rebuild the
+  signed candidate from the final audited SHA.
 - Self-healing release-script replay: passed from a shell with
   `GIT_EXEC_PATH` unset. The script detected Xcode's missing `git-submodule`
   helper, selected Homebrew Git's helper directory, and completed the strict
@@ -131,12 +134,14 @@ bundle passes in the package's Swift 5.9 language mode, so this is not a 0.7.3
 release-configuration blocker. It is P1 toolchain debt: make the service
 isolation contract explicit, update test doubles, and add a current-Xcode gate.
 
-The hosted log also contains 364 deduplicated path/line warning diagnostics:
-228 trailing-comma warnings and 136 other warnings, predominantly concurrency
-or `Sendable` warnings across production and tests. The current concurrency
-step reports rather than fails on warnings. Treat this as a baseline to ratchet,
-not as a claim that the tree is warning-clean or that all 364 entries are
-separate runtime bugs.
+The exact-main hosted log contains 9,785 unique swift-format diagnostics after
+full path/line/message deduplication (6,269 indentation, 2,011 add-lines, 825
+line-length, 363 spacing, 228 trailing-comma, 67 remove-line, and 22
+trailing-whitespace). Separately, 136 unique non-format compiler warnings are
+predominantly concurrency or `Sendable` findings across production and tests.
+The current concurrency step reports rather than fails on warnings. Treat both
+sets as baselines to ratchet, not as a claim that the tree is warning-clean or
+that each entry is a separate runtime bug.
 
 ## Physical signed-candidate matrix
 

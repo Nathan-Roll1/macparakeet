@@ -2,7 +2,7 @@
 
 > Date: 2026-07-16
 >
-> Baseline: `origin/main` at `ef9d2509c32eba8859bd3eab5dabf19474254293`
+> Baseline: `origin/main` at `6599603c0f775d32009422a7ddad6385a8a932df`
 > Release context: `0.7.3` candidate; architecture work should not expand the
 > release patch
 
