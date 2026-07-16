@@ -161,6 +161,24 @@ final class EngineSettingsViewModelTests: XCTestCase {
         XCTAssertEqual(SpeechEnginePreference.finalTranscription(defaults: defaults), .parakeet)
     }
 
+    func testFailedLiveSwitchResyncsFinalRouteWhenOverrideWasDisabledDuringSwitch() async throws {
+        SpeechEnginePreference.saveFinalTranscriptionOverride(.parakeet, defaults: defaults)
+        let stt = MockSTTClient()
+        await stt.configureSpeechEngineSwitch(error: STTError.engineBusy)
+        let vm = makeViewModel()
+        vm.configure(sttClient: stt, speechEngineSwitcher: stt)
+        vm.whisperModelStatus = .notLoaded
+
+        vm.speechEnginePreference = .whisper
+        vm.setUsesDifferentFinalTranscriptionEngine(false)
+
+        try await waitUntil { !vm.speechEngineSwitching }
+        XCTAssertEqual(vm.speechEnginePreference, .parakeet)
+        XCTAssertFalse(vm.usesDifferentFinalTranscriptionEngine)
+        XCTAssertEqual(vm.transcriptionSpeechEnginePreference, .parakeet)
+        XCTAssertEqual(SpeechEnginePreference.finalTranscription(defaults: defaults), .parakeet)
+    }
+
     func testTranscriptionSelectionCountsAsEngineUsage() {
         SpeechEnginePreference.cohere.saveForTranscriptions(to: defaults)
         let vm = makeViewModel()

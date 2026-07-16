@@ -1038,6 +1038,7 @@ public final class EngineSettingsViewModel {
                 self.isApplyingSpeechEngineState = true
                 self.speechEnginePreference = SpeechEnginePreference.current(defaults: self.defaults)
                 self.isApplyingSpeechEngineState = false
+                self.syncInheritedFinalTranscriptionPreference()
                 return
             }
             do {
@@ -1076,6 +1077,7 @@ public final class EngineSettingsViewModel {
                 self.isApplyingSpeechEngineState = true
                 self.speechEnginePreference = SpeechEnginePreference.current(defaults: self.defaults)
                 self.isApplyingSpeechEngineState = false
+                self.syncInheritedFinalTranscriptionPreference()
             } catch {
                 let errorType = TelemetryErrorClassifier.classify(error)
                 self.speechEngineError = error.localizedDescription
@@ -1093,6 +1095,7 @@ public final class EngineSettingsViewModel {
                 self.isApplyingSpeechEngineState = true
                 self.speechEnginePreference = SpeechEnginePreference.current(defaults: self.defaults)
                 self.isApplyingSpeechEngineState = false
+                self.syncInheritedFinalTranscriptionPreference()
             }
         }
     }
