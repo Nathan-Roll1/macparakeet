@@ -337,7 +337,7 @@ final class SegmentRepositoryTests: XCTestCase {
 
     func testSearchUsesSourceAwareDisplayTitles() throws {
         let local = Transcription(
-            fileName: "source-recording.m4a",
+            fileName: " source-recording .m4a",
             rawTranscript: "shared naming marker",
             status: .completed,
             sourceType: .file,
@@ -366,7 +366,7 @@ final class SegmentRepositoryTests: XCTestCase {
 
         let hits = try segments.search(SegmentSearchQuery(query: "naming", limit: 10))
         let titlesByID = Dictionary(uniqueKeysWithValues: hits.map { ($0.transcriptionId, $0.title) })
-        XCTAssertEqual(titlesByID[local.id], "source-recording.m4a")
+        XCTAssertEqual(titlesByID[local.id], " source-recording .m4a")
         XCTAssertEqual(titlesByID[renamedLocal.id], "Customer Interview")
         XCTAssertEqual(titlesByID[url.id], "Spoken URL Opening")
     }

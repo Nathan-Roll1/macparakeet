@@ -136,14 +136,13 @@ public final class TranscriptionRepository: TranscriptionRepositoryProtocol, @un
                 ELSE NULLIF(TRIM(\(prefix)titleOverride), '')
             END,
             CASE
-                WHEN \(prefix)sourceType IN ('meeting', 'file')
-                    THEN NULLIF(TRIM(\(prefix)fileName), '')
-                ELSE COALESCE(
-                    NULLIF(TRIM(\(prefix)derivedTitle), ''),
-                    NULLIF(TRIM(\(prefix)fileName), '')
+                WHEN \(prefix)sourceType = 'meeting' THEN COALESCE(
+                    NULLIF(TRIM(\(prefix)fileName), ''),
+                    \(prefix)fileName
                 )
-            END,
-            \(prefix)fileName
+                WHEN \(prefix)sourceType = 'file' THEN \(prefix)fileName
+                ELSE COALESCE(NULLIF(TRIM(\(prefix)derivedTitle), ''), \(prefix)fileName)
+            END
         )
         """
     }
