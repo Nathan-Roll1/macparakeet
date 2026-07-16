@@ -125,19 +125,28 @@ extension TranscriptionRepositoryProtocol {
 // advertise Swift Sendable conformance.
 public final class TranscriptionRepository: TranscriptionRepositoryProtocol, @unchecked Sendable {
     private let dbQueue: DatabaseQueue
-    private static let libraryDisplayTitleExpression = """
+    private static let libraryDisplayTitleExpression = effectiveDisplayTitleExpression()
+
+    static func effectiveDisplayTitleExpression(tableAlias: String? = nil) -> String {
+        let prefix = tableAlias.map { "\($0)." } ?? ""
+        return """
         COALESCE(
             CASE
-                WHEN sourceType = 'meeting' THEN NULL
-                ELSE NULLIF(TRIM(titleOverride), '')
+                WHEN \(prefix)sourceType = 'meeting' THEN NULL
+                ELSE NULLIF(TRIM(\(prefix)titleOverride), '')
             END,
             CASE
-                WHEN sourceType = 'meeting' THEN NULLIF(TRIM(fileName), '')
-                ELSE COALESCE(NULLIF(TRIM(derivedTitle), ''), NULLIF(TRIM(fileName), ''))
+                WHEN \(prefix)sourceType IN ('meeting', 'file')
+                    THEN NULLIF(TRIM(\(prefix)fileName), '')
+                ELSE COALESCE(
+                    NULLIF(TRIM(\(prefix)derivedTitle), ''),
+                    NULLIF(TRIM(\(prefix)fileName), '')
+                )
             END,
-            fileName
+            \(prefix)fileName
         )
         """
+    }
 
     public init(dbQueue: DatabaseQueue) {
         self.dbQueue = dbQueue

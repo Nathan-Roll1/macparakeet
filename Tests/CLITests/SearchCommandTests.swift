@@ -79,6 +79,7 @@ final class SearchCommandTests: XCTestCase {
         let output = try await captureStandardOutput { try await command.run() }
         let payload: [String: Any] = try decodeJSON(output)
         XCTAssertEqual(payload["transcriptionId"] as? String, fixture.fileID.uuidString)
+        XCTAssertEqual(payload["title"] as? String, "notes.m4a")
         XCTAssertEqual(payload["source"] as? String, "file")
         let segments = try XCTUnwrap(payload["segments"] as? [[String: Any]])
         XCTAssertEqual(segments.first?["seq"] as? Int, 0)
@@ -100,7 +101,8 @@ final class SearchCommandTests: XCTestCase {
             fileName: "legacy.m4a",
             rawTranscript: "Legacy untimed evidence.",
             status: .completed,
-            sourceType: .file
+            sourceType: .file,
+            derivedTitle: "Spoken Local Opening"
         )
         try TranscriptionRepository(dbQueue: manager.dbQueue).save(transcription)
         try SegmentRepository(dbQueue: manager.dbQueue).replaceSegments(for: transcription)
