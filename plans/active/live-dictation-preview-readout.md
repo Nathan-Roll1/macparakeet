@@ -2,7 +2,7 @@
 
 > Status: **ACTIVE**
 > Requirement: REQ-DICT-007 (display-only live dictation transcript preview)
-> Flag: `AppFeatures.liveDictationStreamingEnabled` (`main`-only, not yet tagged)
+> Flag: `AppFeatures.liveDictationStreamingEnabled` (shipping since v0.7.0)
 > Scope: refinement of the existing preview — no new feature surface, no flag change
 
 ## Problem

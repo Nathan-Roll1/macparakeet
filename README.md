@@ -55,7 +55,7 @@
 
 ---
 
-MacParakeet runs NVIDIA's Parakeet TDT on Apple's Neural Engine via [FluidAudio](https://github.com/FluidInference/FluidAudio) CoreML. The current stable release includes system-wide dictation, file/URL transcription, meeting recording with selectable microphone/system capture, meeting calendar support, Parakeet v3/v2/Unified model selection, optional local Nemotron Beta and WhisperKit recognition, and Transforms for selected-text rewrites. Current `main` adds opt-in Cohere Transcribe and other unreleased development work. All speech recognition happens on your Mac.
+MacParakeet runs NVIDIA's Parakeet TDT on Apple's Neural Engine via [FluidAudio](https://github.com/FluidInference/FluidAudio) CoreML. The current stable release includes system-wide dictation, file/URL transcription, meeting recording with selectable microphone/system capture and echo-suppressed finalization, meeting calendar support, Parakeet v3/v2/Unified model selection, optional local Nemotron Beta, Cohere Transcribe, and WhisperKit recognition, and Transforms for selected-text rewrites. Current `main` adds post-v0.7.2 microphone-routing, capture-lifecycle, speech-engine routing, CLI, and workflow fixes. All speech recognition happens on your Mac.
 
 ## Release status
 
@@ -63,10 +63,10 @@ The [notarized DMG](https://downloads.macparakeet.com/MacParakeet.dmg) is the st
 
 | Channel | Status | Includes |
 |---------|--------|----------|
-| Stable DMG | Recommended for normal use | Dictation, file/video/media URL and podcast transcription, meeting recording with selectable mic/system capture and audio-retention controls, meeting calendar reminders and opt-in auto-start, Transforms, VAD-guided meeting live-preview chunking, Parakeet v3/v2/Unified model selection, optional Nemotron Beta and WhisperKit, exports, vocabulary, AI features |
-| `main` branch | Development | Latest stable release plus Cohere Transcribe, meeting echo-cancellation/cleaned-mic artifact work for the next release train, recognition-time custom vocabulary boosting, and developer-gated in-process MLX local LLM groundwork that is compiled/tested but hidden from normal users |
+| Stable DMG `0.7.2` | Recommended for normal use | Dictation, file/video/media URL and podcast transcription, meeting recording with selectable mic/system capture, cleaned-mic finalization and audio-retention controls, meeting calendar reminders and opt-in auto-start/auto-stop, Transforms, VAD-guided meeting live-preview chunking, Parakeet v3/v2/Unified model selection, optional Nemotron Beta, Cohere, and WhisperKit, exports, vocabulary, AI features |
+| `main` branch | Development | Latest stable release plus System Default microphone-routing repair, separate live/final speech-engine routes, bounded meeting-capture lifecycle handling, meeting auto-save feedback, CLI 3.0/install support, and other post-v0.7.2 fixes; developer-gated in-process MLX local LLM groundwork remains compiled/tested but hidden from normal users |
 
-Meeting calendar support is live in the stable DMG. MacParakeet reads upcoming meetings from the local macOS Calendar store through EventKit, can show reminders, and can optionally start a recording after a countdown. Auto-start defaults to `.off` and must be opted into; recordings still stop manually.
+Meeting calendar support is live in the stable DMG. MacParakeet reads upcoming meetings from the local macOS Calendar store through EventKit, can show reminders, and can optionally start a recording after a countdown. Auto-start defaults to `.off` and must be opted into. Recordings stop manually unless the separate activity-based auto-stop setting is enabled; that setting also defaults off.
 
 ## What it does
 
@@ -84,7 +84,7 @@ Meeting calendar support is live in the stable DMG. MacParakeet reads upcoming m
 
 ### Limitations
 
-- Apple Silicon only (M1/M2/M3/M4)
+- Apple Silicon only (M1 or newer)
 - Parakeet is best for English and its 25 supported European languages (v3 auto-detects among them); the v3 default is not a CJK/Korean engine
 - Nemotron is Beta while real-world quality is benchmarked
 - Nemotron, WhisperKit, and Cohere Transcribe require separate local model downloads before first use
