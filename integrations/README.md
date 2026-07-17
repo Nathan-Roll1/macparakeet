@@ -103,12 +103,21 @@ WhisperKit model downloads live under
 /Applications/MacParakeet.app/Contents/MacOS/macparakeet-cli --help
 ```
 
-For convenience, symlink it onto your `$PATH`:
+MacParakeet deliberately does not modify your shell configuration or install
+files into package-manager directories. If you want the bundled executable
+under the shorter `macparakeet-cli` command, first check whether another copy
+is already on your `$PATH`, then configure an alias or symlink yourself:
 
 ```bash
-ln -s /Applications/MacParakeet.app/Contents/MacOS/macparakeet-cli \
-      /usr/local/bin/macparakeet-cli
+command -v macparakeet-cli
+sudo ln -s /Applications/MacParakeet.app/Contents/MacOS/macparakeet-cli \
+           /usr/local/bin/macparakeet-cli
 ```
+
+The Homebrew CLI and the app-bundled CLI are released independently, so their
+versions can differ. Use `command -v macparakeet-cli` and
+`macparakeet-cli --version` to confirm which executable Terminal will run. Do
+not replace a Homebrew-managed link with an app-managed link.
 
 ## Why Apple Silicon specifically
 
