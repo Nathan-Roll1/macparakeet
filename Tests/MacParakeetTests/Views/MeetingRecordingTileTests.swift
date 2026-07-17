@@ -93,13 +93,16 @@ final class MeetingRecordingTileTests: XCTestCase {
         )
     }
 
-    func testAudioSavedConfirmationAutoClears() async throws {
+    func testAudioSavedConfirmationAutoClears() async {
         let viewModel = MeetingRecordingPillViewModel()
 
         viewModel.showAudioSavedConfirmation(duration: .milliseconds(10))
 
         XCTAssertTrue(viewModel.showsAudioSavedConfirmation)
-        try await Task.sleep(for: .milliseconds(40))
+        let deadline = ContinuousClock.now + .seconds(5)
+        while viewModel.showsAudioSavedConfirmation, ContinuousClock.now < deadline {
+            await Task.yield()
+        }
         XCTAssertFalse(viewModel.showsAudioSavedConfirmation)
     }
 }

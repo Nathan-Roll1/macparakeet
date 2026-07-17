@@ -2,6 +2,7 @@
 
 > Status: **Accepted**
 > Date: 2026-02-08
+> Benchmark note (2026-07-16): the `155x` / `~66 MB` figures retained in the historical decision narrative are earlier FluidAudio measurements, not the current MacParakeet reference benchmark. Current M4 Pro results are ~81–93x steady realtime and 115–131 MB peak RSS by Parakeet build; use [`benchmarks/asr/`](../../benchmarks/asr/) and `spec/06-stt-engine.md` for current comparisons.
 > Runtime Note (2026-02-13): Runtime/mechanism details in this ADR are historical and superseded by ADR-007. ADR-001 remains authoritative for STT model choice.
 > Note: GPU/LLM references (Qwen3-8B, "three-chip") are historical — the old on-device mlx-swift-lm path was removed 2026-02-23. Current LLM features use external providers or local CLI, while the speech runtime remains a two-chip architecture (CPU + ANE).
 > Amendment (2026-04-28): Parakeet remains the **primary/default** STT engine. It is no longer the only engine. ADR-021 adds WhisperKit as an optional local multilingual engine for languages outside Parakeet's coverage.
@@ -11,6 +12,7 @@
 > Amendment (2026-06-17): NVIDIA Parakeet Unified EN 0.6B (`unified`) is added as a third opt-in Parakeet build (English-only). Unlike the v2/v3 TDT builds it is a separate FluidAudio runtime (`UnifiedAsrManager`, no `AsrModelVersion`) served by a dedicated `ParakeetUnifiedEngine`, but it is presented to users as a Parakeet model. Parakeet v3 remains the primary/default; Unified provides strong English offline accuracy with punctuation/capitalization (FluidAudio v0.15.4 CoreML benchmark: 2.15% average / 1.68% aggregate WER on LibriSpeech test-clean; NVIDIA upstream card: 1.63% offline WER). Phase 1 shipped offline-only; the 2026-07-06 amendment below supersedes that initial runtime shape with FluidAudio's native low-latency streaming build (`parakeet-unified-2080ms`). Issue #520.
 > Amendment (2026-07-06): Parakeet Unified now uses FluidAudio's native `StreamingUnifiedAsrManager` (`parakeet-unified-2080ms`) for final file transcription, meeting finalization, recorded-file dictation, and live dictation preview. FluidAudio v0.15.4 exposes token timings from that manager, so MacParakeet converts them into word timestamps for exports and speaker alignment. Unified remains English-only, opt-in, and non-default.
 > Amendment (2026-06-19, integrated 2026-06-27): Cohere Transcribe (`cohere-transcribe-03-2026`, 2B, Apache-2.0) is added as an opt-in local accuracy engine. It runs fully on-device through the FluidAudio CoreML SDK already vendored here (FluidAudio >= 0.15.4 exposes a public `CoherePipeline`/`CohereAsrConfig` and a q8 CoreML repo); no MLX runtime or other new dependency is required, unlike the MLX-only candidates (Qwen3-ASR, Moonshine), which stay deferred. The gold-standard benchmark (`benchmarks/asr/`, hardened + independently verified in PR #568) found Cohere the most accurate on-device engine (full-LibriSpeech macro WER 2.07% vs 2.38% Parakeet-unified; best Japanese), but with a decisive cost: high resident memory, heavier cold-start/model prep, and ~2.1 GB download. Decision: Parakeet v3 remains the primary/default; Cohere is explicit opt-in, batch-only, user-downloaded, warned in Settings for model size/memory, and routed through `STTRuntime` by `CohereTranscribeEngine`. It has no live dictation preview, no meeting live chunks, and no word timestamps.
+> Clarification (2026-07-16): "primary/default" describes the standard engine-family path. Locale-aware first-run setup selects WhisperKit when preferred languages contain no English and include Korean, Japanese, Chinese, or Cantonese; this does not overturn Parakeet's primary status for supported languages.
 
 ## Context
 
@@ -169,7 +171,8 @@ verifiable, so the model stays a user-triggered download — never bundled.
 > `plans/active/2026-06-13-live-dictation-streaming-parakeet-and-preview-ui.md`
 > and `docs/research/live-dictation-streaming.md`.
 
-Both Nemotron builds remain Beta; fresh installs default to Parakeet v3.
+Both Nemotron builds remain Beta; standard-path fresh installs default to
+Parakeet v3, with the locale-aware WhisperKit onboarding exception above.
 Promotion criteria are unchanged: real MacParakeet corpus benchmarks
 (dictation + meeting audio with corrected transcripts), not vendor numbers.
 
@@ -211,8 +214,8 @@ exports and speaker alignment work the same way they do for other timestamped
 engines. Build swaps follow the same scheduler guards as v2/v3 swaps (ADR-016).
 License posture: FluidAudio's conversion is Apache-2.0 and the
 upstream model is under the NVIDIA Open Model License Agreement, so — like every
-other model — it stays a user-triggered download, never bundled. Fresh installs
-still default to Parakeet v3.
+other model — it stays a user-triggered download, never bundled. Standard-path
+fresh installs still default to Parakeet v3.
 
 ## Addendum: Cohere Transcribe Opt-In Engine (June 2026)
 
