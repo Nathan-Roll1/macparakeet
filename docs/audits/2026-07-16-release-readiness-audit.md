@@ -7,6 +7,9 @@
 > Fixed point: public release `v0.7.2` at `afc2eff9`
 >
 > Candidate version: `0.7.3`
+>
+> Published release: `v0.7.3` at
+> `d6321f87dccecf29bd4792113f522bb0c98d1f35`, build `20260717011712`
 
 Canonical consolidated record:
 [`2026-07-16-v0.7.3-comprehensive-codebase-release-architecture-audit.md`](./2026-07-16-v0.7.3-comprehensive-codebase-release-architecture-audit.md).
@@ -17,13 +20,16 @@ contract version does not require a new minor app version.
 
 ## Verdict
 
-The post-v0.7.2 code is a credible `0.7.3` release candidate. The reviewed
-implementation has no known code-level release blocker after the dependency,
-release-tooling, and canonical-documentation fixes in this audit branch.
+Version `0.7.3` was published after the reviewed code was rebuilt from the
+merged CLI-installer revert, exact-main CI passed, and the signed/notarized
+installed candidate, bundled CLI demo, R2 object, Sparkle feed, and GitHub asset
+were verified. The immutable DMG is 148,896,323 bytes with SHA-256
+`0c4ccb1b6f0cedae0f7994afce393094596aacdd8548af374ae18ae500ecdd8a`.
 
-This is **code ready**, not yet **ship complete**. A signed/notarized candidate
-still needs the physical audio-route and long-meeting matrix in this document
-before publishing the DMG, appcast, GitHub release, and Homebrew asset.
+The longer hardware/audio matrix below remains useful ongoing physical QA; the
+publication record does not claim scenarios that were not rerun against the
+exact final build. Full artifact and notarization evidence is in the canonical
+consolidated record linked above.
 
 ## Scope
 
@@ -73,8 +79,11 @@ recent merged implementation plans are marked for archival rather than open.
 
 ## Recent-change review
 
-No new correctness, privacy, persistence, concurrency, or CLI-contract defect
-was found in PRs #775, #783, #785, #795, #801, #802, or #810-#822.
+Signed-candidate QA later found that PR #775's in-app CLI PATH-link installer
+could not write the normal root-owned `/usr/local/bin`; PR #827 removed it
+before publication. Apart from that superseded installer, no new correctness,
+privacy, persistence, concurrency, or CLI-contract defect was found in PRs
+#783, #785, #795, #801, #802, or #810-#822.
 
 The highest-risk paths have explicit ownership and bounded state transitions:
 
@@ -161,8 +170,10 @@ Run from a notarized app copied to `/Applications`, not from the DMG volume:
    auto-save feedback, and no stuck recording state.
 4. **No-headphones AEC:** run Zoom, Google Meet, and Teams samples; compare raw
    microphone, system audio, playback, cleaned microphone, and final transcript.
-5. **Installed CLI:** run installer/permissions checks and the release demo smoke
-   against `/Applications/MacParakeet.app/Contents/MacOS/macparakeet-cli`.
+5. **Installed CLI:** verify the bundled executable, record Terminal PATH
+   resolution separately, and run the release demo smoke against
+   `/Applications/MacParakeet.app/Contents/MacOS/macparakeet-cli`. Do not modify
+   Homebrew-owned links as part of app QA.
 
 ## Non-blocking follow-ups
 
