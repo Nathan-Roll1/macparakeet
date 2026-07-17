@@ -82,8 +82,8 @@ recent merged implementation plans are marked for archival rather than open.
 Signed-candidate QA later found that PR #775's in-app CLI PATH-link installer
 could not write the normal root-owned `/usr/local/bin`; PR #827 removed it
 before publication. Apart from that superseded installer, no new correctness,
-privacy, persistence, concurrency, or CLI-contract defect was found in PRs
-#783, #785, #795, #801, #802, or #810-#822.
+privacy, persistence, concurrency, or CLI-contract defect was found in the
+remaining reviewed PR set (#783, #785, #795, #801, #802, and #810-#822).
 
 The highest-risk paths have explicit ownership and bounded state transitions:
 
