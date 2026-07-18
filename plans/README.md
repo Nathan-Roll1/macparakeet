@@ -88,6 +88,13 @@
 - No hard blockers between active plans. Soft sequencing: keep meeting-audio changes behind the measurement harness, and prefer the remaining audio/STT regression tests before another broad capture/STT change.
 - The two engine-switch plans are a pair: `ux-revamp` (Stage A, partial) is the parent; `stage-b` is its on-hold continuation. Both gate on the A3 cold-switch telemetry before the reactive flow is greenlit.
 
+## Recently archived → `completed/` (2026-07-18)
+
+- **2026-07-17-issue-767-audio-track-selection** → implemented in #839:
+  conditional app picker for multi-track local files, explicit FFmpeg mapping,
+  persistence/retranscription reuse, batch semantics, CLI `--audio-track`, and
+  matching feature and boundary-contract documentation.
+
 ## Recently archived → `completed/` (2026-07-16)
 
 - **Release/reliability implementation records:** `engine-settings-layout`
