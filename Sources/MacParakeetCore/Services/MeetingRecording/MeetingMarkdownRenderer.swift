@@ -135,27 +135,33 @@ public struct MeetingMarkdownRenderer: Sendable {
 
     public init() {}
 
+    public func renderForClipboard(transcription: Transcription) -> String {
+        let transcript = renderedTranscript(transcription)
+        let sections = meetingContentSections(
+            transcription: transcription,
+            transcript: transcript.text
+        )
+        return sections.joined(separator: "\n\n") + "\n"
+    }
+
     public func render(
         transcription: Transcription,
         promptResults: [PromptResult],
         artifactPaths: MeetingMarkdownArtifactPaths = .init()
     ) -> String {
         let transcript = renderedTranscript(transcription)
-        var sections: [String] = [
+        var sections = [
             frontmatter(
                 transcription: transcription,
                 artifactPaths: artifactPaths,
                 speakerLabelsIncluded: transcript.speakerLabelsIncluded,
                 promptResultCount: promptResults.count
-            ),
-            "# \(transcription.fileName)",
+            )
         ]
-
-        if let notes = normalizedNonEmptyText(transcription.userNotes) {
-            sections.append("## Notes\n\n\(notes)")
-        }
-
-        sections.append("## Transcript\n\n\(transcript.text)")
+        sections.append(contentsOf: meetingContentSections(
+            transcription: transcription,
+            transcript: transcript.text
+        ))
 
         if !promptResults.isEmpty {
             sections.append(promptResultsSection(promptResults, artifactPaths: artifactPaths))
@@ -166,6 +172,20 @@ public struct MeetingMarkdownRenderer: Sendable {
         }
 
         return sections.joined(separator: "\n\n") + "\n"
+    }
+
+    private func meetingContentSections(
+        transcription: Transcription,
+        transcript: String
+    ) -> [String] {
+        var sections = ["# \(transcription.fileName)"]
+
+        if let notes = normalizedNonEmptyText(transcription.userNotes) {
+            sections.append("## Notes\n\n\(notes)")
+        }
+
+        sections.append("## Transcript\n\n\(transcript)")
+        return sections
     }
 
     private func frontmatter(
