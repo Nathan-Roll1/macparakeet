@@ -55,6 +55,24 @@ public final class DiscoverViewModel {
         }
     }
 
+    /// Cancel any in-flight Discover work and drop the loaded feed.
+    ///
+    /// Called when the user turns Discover off. Without this, a cache load,
+    /// background refresh, or the 30-second rotation task started while
+    /// Discover was visible would keep running behind a hidden surface.
+    /// Clearing `service` also makes `loadCached()` and `refreshInBackground()`
+    /// no-ops until `configure(service:)` runs again on re-enable.
+    public func cancelDiscover() {
+        loadTask?.cancel()
+        loadTask = nil
+        refreshTask?.cancel()
+        refreshTask = nil
+        rotationTask?.cancel()
+        rotationTask = nil
+        feed = nil
+        service = nil
+    }
+
     public func refreshInBackground() {
         guard let service else { return }
         refreshTask?.cancel()

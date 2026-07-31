@@ -637,7 +637,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Respect the user preference before touching the network. When
         // Discover is hidden the feed is neither loaded nor fetched, so the
         // app makes no request to the Discover endpoint at launch.
-        guard settingsViewModel.showDiscover else { return }
+        guard settingsViewModel.showDiscover else {
+            discoverViewModel.cancelDiscover()
+            return
+        }
         guard let fallbackURL = Bundle.module.url(forResource: "discover-fallback", withExtension: "json"),
               let data = try? Data(contentsOf: fallbackURL) else { return }
 
