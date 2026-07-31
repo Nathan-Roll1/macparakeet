@@ -25,6 +25,7 @@ final class AppSettingsObserverCoordinatorTests: XCTestCase {
         var appearanceModeCount = 0
         var menuBarOnlyCount = 0
         var showIdlePillCount = 0
+        var showDiscoverCount = 0
         var showMeetingRecordingPillCount = 0
         var instantDictationCount = 0
         var microphoneSelectionCount = 0
@@ -72,6 +73,10 @@ final class AppSettingsObserverCoordinatorTests: XCTestCase {
             },
             onShowIdlePillChanged: { [unowned self] in
                 self.showIdlePillCount += 1
+                self.onCallback?()
+            },
+            onShowDiscoverChanged: { [unowned self] in
+                self.showDiscoverCount += 1
                 self.onCallback?()
             },
             onShowMeetingRecordingPillChanged: { [unowned self] in
