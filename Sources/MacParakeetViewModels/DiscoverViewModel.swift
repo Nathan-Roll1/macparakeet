@@ -46,7 +46,12 @@ public final class DiscoverViewModel {
         loadTask = Task {
             let result = await service.loadContent()
             guard !Task.isCancelled else { return }
-            feed = result
+            // A background refresh started alongside this load may already
+            // have published fresher content; cached content only fills an
+            // empty surface and never replaces a fresh feed.
+            if feed == nil {
+                feed = result
+            }
             loadTask = nil
             startRotation()
         }

@@ -197,4 +197,57 @@ final class DiscoverViewModelTests: XCTestCase {
         viewModel.cancelDiscover()
         XCTAssertNil(viewModel.feed)
     }
+
+    /// Service whose `loadContent()` suspends on a gate while `fetchFresh()`
+    /// returns immediately, so a test can force the cache read to lose the
+    /// race against the background refresh.
+    private actor SlowCacheDiscoverService: DiscoverServiceProtocol {
+        let cached: DiscoverFeed
+        let fresh: DiscoverFeed
+        let cacheGate: Gate
+
+        init(cached: DiscoverFeed, fresh: DiscoverFeed, cacheGate: Gate) {
+            self.cached = cached
+            self.fresh = fresh
+            self.cacheGate = cacheGate
+        }
+
+        func loadContent() async -> DiscoverFeed {
+            await cacheGate.wait()
+            return cached
+        }
+
+        func fetchFresh() async -> DiscoverFeed? { fresh }
+    }
+
+    /// Regression: `loadCached()` used to publish unconditionally, so a slow
+    /// cache read finishing after the background refresh replaced the fresh
+    /// feed with stale cached content until a later relaunch or refresh.
+    func testSlowCacheLoadDoesNotReplaceFreshFeed() async {
+        let cacheGate = Gate()
+        let cachedFeed = oneItemFeed(version: 1)
+        let freshFeed = oneItemFeed(version: 2)
+        let service = SlowCacheDiscoverService(
+            cached: cachedFeed,
+            fresh: freshFeed,
+            cacheGate: cacheGate
+        )
+
+        let viewModel = DiscoverViewModel()
+        viewModel.configure(service: service)
+
+        // The cache read suspends on the gate; the refresh completes first
+        // and publishes the fresh feed.
+        viewModel.loadCached()
+        await cacheGate.entered()
+        viewModel.refreshInBackground()
+        await viewModel.refreshTask?.value
+        XCTAssertEqual(viewModel.feed, freshFeed)
+
+        // The stale cache read now completes. It must not overwrite the
+        // fresher content.
+        await cacheGate.open()
+        await viewModel.loadTask?.value
+        XCTAssertEqual(viewModel.feed, freshFeed, "A late cache load must not replace a fresh feed")
+    }
 }
