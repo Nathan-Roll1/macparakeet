@@ -16,15 +16,36 @@ final class DiscoverViewModelTests: XCTestCase {
         DiscoverFeed(version: 1, items: [], featuredIndex: 0)
     }
 
+    /// A feed with a real item, so assertions about cleared items and the
+    /// sidebar card verify actual clearing instead of being vacuously true
+    /// against an already-empty feed.
+    private func oneItemFeed(version: Int = 1) -> DiscoverFeed {
+        DiscoverFeed(
+            version: version,
+            items: [
+                DiscoverItem(
+                    id: "test-item-\(version)",
+                    type: .tip,
+                    title: "Test title",
+                    body: "Test body",
+                    icon: "sparkles"
+                ),
+            ],
+            featuredIndex: 0
+        )
+    }
+
     func testCancelDiscoverClearsLoadedFeed() async {
         let viewModel = DiscoverViewModel()
-        viewModel.configure(service: StubDiscoverService(feed: emptyFeed))
+        viewModel.configure(service: StubDiscoverService(feed: oneItemFeed()))
         viewModel.loadCached()
 
         // Await the load task itself rather than sleeping for a fixed
         // interval, so this cannot flake on a slow or loaded CI host.
         await viewModel.loadTask?.value
         XCTAssertNotNil(viewModel.feed)
+        XCTAssertFalse(viewModel.allItems.isEmpty)
+        XCTAssertNotNil(viewModel.sidebarItem)
 
         viewModel.cancelDiscover()
         XCTAssertNil(viewModel.feed)
@@ -34,7 +55,7 @@ final class DiscoverViewModelTests: XCTestCase {
 
     func testLoadCachedIsInertAfterCancel() {
         let viewModel = DiscoverViewModel()
-        viewModel.configure(service: StubDiscoverService(feed: emptyFeed))
+        viewModel.configure(service: StubDiscoverService(feed: oneItemFeed()))
         viewModel.cancelDiscover()
 
         // `cancelDiscover` drops the service, so both entry points must be
@@ -130,7 +151,9 @@ final class DiscoverViewModelTests: XCTestCase {
             cached: emptyFeed,
             firstGate: firstGate,
             secondGate: secondGate,
-            replacementFeed: DiscoverFeed(version: 2, items: [], featuredIndex: 0)
+            // A non-empty feed, so the final "nothing was published" checks
+            // would fail loudly if the stale refresh did publish it.
+            replacementFeed: oneItemFeed(version: 2)
         )
 
         let viewModel = DiscoverViewModel()
