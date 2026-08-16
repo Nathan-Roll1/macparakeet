@@ -161,6 +161,7 @@ final class AppSettingsObserverCoordinatorTests: XCTestCase {
         fx.center.post(name: .macParakeetAppearanceModeDidChange, object: nil)
         fx.center.post(name: .macParakeetMenuBarOnlyModeDidChange, object: nil)
         fx.center.post(name: .macParakeetShowIdlePillDidChange, object: nil)
+        fx.center.post(name: .macParakeetShowDiscoverDidChange, object: nil)
         fx.center.post(name: .macParakeetShowMeetingRecordingPillDidChange, object: nil)
         fx.center.post(name: .macParakeetInstantDictationDidChange, object: nil)
         fx.center.post(name: .macParakeetMicrophoneSelectionDidChange, object: nil)
@@ -179,6 +180,7 @@ final class AppSettingsObserverCoordinatorTests: XCTestCase {
         XCTAssertEqual(fx.appearanceModeCount, 0)
         XCTAssertEqual(fx.menuBarOnlyCount, 0)
         XCTAssertEqual(fx.showIdlePillCount, 0)
+        XCTAssertEqual(fx.showDiscoverCount, 0)
         XCTAssertEqual(fx.showMeetingRecordingPillCount, 0)
         XCTAssertEqual(fx.instantDictationCount, 0)
         XCTAssertEqual(fx.microphoneSelectionCount, 0)
@@ -262,6 +264,7 @@ final class AppSettingsObserverCoordinatorTests: XCTestCase {
         XCTAssertEqual(fx.appearanceModeCount, 0)
         XCTAssertEqual(fx.menuBarOnlyCount, 0)
         XCTAssertEqual(fx.showIdlePillCount, 0)
+        XCTAssertEqual(fx.showDiscoverCount, 0)
         XCTAssertEqual(fx.meetingAudioRetentionCount, 0)
     }
 }
