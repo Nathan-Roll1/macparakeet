@@ -161,22 +161,40 @@ final class AppPathsTests: XCTestCase {
         )
     }
 
-    // The two shared-suite cases assert branch selection by identity rather
-    // than writing through the suite: the resolved object not being
-    // `.standard` distinguishes the named-suite branch, and these tests
-    // therefore leave the real preferences domain untouched. Write-through
-    // behavior of the shared suite is covered by the standalone-CLI test in
-    // `CLIHelpersTests`.
+    // The two shared-suite cases verify the resolved instance against
+    // `sharedAppDefaults()` by writing through it, which targets the real
+    // `com.macparakeet.MacParakeet` domain: that is the only way to observe
+    // which suite an opaque `UserDefaults` wraps. The keys carry the
+    // `macparakeet.tests.` prefix so any leftover from a killed test run is
+    // identifiable, and the `defer` cleanup does not run on SIGKILL/abort.
+    private func assertResolvesToSharedSuite(
+        _ resolved: UserDefaults,
+        _ message: String
+    ) {
+        let key = "macparakeet.tests.AppPathsTests.\(UUID().uuidString)"
+        let value = UUID().uuidString
+        let shared = AppPaths.sharedAppDefaults()
+        defer {
+            shared.removeObject(forKey: key)
+        }
+
+        resolved.set(value, forKey: key)
+
+        XCTAssertFalse(resolved === UserDefaults.standard, message)
+        XCTAssertEqual(shared.string(forKey: key), value, message)
+    }
+
     func testAppDefaultsReturnsSharedSuiteWhenBundleIdentifierIsNil() {
-        XCTAssertFalse(
-            AppPaths.appDefaults(bundleIdentifier: nil) === UserDefaults.standard
+        assertResolvesToSharedSuite(
+            AppPaths.appDefaults(bundleIdentifier: nil),
+            "nil bundle identifier resolves to the shared suite"
         )
     }
 
     func testAppDefaultsReturnsSharedSuiteForUnrelatedBundleIdentifier() {
-        XCTAssertFalse(
-            AppPaths.appDefaults(bundleIdentifier: "com.macparakeet.tests.other")
-                === UserDefaults.standard
+        assertResolvesToSharedSuite(
+            AppPaths.appDefaults(bundleIdentifier: "com.macparakeet.tests.other"),
+            "unrelated bundle identifier resolves to the shared suite"
         )
     }
 }
