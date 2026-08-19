@@ -161,31 +161,22 @@ final class AppPathsTests: XCTestCase {
         )
     }
 
+    // The two shared-suite cases assert branch selection by identity rather
+    // than writing through the suite: the resolved object not being
+    // `.standard` distinguishes the named-suite branch, and these tests
+    // therefore leave the real preferences domain untouched. Write-through
+    // behavior of the shared suite is covered by the standalone-CLI test in
+    // `CLIHelpersTests`.
     func testAppDefaultsReturnsSharedSuiteWhenBundleIdentifierIsNil() {
-        let key = "AppPathsTests.appDefaults.nilBundle.\(UUID().uuidString)"
-        let value = UUID().uuidString
-        let resolved = AppPaths.appDefaults(bundleIdentifier: nil)
-        let shared = AppPaths.sharedAppDefaults()
-        defer {
-            shared.removeObject(forKey: key)
-        }
-
-        resolved.set(value, forKey: key)
-
-        XCTAssertEqual(shared.string(forKey: key), value)
+        XCTAssertFalse(
+            AppPaths.appDefaults(bundleIdentifier: nil) === UserDefaults.standard
+        )
     }
 
     func testAppDefaultsReturnsSharedSuiteForUnrelatedBundleIdentifier() {
-        let key = "AppPathsTests.appDefaults.otherBundle.\(UUID().uuidString)"
-        let value = UUID().uuidString
-        let resolved = AppPaths.appDefaults(bundleIdentifier: "com.macparakeet.tests.other")
-        let shared = AppPaths.sharedAppDefaults()
-        defer {
-            shared.removeObject(forKey: key)
-        }
-
-        resolved.set(value, forKey: key)
-
-        XCTAssertEqual(shared.string(forKey: key), value)
+        XCTAssertFalse(
+            AppPaths.appDefaults(bundleIdentifier: "com.macparakeet.tests.other")
+                === UserDefaults.standard
+        )
     }
 }
