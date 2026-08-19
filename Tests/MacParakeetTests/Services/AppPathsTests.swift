@@ -151,4 +151,41 @@ final class AppPathsTests: XCTestCase {
         // (it may create real dirs, but those are expected app directories)
         try AppPaths.ensureDirectories()
     }
+
+    // MARK: - appDefaults(bundleIdentifier:)
+
+    func testAppDefaultsReturnsStandardWhenBundleIdentifierMatchesSuite() {
+        XCTAssertTrue(
+            AppPaths.appDefaults(bundleIdentifier: AppPaths.preferencesSuiteName)
+                === UserDefaults.standard
+        )
+    }
+
+    func testAppDefaultsReturnsSharedSuiteWhenBundleIdentifierIsNil() {
+        let key = "AppPathsTests.appDefaults.nilBundle.\(UUID().uuidString)"
+        let value = UUID().uuidString
+        let resolved = AppPaths.appDefaults(bundleIdentifier: nil)
+        let shared = AppPaths.sharedAppDefaults()
+        defer {
+            shared.removeObject(forKey: key)
+        }
+
+        resolved.set(value, forKey: key)
+
+        XCTAssertEqual(shared.string(forKey: key), value)
+    }
+
+    func testAppDefaultsReturnsSharedSuiteForUnrelatedBundleIdentifier() {
+        let key = "AppPathsTests.appDefaults.otherBundle.\(UUID().uuidString)"
+        let value = UUID().uuidString
+        let resolved = AppPaths.appDefaults(bundleIdentifier: "com.macparakeet.tests.other")
+        let shared = AppPaths.sharedAppDefaults()
+        defer {
+            shared.removeObject(forKey: key)
+        }
+
+        resolved.set(value, forKey: key)
+
+        XCTAssertEqual(shared.string(forKey: key), value)
+    }
 }
