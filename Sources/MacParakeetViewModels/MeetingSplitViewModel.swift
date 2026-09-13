@@ -323,9 +323,15 @@ public final class MeetingSplitViewModel {
                 }
                 completedOperation = result
                 resumableOperation = nil
-                try await refreshAvailability(result)
                 if result.childProgress.contains(where: { $0.outcome == .failed }) {
                     processingErrorMessage = "Some parts need another attempt. Saved audio and completed work are kept."
+                }
+                do {
+                    try await refreshAvailability(result)
+                } catch {
+                    if processingErrorMessage == nil {
+                        processingErrorMessage = error.localizedDescription
+                    }
                 }
             } catch is CancellationError {
                 await refreshReceipt(sourceId: sourceId, key: key)

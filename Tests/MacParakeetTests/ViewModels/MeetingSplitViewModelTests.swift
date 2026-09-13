@@ -183,6 +183,29 @@ final class MeetingSplitViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.processingErrorMessage)
     }
 
+    func testAvailabilityFailureDoesNotHidePartialProcessingFailure() async throws {
+        viewModel.configure(service: service, recordingLookup: { _ in
+            throw MeetingSplitServiceError.sourceNotFound
+        })
+        await viewModel.present(sourceId: sourceId, sourceTitle: "Weekly sync")
+        service.createAndProcessHandler = { _, sid, cuts, titles, _, _ in
+            var result = try self.service.makeCommittedOperation(
+                sourceId: sid, cutPointsMs: cuts, titles: titles
+            )
+            result.childProgress[0].outcome = .failed
+            return result
+        }
+
+        XCTAssertTrue(viewModel.submit())
+        try await waitUntil { !self.viewModel.isProcessingActive }
+
+        XCTAssertNotNil(viewModel.completedOperation)
+        XCTAssertEqual(
+            viewModel.processingErrorMessage,
+            "Some parts need another attempt. Saved audio and completed work are kept."
+        )
+    }
+
     func testPublishedChildrenNotifyOnceAcrossMultipleProgressEvents() async throws {
         let notificationCount = MainActorCounter()
         let recordings = service.fixtureTranscriptionRepo
