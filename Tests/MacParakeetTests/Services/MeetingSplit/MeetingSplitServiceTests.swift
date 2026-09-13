@@ -509,6 +509,109 @@ final class MeetingSplitServiceTests: XCTestCase {
         XCTAssertEqual(survivorProgress.stage, .automationCompleted)
     }
 
+    /// Completion may call a remote provider with the child's private
+    /// transcript. Deletion must never report success while that side effect
+    /// is in flight, and must succeed normally once completion releases its
+    /// narrow per-child lease.
+    func testDeletionCannotSucceedWhileChildAutomationIsInFlight() async throws {
+        let source = try makeSourceMeeting(durationMs: 4_000, withRawTracks: false)
+        let completion = BlockingSavedAudioAutoPromptCompletionService()
+        let service = MeetingSplitService(
+            transcriptionRepo: transcriptions,
+            splitRepo: splitRepo,
+            transcriptionService: transcribing,
+            completionService: completion,
+            meetingRecordingsRootURL: { [recordingsRoot] in recordingsRoot! }
+        )
+
+        let processingTask = Task {
+            try await service.createAndProcess(
+                idempotencyKey: "op-delete-during-automation",
+                sourceId: source.id,
+                cutPointsMs: [2_000],
+                titles: ["Part 1", "Part 2"]
+            )
+        }
+        let processingChildId = await completion.waitUntilFirstCallStarted()
+        let processingChild = try XCTUnwrap(transcriptions.fetch(id: processingChildId))
+
+        XCTAssertThrowsError(
+            try TranscriptionDeletionCoordinator.delete(processingChild, repository: transcriptions)
+        ) { error in
+            guard case MeetingSplitChildProcessingLease.AcquisitionError.busy(let childId) = error else {
+                return XCTFail("expected child processing lease busy, got \(error)")
+            }
+            XCTAssertEqual(childId, processingChildId)
+        }
+        XCTAssertNotNil(try transcriptions.fetch(id: processingChildId))
+
+        await completion.releaseFirstCall()
+        _ = try await processingTask.value
+
+        XCTAssertTrue(try TranscriptionDeletionCoordinator.delete(processingChild, repository: transcriptions))
+        XCTAssertNil(try transcriptions.fetch(id: processingChildId))
+    }
+
+    func testDeletionCannotSucceedWhileKnowledgeCardProviderIsInFlight() async throws {
+        let source = try makeSourceMeeting(durationMs: 4_000, withRawTracks: false)
+        let cardGenerator = BlockingMeetingSplitCardGenerator()
+        let completion = SavedAudioAutoPromptCompletionService(
+            promptRepo: promptRepo,
+            promptResultRepo: promptResultRepo,
+            llmService: llm,
+            cardGenerator: cardGenerator
+        )
+        let service = MeetingSplitService(
+            transcriptionRepo: transcriptions,
+            splitRepo: splitRepo,
+            transcriptionService: transcribing,
+            completionService: completion,
+            meetingRecordingsRootURL: { [recordingsRoot] in recordingsRoot! }
+        )
+
+        let processingTask = Task {
+            try await service.createAndProcess(
+                idempotencyKey: "op-delete-during-card-generation",
+                sourceId: source.id,
+                cutPointsMs: [2_000],
+                titles: ["Part 1", "Part 2"]
+            )
+        }
+        let processingChildId = await cardGenerator.waitUntilFirstCallStarted()
+        let processingChild = try XCTUnwrap(transcriptions.fetch(id: processingChildId))
+
+        XCTAssertThrowsError(
+            try TranscriptionDeletionCoordinator.delete(processingChild, repository: transcriptions)
+        ) { error in
+            guard case MeetingSplitChildProcessingLease.AcquisitionError.busy(let childId) = error else {
+                return XCTFail("expected child processing lease busy, got \(error)")
+            }
+            XCTAssertEqual(childId, processingChildId)
+        }
+
+        await cardGenerator.releaseFirstCall()
+        _ = try await processingTask.value
+
+        XCTAssertTrue(try TranscriptionDeletionCoordinator.delete(processingChild, repository: transcriptions))
+        XCTAssertNil(try transcriptions.fetch(id: processingChildId))
+    }
+
+    func testNonSplitMeetingDeletionDoesNotAcquireTheChildProcessingLease() throws {
+        let ordinaryMeeting = try makeSourceMeeting(durationMs: 2_000, withRawTracks: false)
+        XCTAssertNil(ordinaryMeeting.splitProvenance)
+        let unrelatedHolder = try MeetingSplitChildProcessingLease.acquire(
+            childId: ordinaryMeeting.id,
+            recordingsRootURL: recordingsRoot
+        )
+        defer { unrelatedHolder.release() }
+
+        XCTAssertTrue(try TranscriptionDeletionCoordinator.delete(
+            ordinaryMeeting,
+            repository: transcriptions
+        ))
+        XCTAssertNil(try transcriptions.fetch(id: ordinaryMeeting.id))
+    }
+
     // MARK: - Operation ownership (kernel-backed claim)
 
     /// Two concurrent `createAndProcess` calls under the SAME idempotency key
@@ -552,6 +655,91 @@ final class MeetingSplitServiceTests: XCTestCase {
         let finished = try await firstTask.value
         XCTAssertEqual(finished.status, .committed)
         XCTAssertEqual(try splitRepo.operations(sourceId: source.id).count, 1, "only one operation must ever exist for this key")
+    }
+
+    /// Simulates the narrow cross-root insertion race where all three reads
+    /// miss before `begin` itself observes another caller's frozen operation.
+    /// The durable destination must win over this caller's configured root for
+    /// locking and publication.
+    func testPreparingOperationDiscoveredByBeginConflictUsesItsFrozenDestinationRoot() async throws {
+        let source = try makeSourceMeeting(durationMs: 4_000, withRawTracks: false)
+        let frozenRoot = recordingsRoot.appendingPathComponent("frozen-root", isDirectory: true)
+        let callerRoot = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: callerRoot) }
+        let preview = try await makeService().preview(sourceId: source.id, cutPointsMs: [2_000])
+        let existing = try splitRepo.begin(
+            idempotencyKey: "op-cross-root-race",
+            request: MeetingSplitRequest(
+                sourceId: source.id,
+                expectedSourceIdentity: preview.sourceIdentity,
+                children: [
+                    MeetingSplitChildRequest(title: "Part 1", startMs: 0, endMs: 2_000),
+                    MeetingSplitChildRequest(title: "Part 2", startMs: 2_000, endMs: 4_000),
+                ],
+                destinationRootPath: frozenRoot.path
+            )
+        )
+        // Hide the initial unlocked lookup, the immediate post-lease lookup,
+        // and createIfNeeded's lookup. `begin` then reaches the exact insertion
+        // conflict branch with the durable row already present.
+        let lookupHidingRepo = InitialLookupsHidingSplitRepository(
+            wrapping: splitRepo,
+            hiddenLookupCount: 3
+        )
+        let blockingSTT = BlockingMeetingSplitAudioTranscribing()
+        let service = MeetingSplitService(
+            transcriptionRepo: transcriptions,
+            splitRepo: lookupHidingRepo,
+            transcriptionService: blockingSTT,
+            completionService: SavedAudioAutoPromptCompletionService(
+                promptRepo: promptRepo, promptResultRepo: promptResultRepo, llmService: llm),
+            meetingRecordingsRootURL: { callerRoot }
+        )
+
+        let processingTask = Task {
+            try await service.createAndProcess(
+                idempotencyKey: existing.idempotencyKey,
+                sourceId: source.id,
+                cutPointsMs: [2_000],
+                titles: ["Part 1", "Part 2"],
+                expectedSourceIdentity: preview.sourceIdentity
+            )
+        }
+        await blockingSTT.waitUntilFirstCallStarted()
+
+        XCTAssertThrowsError(try MeetingSplitOperationLease.acquire(
+            idempotencyKey: existing.idempotencyKey,
+            meetingRecordingsRootURL: frozenRoot
+        )) { error in
+            guard case MeetingSplitOperationLease.AcquisitionError.busy = error else {
+                return XCTFail("expected frozen-root operation lease busy, got \(error)")
+            }
+        }
+        let releasedSpeculativeLease = try MeetingSplitOperationLease.acquire(
+            idempotencyKey: existing.idempotencyKey,
+            meetingRecordingsRootURL: callerRoot
+        )
+        releasedSpeculativeLease.release()
+
+        await blockingSTT.releaseFirstCall()
+        let completed = try await processingTask.value
+
+        XCTAssertEqual(completed.id, existing.id)
+        XCTAssertEqual(completed.request.destinationRootPath, frozenRoot.path)
+        for childId in completed.childIds {
+            XCTAssertTrue(FileManager.default.fileExists(
+                atPath: frozenRoot.appendingPathComponent(childId.uuidString, isDirectory: true).path
+            ))
+            XCTAssertFalse(FileManager.default.fileExists(
+                atPath: callerRoot.appendingPathComponent(childId.uuidString, isDirectory: true).path
+            ))
+            let child = try XCTUnwrap(transcriptions.fetch(id: childId))
+            XCTAssertEqual(
+                URL(fileURLWithPath: try XCTUnwrap(child.meetingArtifactFolderPath))
+                    .deletingLastPathComponent().standardizedFileURL.path,
+                frozenRoot.standardizedFileURL.path
+            )
+        }
     }
 
     func testOperationOwnershipReflectsAnActiveLeaseHolder() async throws {
@@ -745,6 +933,50 @@ final class MeetingSplitServiceTests: XCTestCase {
         XCTAssertFalse(preview.hasRawMicrophone)
         XCTAssertFalse(preview.hasRawSystem)
         XCTAssertFalse(preview.hasCleanedMicrophone)
+    }
+
+    func testPreviewHasRawFlagsAreFalseWhenAlignmentCannotOverlapTheRecording() async throws {
+        for offsetMs in [-1, 6_000] {
+            let source = try makeSourceMeeting(durationMs: 6_000, withRawTracks: true)
+            let folderURL = try XCTUnwrap(MeetingArtifactStore.sessionFolderURL(for: source))
+            let track = MeetingSourceAlignment.Track(
+                firstHostTime: 1,
+                lastHostTime: 2,
+                startOffsetMs: offsetMs,
+                writtenFrameCount: 288_000,
+                sampleRate: 48_000
+            )
+            try MeetingRecordingMetadataStore.save(
+                MeetingRecordingMetadata(sourceAlignment: MeetingSourceAlignment(
+                    meetingOriginHostTime: 1,
+                    microphone: track,
+                    system: track
+                )),
+                folderURL: folderURL
+            )
+
+            let preview = try await makeService().preview(sourceId: source.id, cutPointsMs: [3_000])
+
+            XCTAssertFalse(preview.hasRawMicrophone, "offset \(offsetMs) cannot export on the source timeline")
+            XCTAssertFalse(preview.hasRawSystem, "offset \(offsetMs) cannot export on the source timeline")
+        }
+    }
+
+    func testCreateRejectsBlankPartTitlesAtTheCoreBoundary() async throws {
+        let source = try makeSourceMeeting(durationMs: 4_000, withRawTracks: false)
+
+        do {
+            _ = try await makeService().createAndProcess(
+                idempotencyKey: "op-blank-title",
+                sourceId: source.id,
+                cutPointsMs: [2_000],
+                titles: ["Part 1", " \n\t"]
+            )
+            XCTFail("expected a blank title to be rejected")
+        } catch MeetingSplitServiceError.blankTitle(let index) {
+            XCTAssertEqual(index, 1)
+        }
+        XCTAssertTrue(try splitRepo.operations(sourceId: source.id).isEmpty)
     }
 
     /// Missing/corrupt metadata must never block splitting itself: every
@@ -1061,6 +1293,197 @@ private final class BlockingMeetingSplitAudioTranscribing: MeetingSplitAudioTran
         try await retranscribe(
             existing: transcription, fileURL: URL(fileURLWithPath: "/dev/null"), source: .meeting,
             speechEngineOverride: speechEngineOverride, onProgress: onProgress)
+    }
+}
+
+/// Holds the first completion call at the external-side-effect boundary so a
+/// test can deterministically race deletion against active automation.
+private final class BlockingSavedAudioAutoPromptCompletionService: SavedAudioAutoPromptCompletionServicing, @unchecked Sendable {
+    private let lock = NSLock()
+    private var startedContinuation: CheckedContinuation<UUID, Never>?
+    private var firstChildId: UUID?
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+    private var shouldRelease = false
+
+    func waitUntilFirstCallStarted() async -> UUID {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if let firstChildId {
+                lock.unlock()
+                continuation.resume(returning: firstChildId)
+            } else {
+                startedContinuation = continuation
+                lock.unlock()
+            }
+        }
+    }
+
+    func releaseFirstCall() async {
+        lock.lock()
+        shouldRelease = true
+        let continuation = releaseContinuation
+        releaseContinuation = nil
+        lock.unlock()
+        continuation?.resume()
+    }
+
+    func completeAutoPrompts(
+        for transcription: Transcription,
+        onProgress: (@Sendable (SavedAudioAutoPromptCompletionProgress) -> Void)?
+    ) async throws -> SavedAudioAutoPromptCompletionResult {
+        guard markStartedIfFirst(childId: transcription.id) else {
+            return SavedAudioAutoPromptCompletionResult()
+        }
+        await waitForRelease()
+        return SavedAudioAutoPromptCompletionResult()
+    }
+
+    private func markStartedIfFirst(childId: UUID) -> Bool {
+        lock.lock()
+        guard firstChildId == nil else {
+            lock.unlock()
+            return false
+        }
+        firstChildId = childId
+        let continuation = startedContinuation
+        startedContinuation = nil
+        lock.unlock()
+        continuation?.resume(returning: childId)
+        return true
+    }
+
+    private func waitForRelease() async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if shouldRelease {
+                lock.unlock()
+                continuation.resume()
+            } else {
+                releaseContinuation = continuation
+                lock.unlock()
+            }
+        }
+    }
+}
+
+private actor BlockingMeetingSplitCardGenerator: CardGenerating {
+    private var firstChildId: UUID?
+    private var startedContinuation: CheckedContinuation<UUID, Never>?
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+    private var shouldRelease = false
+
+    func waitUntilFirstCallStarted() async -> UUID {
+        if let firstChildId { return firstChildId }
+        return await withCheckedContinuation { startedContinuation = $0 }
+    }
+
+    func releaseFirstCall() {
+        shouldRelease = true
+        releaseContinuation?.resume()
+        releaseContinuation = nil
+    }
+
+    func generate(transcriptionId: UUID, force _: Bool) async throws -> CardGenerationOutcome {
+        guard firstChildId == nil else {
+            return CardGenerationOutcome(card: nil, usage: nil, wasSkipped: true)
+        }
+        firstChildId = transcriptionId
+        startedContinuation?.resume(returning: transcriptionId)
+        startedContinuation = nil
+        if !shouldRelease {
+            await withCheckedContinuation { releaseContinuation = $0 }
+        }
+        return CardGenerationOutcome(card: nil, usage: nil, wasSkipped: true)
+    }
+}
+
+/// Reproduces a durable-operation race by hiding a configured number of
+/// idempotency lookups before exposing the existing row.
+private final class InitialLookupsHidingSplitRepository: MeetingSplitRepositoryProtocol, @unchecked Sendable {
+    private let wrapped: MeetingSplitRepositoryProtocol
+    private let lock = NSLock()
+    private var remainingHiddenLookups: Int
+
+    init(wrapping wrapped: MeetingSplitRepositoryProtocol, hiddenLookupCount: Int) {
+        self.wrapped = wrapped
+        remainingHiddenLookups = hiddenLookupCount
+    }
+
+    func begin(idempotencyKey: String, request: MeetingSplitRequest, now: Date) throws -> MeetingSplitOperation {
+        try wrapped.begin(idempotencyKey: idempotencyKey, request: request, now: now)
+    }
+
+    func operation(id: UUID) throws -> MeetingSplitOperation? {
+        try wrapped.operation(id: id)
+    }
+
+    func operation(idempotencyKey: String) throws -> MeetingSplitOperation? {
+        let shouldHide: Bool = lock.withLock {
+            guard remainingHiddenLookups > 0 else { return false }
+            remainingHiddenLookups -= 1
+            return true
+        }
+        return shouldHide ? nil : try wrapped.operation(idempotencyKey: idempotencyKey)
+    }
+
+    func operations(sourceId: UUID) throws -> [MeetingSplitOperation] {
+        try wrapped.operations(sourceId: sourceId)
+    }
+
+    func sourceSnapshot(sourceId: UUID) throws -> MeetingSplitSourceSnapshot? {
+        try wrapped.sourceSnapshot(sourceId: sourceId)
+    }
+
+    func discard(operationId: UUID, now: Date) throws -> MeetingSplitOperation {
+        try wrapped.discard(operationId: operationId, now: now)
+    }
+
+    func publish(
+        operationId: UUID,
+        preparedChildren: [MeetingSplitPreparedChild],
+        expectedSource: MeetingSplitSourceSnapshot,
+        now: Date
+    ) throws -> MeetingSplitOperation {
+        try wrapped.publish(
+            operationId: operationId,
+            preparedChildren: preparedChildren,
+            expectedSource: expectedSource,
+            now: now
+        )
+    }
+
+    func markChildTranscriptionStarted(operationId: UUID, childId: UUID, now: Date) throws -> MeetingSplitOperation {
+        try wrapped.markChildTranscriptionStarted(operationId: operationId, childId: childId, now: now)
+    }
+
+    func markChildTranscriptionSucceeded(operationId: UUID, childId: UUID, now: Date) throws -> MeetingSplitOperation {
+        try wrapped.markChildTranscriptionSucceeded(operationId: operationId, childId: childId, now: now)
+    }
+
+    func markChildAutomationStarted(operationId: UUID, childId: UUID, now: Date) throws -> MeetingSplitOperation {
+        try wrapped.markChildAutomationStarted(operationId: operationId, childId: childId, now: now)
+    }
+
+    func markChildAutomationSucceeded(operationId: UUID, childId: UUID, now: Date) throws -> MeetingSplitOperation {
+        try wrapped.markChildAutomationSucceeded(operationId: operationId, childId: childId, now: now)
+    }
+
+    func markChildFailed(
+        operationId: UUID,
+        childId: UUID,
+        errorMessage: String,
+        now: Date
+    ) throws -> MeetingSplitOperation {
+        try wrapped.markChildFailed(
+            operationId: operationId,
+            childId: childId,
+            errorMessage: errorMessage,
+            now: now
+        )
+    }
+
+    func markChildCancelled(operationId: UUID, childId: UUID, now: Date) throws -> MeetingSplitOperation {
+        try wrapped.markChildCancelled(operationId: operationId, childId: childId, now: now)
     }
 }
 

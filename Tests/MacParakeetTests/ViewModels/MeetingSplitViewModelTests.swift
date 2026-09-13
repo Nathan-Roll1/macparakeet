@@ -102,22 +102,41 @@ final class MeetingSplitViewModelTests: XCTestCase {
         viewModel.addSplit()
         XCTAssertEqual(viewModel.editing?.partTitles,
                        ["Weekly sync — Part 1", "Weekly sync — Part 2", "Weekly sync — Part 3"])
-        viewModel.removeCut(at: 0)
+        viewModel.removePart(at: 1)
         XCTAssertEqual(viewModel.editing?.partTitles, ["Weekly sync — Part 1", "Weekly sync — Part 2"])
     }
 
-    func testRemoveCutMergesAdjacentPartsKeepingEarlierTitle() async {
+    func testRemovePartMergesItsRangeIntoEarlierPart() async {
         await viewModel.present(sourceId: sourceId, sourceTitle: "Weekly sync")
         viewModel.updateTitle(at: 0, to: "Intro")
         viewModel.updateTitle(at: 1, to: "Deep dive")
         viewModel.addSplit()
         XCTAssertEqual(viewModel.editing?.cutPointsMs.count, 2)
 
-        viewModel.removeCut(at: 0)
+        viewModel.removePart(at: 1)
 
         let editing = try? XCTUnwrap(viewModel.editing)
         XCTAssertEqual(editing?.cutPointsMs, [5_000])
         XCTAssertEqual(editing?.partTitles, ["Intro", "Deep dive"])
+    }
+
+    func testRemovePartUsesTheBoundaryAdjacentToFirstMiddleAndLastLabels() async {
+        await prepareFourNamedParts()
+        XCTAssertEqual(viewModel.editing?.cutPointsMs, [2_500, 5_000, 7_500])
+
+        viewModel.removePart(at: 0)
+        XCTAssertEqual(viewModel.editing?.cutPointsMs, [5_000, 7_500])
+        XCTAssertEqual(viewModel.editing?.partTitles, ["B", "C", "D"])
+
+        await prepareFourNamedParts()
+        viewModel.removePart(at: 1)
+        XCTAssertEqual(viewModel.editing?.cutPointsMs, [5_000, 7_500])
+        XCTAssertEqual(viewModel.editing?.partTitles, ["A", "C", "D"])
+
+        await prepareFourNamedParts()
+        viewModel.removePart(at: 3)
+        XCTAssertEqual(viewModel.editing?.cutPointsMs, [2_500, 5_000])
+        XCTAssertEqual(viewModel.editing?.partTitles, ["A", "B", "C"])
     }
 
     func testUpdateCutOutOfOrderProducesValidationErrorAndBlocksSubmit() async {
@@ -162,6 +181,38 @@ final class MeetingSplitViewModelTests: XCTestCase {
         try await waitUntil { self.viewModel.completedOperation != nil }
         XCTAssertEqual(viewModel.completedOperation?.status, .committed)
         XCTAssertNil(viewModel.processingErrorMessage)
+    }
+
+    func testPublishedChildrenNotifyOnceAcrossMultipleProgressEvents() async throws {
+        let notificationCount = MainActorCounter()
+        let recordings = service.fixtureTranscriptionRepo
+        viewModel.configure(
+            service: service,
+            recordingLookup: { try recordings.fetch(id: $0) },
+            onChildrenPublished: { notificationCount.value += 1 }
+        )
+        await viewModel.present(sourceId: sourceId, sourceTitle: "Weekly sync")
+
+        service.createAndProcessHandler = { _, sid, cuts, titles, _, onProgress in
+            let result = try self.service.makeCommittedOperation(
+                sourceId: sid, cutPointsMs: cuts, titles: titles
+            )
+            for childIndex in 0..<2 {
+                onProgress?(MeetingSplitProcessingProgress(
+                    operationId: result.id,
+                    childId: result.childIds[childIndex],
+                    childIndex: childIndex,
+                    childCount: 2,
+                    stage: .transcribing
+                ))
+                await Task.yield()
+            }
+            return result
+        }
+
+        XCTAssertTrue(viewModel.submit())
+        try await waitUntil { !self.viewModel.isProcessingActive }
+        XCTAssertEqual(notificationCount.value, 1)
     }
 
     func testDoubleSubmitWhileProcessingIsRefusedWithoutASecondServiceCall() async throws {
@@ -219,6 +270,14 @@ final class MeetingSplitViewModelTests: XCTestCase {
 
         await gate.open()
         try await waitUntil { self.viewModel.completedOperation != nil }
+        XCTAssertEqual(viewModel.presentedSourceId, otherSourceId)
+        XCTAssertFalse(viewModel.canContinue, "the other source's sheet must not continue the completed batch")
+        XCTAssertFalse(viewModel.canStartNewSplit, "the other source's sheet must not start from the completed batch")
+
+        await viewModel.present(sourceId: otherSourceId, sourceTitle: "Other meeting")
+        XCTAssertNil(viewModel.presentationNotice)
+        XCTAssertEqual(viewModel.editing?.sourceId, otherSourceId)
+        XCTAssertTrue(viewModel.canSubmit)
     }
 
     // MARK: - Restart discovery / resume
@@ -381,6 +440,15 @@ final class MeetingSplitViewModelTests: XCTestCase {
 
     // MARK: - helpers
 
+    private func prepareFourNamedParts() async {
+        await viewModel.present(sourceId: sourceId, sourceTitle: "Weekly sync")
+        viewModel.addSplit()
+        viewModel.addSplit()
+        for (index, title) in ["A", "B", "C", "D"].enumerated() {
+            viewModel.updateTitle(at: index, to: title)
+        }
+    }
+
     private func waitUntil(
         timeout: Duration = .seconds(2),
         predicate: @escaping @MainActor () -> Bool
@@ -394,6 +462,11 @@ final class MeetingSplitViewModelTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(10))
         }
     }
+}
+
+@MainActor
+private final class MainActorCounter {
+    var value = 0
 }
 
 private actor Gate {

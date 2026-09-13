@@ -6,7 +6,7 @@ import MacParakeetCore
 @MainActor
 @Observable
 public final class MeetingSplitViewModel {
-    public struct EditingState: Equatable {
+    public struct EditingState: Equatable, Sendable {
         public var sourceId: UUID
         public var sourceTitle: String
         public var totalDurationMs: Int
@@ -25,6 +25,9 @@ public final class MeetingSplitViewModel {
     public private(set) var boundaryText: [String] = []
     public private(set) var validationError: String?
     public private(set) var resumableOperation: MeetingSplitOperation?
+    /// Source represented by the currently presented sheet, which can differ
+    /// from the app-owned batch that is still finishing in the background.
+    public private(set) var presentedSourceId: UUID?
     public private(set) var activeSourceId: UUID?
     public private(set) var activeSourceTitle = ""
     public private(set) var progress: MeetingSplitProcessingProgress?
@@ -38,7 +41,8 @@ public final class MeetingSplitViewModel {
     public var isProcessingActive: Bool { processingTask != nil }
     public var operation: MeetingSplitOperation? { completedOperation ?? resumableOperation }
     public var canContinue: Bool {
-        guard !isProcessingActive, !isExternallyOwned, let operation else { return false }
+        guard !isProcessingActive, !isExternallyOwned, let operation,
+              operation.sourceId == presentedSourceId else { return false }
         return operation.status == .preparing || (operation.status == .committed
             && operation.childProgress.contains {
                 $0.stage != .automationCompleted && availableChildIds.contains($0.childId)
@@ -46,19 +50,23 @@ public final class MeetingSplitViewModel {
     }
     public var canStartNewSplit: Bool {
         loadState == .ready && operation?.status == .committed
+            && operation?.sourceId == presentedSourceId
             && !isProcessingActive && !isExternallyOwned
     }
     public var canSubmit: Bool {
-        loadState == .ready && editing != nil && validationError == nil
+        guard loadState == .ready, let editing else { return false }
+        return editing.sourceId == presentedSourceId && validationError == nil
             && !isProcessingActive && operation == nil && !isExternallyOwned
     }
 
     private var service: (any MeetingSplitServicing)?
     private var recordingLookup: @Sendable (UUID) throws -> Transcription?
+    private var onChildrenPublished: @MainActor @Sendable () -> Void = {}
     private var processingTask: Task<Void, Never>?
     private var presentationGeneration = UUID()
     private var processingGeneration = UUID()
     private var creationKey = UUID().uuidString
+    private var notifiedPublishedOperationIds: Set<UUID> = []
 
     public init(
         service: (any MeetingSplitServicing)? = nil,
@@ -70,10 +78,12 @@ public final class MeetingSplitViewModel {
 
     public func configure(
         service: any MeetingSplitServicing,
-        recordingLookup: @escaping @Sendable (UUID) throws -> Transcription? = { _ in nil }
+        recordingLookup: @escaping @Sendable (UUID) throws -> Transcription? = { _ in nil },
+        onChildrenPublished: @escaping @MainActor @Sendable () -> Void = {}
     ) {
         self.service = service
         self.recordingLookup = recordingLookup
+        self.onChildrenPublished = onChildrenPublished
     }
 
     public func present(sourceId: UUID, sourceTitle: String, operationId: UUID? = nil) async {
@@ -88,6 +98,7 @@ public final class MeetingSplitViewModel {
     }
 
     private func present(sourceId: UUID, sourceTitle: String, operationId: UUID?, discoverExisting: Bool) async {
+        presentedSourceId = sourceId
         if isProcessingActive {
             presentationNotice = activeSourceId == sourceId ? nil
                 : "Finish or stop the split for “\(activeSourceTitle)” before starting another."
@@ -186,18 +197,22 @@ public final class MeetingSplitViewModel {
         revalidate()
     }
 
-    public func removeCut(at index: Int) {
+    /// Removes the labeled part and merges its time range into an adjacent
+    /// survivor. The first part merges forward; every other part merges back.
+    public func removePart(at index: Int) {
         guard var state = editing, !isProcessingActive,
-              state.cutPointsMs.count > 1, state.cutPointsMs.indices.contains(index) else { return }
-        for part in state.partTitles.indices where part > index + 1 {
+              state.partTitles.count > 2, state.partTitles.indices.contains(index) else { return }
+
+        for part in state.partTitles.indices where part > index {
             if state.partTitles[part] == "\(state.sourceTitle) — Part \(part + 1)" {
                 state.partTitles[part] = "\(state.sourceTitle) — Part \(part)"
             }
         }
-        state.cutPointsMs.remove(at: index)
-        state.partTitles.remove(at: index + 1)
+        let cutIndex = index == 0 ? 0 : index - 1
+        state.cutPointsMs.remove(at: cutIndex)
+        state.partTitles.remove(at: index)
         editing = state
-        boundaryText.remove(at: index)
+        boundaryText.remove(at: cutIndex)
         revalidate()
     }
 
@@ -294,12 +309,16 @@ public final class MeetingSplitViewModel {
             let callback: @Sendable (MeetingSplitProcessingProgress) -> Void = { [weak self] event in
                 Task { @MainActor in
                     guard let self, self.processingGeneration == generation, self.isProcessingActive else { return }
+                    self.notifyChildrenPublishedIfNeeded(operationId: event.operationId)
                     self.progress = event
                     await self.refreshReceipt(sourceId: sourceId, key: key)
                 }
             }
             do {
                 let result = try await run(callback)
+                if result.status == .committed {
+                    notifyChildrenPublishedIfNeeded(operationId: result.id)
+                }
                 completedOperation = result
                 resumableOperation = nil
                 try await refreshAvailability(result)
@@ -327,6 +346,9 @@ public final class MeetingSplitViewModel {
                 try service.operations(sourceId: sourceId).first { $0.idempotencyKey == key }
             }.value
             guard processingGeneration == generation, let receipt else { return }
+            if receipt.status == .committed {
+                notifyChildrenPublishedIfNeeded(operationId: receipt.id)
+            }
             if completedOperation == nil { resumableOperation = receipt }
             try await refreshAvailability(receipt)
         } catch {
@@ -345,6 +367,11 @@ public final class MeetingSplitViewModel {
         availableChildIds = available
     }
 
+    private func notifyChildrenPublishedIfNeeded(operationId: UUID) {
+        guard notifiedPublishedOperationIds.insert(operationId).inserted else { return }
+        onChildrenPublished()
+    }
+
     public func savedRecording(id: UUID) async throws -> Transcription? {
         let lookup = recordingLookup
         return try await Task.detached { try lookup(id) }.value
@@ -357,7 +384,8 @@ public final class MeetingSplitViewModel {
     }
 
     public func discardPreparing(operationId: UUID) async throws {
-        guard let service, !isProcessingActive, !isExternallyOwned else { return }
+        guard let service, !isProcessingActive, !isExternallyOwned,
+              operation?.id == operationId, operation?.sourceId == presentedSourceId else { return }
         _ = try await Task.detached { try service.discard(operationId: operationId) }.value
         acknowledgeFinishedProcessing()
         editing = nil

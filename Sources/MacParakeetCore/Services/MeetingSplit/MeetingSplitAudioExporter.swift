@@ -346,7 +346,8 @@ public actor MeetingSplitAudioExporter {
     /// Read-only probe of a saved recording's source media: the authoritative
     /// whole-timeline duration (from canonical playback, the same file
     /// `export`'s ranges are measured against), on-disk size summed across
-    /// every present source file, and which optional aligned tracks exist.
+    /// every present source file, and which optional aligned tracks can
+    /// actually be decoded for export.
     /// No writes, no directory or lock creation. Callers that only need to
     /// preview or validate a source (for example the upcoming Core split
     /// service) should use this instead of re-probing source files themselves.
@@ -357,26 +358,56 @@ public actor MeetingSplitAudioExporter {
             try Self.decodedExtent(of: resolved.playbackURL)
         }
         let canonicalIdentity = try identity(of: resolved.playbackURL)
-        let rawMicrophoneIdentity = try resolved.rawMicrophoneURL.map { try identity(of: $0) }
-        let rawSystemIdentity = try resolved.rawSystemURL.map { try identity(of: $0) }
-        let cleanedMicrophoneIdentity = try resolved.cleanedMicrophoneURL.map { try identity(of: $0) }
+        let rawMicrophone = try await inspectOptionalSourceTrack(resolved.rawMicrophoneURL)
+        let rawSystem = try await inspectOptionalSourceTrack(resolved.rawSystemURL)
+        let cleanedMicrophone = try await inspectOptionalSourceTrack(resolved.cleanedMicrophoneURL)
         let totalSizeBytes =
             canonicalIdentity.size
-            + (rawMicrophoneIdentity?.size ?? 0)
-            + (rawSystemIdentity?.size ?? 0)
-            + (cleanedMicrophoneIdentity?.size ?? 0)
+            + (rawMicrophone?.identity.size ?? 0)
+            + (rawSystem?.identity.size ?? 0)
+            + (cleanedMicrophone?.identity.size ?? 0)
         let durationMs = Int((Double(playbackExtent.frameCount) / playbackExtent.sampleRate * 1_000).rounded())
         return MeetingSplitSourceMediaInspection(
             durationMs: durationMs,
             sizeBytes: totalSizeBytes,
-            hasRawMicrophone: resolved.rawMicrophoneURL != nil,
-            hasRawSystem: resolved.rawSystemURL != nil,
-            hasCleanedMicrophone: resolved.cleanedMicrophoneURL != nil,
+            hasRawMicrophone: rawMicrophone?.isExportable == true,
+            hasRawSystem: rawSystem?.isExportable == true,
+            hasCleanedMicrophone: cleanedMicrophone?.isExportable == true,
             canonicalIdentity: .init(sizeBytes: canonicalIdentity.size, modifiedAt: canonicalIdentity.modifiedAt),
-            rawMicrophoneIdentity: rawMicrophoneIdentity.map { .init(sizeBytes: $0.size, modifiedAt: $0.modifiedAt) },
-            rawSystemIdentity: rawSystemIdentity.map { .init(sizeBytes: $0.size, modifiedAt: $0.modifiedAt) },
-            cleanedMicrophoneIdentity: cleanedMicrophoneIdentity.map { .init(sizeBytes: $0.size, modifiedAt: $0.modifiedAt) }
+            rawMicrophoneIdentity: rawMicrophone.map {
+                .init(sizeBytes: $0.identity.size, modifiedAt: $0.identity.modifiedAt)
+            },
+            rawSystemIdentity: rawSystem.map {
+                .init(sizeBytes: $0.identity.size, modifiedAt: $0.identity.modifiedAt)
+            },
+            cleanedMicrophoneIdentity: cleanedMicrophone.map {
+                .init(sizeBytes: $0.identity.size, modifiedAt: $0.identity.modifiedAt)
+            }
         )
+    }
+
+    private struct OptionalSourceMediaInspection {
+        let identity: SourceIdentity
+        let isExportable: Bool
+    }
+
+    /// Records identity for every present optional file so source replacement
+    /// remains detectable, while matching `export`'s rule that a damaged
+    /// optional track is unavailable rather than fatal to the whole source.
+    private func inspectOptionalSourceTrack(_ url: URL?) async throws -> OptionalSourceMediaInspection? {
+        guard let url else { return nil }
+        try Task.checkCancellation()
+        let sourceIdentity = try identity(of: url)
+        do {
+            _ = try await Self.runCancellably {
+                try Self.decodedExtent(of: url)
+            }
+            return OptionalSourceMediaInspection(identity: sourceIdentity, isExportable: true)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            return OptionalSourceMediaInspection(identity: sourceIdentity, isExportable: false)
+        }
     }
 
     // MARK: - Source file resolution (shared by export and inspection)

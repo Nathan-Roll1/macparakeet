@@ -195,9 +195,33 @@ final class MeetingSplitAudioExporterTests: XCTestCase {
         XCTAssertTrue(inspection.hasRawMicrophone)
         XCTAssertTrue(inspection.hasRawSystem)
         XCTAssertTrue(inspection.hasCleanedMicrophone)
+        XCTAssertNotNil(inspection.rawMicrophoneIdentity)
+        XCTAssertNotNil(inspection.rawSystemIdentity)
+        XCTAssertNotNil(inspection.cleanedMicrophoneIdentity)
         XCTAssertGreaterThan(inspection.sizeBytes, 0)
         XCTAssertEqual(
             try sourceHashes(in: fixture.sourceFolderURL), sourceHashesBefore, "inspection must not write anything")
+    }
+
+    func testInspectSourceRetainsCorruptOptionalTrackIdentityAndSizeButReportsItUnavailable() async throws {
+        let folder = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let playbackURL = folder.appendingPathComponent(MeetingArtifactAudioFileNames.playback)
+        try writeToneM4A(to: playbackURL, sampleRate: 48_000, durationMs: 3_000)
+        let rawMicrophoneURL = folder.appendingPathComponent(MeetingArtifactAudioFileNames.rawMicrophone)
+        let corruptAudio = Data("not-audio".utf8)
+        try corruptAudio.write(to: rawMicrophoneURL)
+        let sourceHashesBefore = try sourceHashes(in: folder)
+        let playbackSize = try XCTUnwrap(
+            (FileManager.default.attributesOfItem(atPath: playbackURL.path)[.size] as? NSNumber)?.int64Value)
+
+        let exporter = MeetingSplitAudioExporter()
+        let inspection = try await exporter.inspectSource(sourceFolderURL: folder)
+
+        XCTAssertFalse(inspection.hasRawMicrophone, "preview must match export dropping a corrupt optional track")
+        XCTAssertEqual(inspection.rawMicrophoneIdentity?.sizeBytes, Int64(corruptAudio.count))
+        XCTAssertEqual(inspection.sizeBytes, playbackSize + Int64(corruptAudio.count))
+        XCTAssertEqual(try sourceHashes(in: folder), sourceHashesBefore, "inspection must remain read-only")
     }
 
     func testInspectSourceOnCanonicalOnlySourceReportsNoOptionalTracks() async throws {

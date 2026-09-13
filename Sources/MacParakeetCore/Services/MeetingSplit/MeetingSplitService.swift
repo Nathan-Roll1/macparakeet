@@ -117,6 +117,7 @@ public enum MeetingSplitServiceError: Error, Sendable, Equatable, LocalizedError
     case sourceNotEligible(String)
     case sourceExpiredByRetention
     case titleCountMismatch(expected: Int, actual: Int)
+    case blankTitle(index: Int)
     /// A caller retried an existing idempotency key with a different source,
     /// cuts, titles, or expected identity than the frozen operation. Detected
     /// before the source is ever fetched, so it also fires cleanly after the
@@ -133,6 +134,8 @@ public enum MeetingSplitServiceError: Error, Sendable, Equatable, LocalizedError
             return "This recording's audio has passed the configured retention window and cannot be split."
         case .titleCountMismatch(let expected, let actual):
             return "Expected \(expected) part title(s) for \(expected) cut(s), got \(actual)."
+        case .blankTitle(let index):
+            return "Part \(index + 1) needs a title."
         case .requestConflict(let existingOperationId):
             return "A different split request already exists under this idempotency key (operation \(existingOperationId))."
         }
@@ -235,6 +238,10 @@ extension MeetingSplitServicing {
 }
 
 public final class MeetingSplitService: MeetingSplitServicing, @unchecked Sendable {
+    private struct FrozenDestinationReroute: Error, Sendable {
+        let operation: MeetingSplitOperation
+    }
+
     private let transcriptionRepo: TranscriptionRepositoryProtocol
     private let splitRepo: MeetingSplitRepositoryProtocol
     private let exporter: MeetingSplitAudioExporter
@@ -308,13 +315,25 @@ public final class MeetingSplitService: MeetingSplitServicing, @unchecked Sendab
         // export path's own `try?` fallback.
         let sourceAlignment = (try? MeetingRecordingMetadataStore.load(from: folderURL, fileManager: fileManager))?.sourceAlignment
             ?? MeetingSourceAlignment(meetingOriginHostTime: nil, microphone: nil, system: nil)
-        let hasRawMicrophone = inspection.hasRawMicrophone && sourceAlignment.microphone != nil
-        let hasRawSystem = inspection.hasRawSystem && sourceAlignment.system != nil
+        let hasRawMicrophone = Self.canExportOptionalTrack(
+            inspection.hasRawMicrophone,
+            alignment: sourceAlignment.microphone,
+            timelineDurationMs: inspection.durationMs
+        )
+        let hasRawSystem = Self.canExportOptionalTrack(
+            inspection.hasRawSystem,
+            alignment: sourceAlignment.system,
+            timelineDurationMs: inspection.durationMs
+        )
         // The cleaned mic is rendered 1:1 with the raw mic and shares its
         // alignment (see `finishCreating`'s `alignmentTrack`/`sliceOptionalTrack`
         // calls for the cleaned file), so its usability gates on the same
         // microphone alignment entry, not a separate one of its own.
-        let hasCleanedMicrophone = inspection.hasCleanedMicrophone && sourceAlignment.microphone != nil
+        let hasCleanedMicrophone = Self.canExportOptionalTrack(
+            inspection.hasCleanedMicrophone,
+            alignment: sourceAlignment.microphone,
+            timelineDurationMs: inspection.durationMs
+        )
         return MeetingSplitPreview(
             sourceId: source.id,
             sourceTitle: source.effectiveDisplayTitle,
@@ -325,6 +344,15 @@ public final class MeetingSplitService: MeetingSplitServicing, @unchecked Sendab
             hasCleanedMicrophone: hasCleanedMicrophone,
             sourceIdentity: try Self.encodedIdentity(MeetingSplitSourceIdentity(source: source, inspection: inspection))
         )
+    }
+
+    private static func canExportOptionalTrack(
+        _ isPresentAndDecodable: Bool,
+        alignment: MeetingSourceAlignment.Track?,
+        timelineDurationMs: Int
+    ) -> Bool {
+        guard isPresentAndDecodable, let alignment else { return false }
+        return alignment.startOffsetMs >= 0 && alignment.startOffsetMs < timelineDurationMs
     }
 
     // MARK: Create + process
@@ -355,19 +383,46 @@ public final class MeetingSplitService: MeetingSplitServicing, @unchecked Sendab
         // already exists or is being minted for the first time by this exact
         // call. Keyed by `idempotencyKey`, not an id, so this covers the
         // very first call for a brand new key too.
-        let lease = try MeetingSplitOperationLease.acquire(
-            idempotencyKey: idempotencyKey, meetingRecordingsRootURL: rootURL)
+        var lockedRootURL = rootURL
+        var lease = try MeetingSplitOperationLease.acquire(
+            idempotencyKey: idempotencyKey, meetingRecordingsRootURL: lockedRootURL)
         defer { lease.release() }
 
-        let operation = try await createIfNeeded(
-            idempotencyKey: idempotencyKey,
-            sourceId: sourceId,
-            cutPointsMs: cutPointsMs,
-            titles: titles,
-            expectedSourceIdentity: expectedSourceIdentity,
-            rootURL: rootURL
-        )
-        return try await processAll(operation: operation, onProgress: onProgress)
+        while true {
+            // Re-read after every acquisition. A caller may have frozen this
+            // key under another recordings root after the prior lookup but
+            // before this speculative lease was acquired.
+            if let frozenOperation = try splitRepo.operation(idempotencyKey: idempotencyKey) {
+                let frozenRoot = destinationRoot(for: frozenOperation)
+                if canonicalPath(frozenRoot) != canonicalPath(lockedRootURL) {
+                    lease.release()
+                    lockedRootURL = frozenRoot
+                    lease = try MeetingSplitOperationLease.acquire(
+                        idempotencyKey: idempotencyKey, meetingRecordingsRootURL: lockedRootURL)
+                    continue
+                }
+            }
+
+            do {
+                let operation = try await createIfNeeded(
+                    idempotencyKey: idempotencyKey,
+                    sourceId: sourceId,
+                    cutPointsMs: cutPointsMs,
+                    titles: titles,
+                    expectedSourceIdentity: expectedSourceIdentity,
+                    rootURL: lockedRootURL
+                )
+                return try await processAll(operation: operation, onProgress: onProgress)
+            } catch let reroute as FrozenDestinationReroute {
+                // The row appeared after the post-acquire read. Release the
+                // speculative lock before moving to its immutable frozen root,
+                // then loop so the row is re-read under the correct lock.
+                lease.release()
+                lockedRootURL = destinationRoot(for: reroute.operation)
+                lease = try MeetingSplitOperationLease.acquire(
+                    idempotencyKey: idempotencyKey, meetingRecordingsRootURL: lockedRootURL)
+            }
+        }
     }
 
     @discardableResult
@@ -463,12 +518,16 @@ public final class MeetingSplitService: MeetingSplitServicing, @unchecked Sendab
             ) else {
                 throw MeetingSplitServiceError.requestConflict(existingOperationId: existing.id)
             }
+            let frozenRoot = destinationRoot(for: existing)
+            guard canonicalPath(frozenRoot) == canonicalPath(rootURL) else {
+                throw FrozenDestinationReroute(operation: existing)
+            }
             guard existing.status == .preparing else {
                 // `.committed`: durable retry, no source lookup required.
                 // `.discarded`: returned as-is; `processAll` will reject it.
                 return existing
             }
-            return try await finishCreating(operation: existing, rootURL: rootURL)
+            return try await finishCreating(operation: existing, rootURL: frozenRoot)
         }
 
         let source = try eligibleSource(sourceId: sourceId)
@@ -477,6 +536,11 @@ public final class MeetingSplitService: MeetingSplitServicing, @unchecked Sendab
         let ranges = try MeetingSplitGeometry.ranges(durationMs: inspection.durationMs, cutPointsMs: cutPointsMs)
         guard titles.count == ranges.count else {
             throw MeetingSplitServiceError.titleCountMismatch(expected: ranges.count, actual: titles.count)
+        }
+        if let blankTitleIndex = titles.firstIndex(where: {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }) {
+            throw MeetingSplitServiceError.blankTitle(index: blankTitleIndex)
         }
         if let expectedSourceIdentity {
             guard expectedSourceIdentity == (try Self.encodedIdentity(MeetingSplitSourceIdentity(source: source, inspection: inspection))) else {
@@ -492,7 +556,26 @@ public final class MeetingSplitService: MeetingSplitServicing, @unchecked Sendab
             },
             destinationRootPath: rootURL.path
         )
-        let operation = try splitRepo.begin(idempotencyKey: idempotencyKey, request: request)
+        let operation: MeetingSplitOperation
+        do {
+            operation = try splitRepo.begin(idempotencyKey: idempotencyKey, request: request)
+        } catch MeetingSplitRepositoryError.idempotencyKeyConflict(let existingOperationId) {
+            // A different-root caller may insert the receipt while this caller
+            // is inspecting the source. Rehome a matching request; preserve a
+            // true payload mismatch as the public conflict.
+            guard let concurrent = try splitRepo.operation(idempotencyKey: idempotencyKey),
+                  requestMatches(
+                      concurrent.request,
+                      sourceId: sourceId,
+                      cutPointsMs: cutPointsMs,
+                      titles: titles,
+                      expectedSourceIdentity: expectedSourceIdentity
+                  )
+            else {
+                throw MeetingSplitServiceError.requestConflict(existingOperationId: existingOperationId)
+            }
+            throw FrozenDestinationReroute(operation: concurrent)
+        }
         guard operation.status == .preparing else {
             // Another caller committed this exact key between our lookup
             // above and this `begin` call. Since we hold the operation lease
@@ -502,7 +585,7 @@ public final class MeetingSplitService: MeetingSplitServicing, @unchecked Sendab
             // request equality `begin` itself enforces still applies.
             return operation
         }
-        return try await finishCreating(operation: operation, rootURL: rootURL)
+        return try await finishCreating(operation: operation, rootURL: destinationRoot(for: operation))
     }
 
     /// `true` when `sourceId`/`cutPointsMs`/`titles`/`expectedSourceIdentity`
@@ -728,6 +811,18 @@ public final class MeetingSplitService: MeetingSplitServicing, @unchecked Sendab
             }
 
             do {
+                let folder = try sessionFolderURL(for: child)
+                let childProcessingLease = try MeetingSplitChildProcessingLease.acquire(
+                    childId: childId,
+                    recordingsRootURL: folder.standardizedFileURL.deletingLastPathComponent()
+                )
+                defer { childProcessingLease.release() }
+
+                // Acquisition serializes with deletion. Re-fetch only after
+                // the lease is held so a deletion that won the race can never
+                // be followed by a provider call using this cached snapshot.
+                guard let currentChild = try transcriptionRepo.fetch(id: childId) else { continue }
+                child = currentChild
                 operation = try splitRepo.markChildAutomationStarted(operationId: operation.id, childId: childId, now: Date())
                 emitCurrentStage()
                 let result = try await completionService.completeAutoPrompts(for: child)
@@ -885,6 +980,10 @@ public final class MeetingSplitService: MeetingSplitServicing, @unchecked Sendab
             return URL(fileURLWithPath: path, isDirectory: true)
         }
         return meetingRecordingsRootURL().resolvingSymlinksInPath().standardizedFileURL
+    }
+
+    private func canonicalPath(_ url: URL) -> String {
+        url.resolvingSymlinksInPath().standardizedFileURL.path
     }
 
     private func validateDestinationRoot(_ root: URL, sourceFolder: URL) throws {

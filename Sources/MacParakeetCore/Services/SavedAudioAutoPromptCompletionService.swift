@@ -93,8 +93,9 @@ public final class SavedAudioAutoPromptCompletionService: SavedAudioAutoPromptCo
     private let meetingArtifactStore: MeetingArtifactStoring?
     /// Optional: knowledge-card generation runs alongside auto-prompts in the
     /// GUI's completion path (`PromptResultsViewModel.generateKnowledgeCard`).
-    /// Reused as-is here — fire-and-forget, best effort, never blocks or
-    /// fails prompt completion.
+    /// This saved-audio completion boundary awaits it so callers can retain
+    /// ownership of the transcription through every provider call. Failure is
+    /// still best effort and never fails prompt completion.
     private let cardGenerator: CardGenerating?
     private let fileManager: FileManager
 
@@ -132,10 +133,12 @@ public final class SavedAudioAutoPromptCompletionService: SavedAudioAutoPromptCo
             return SavedAudioAutoPromptCompletionResult()
         }
 
-        // A cancelled caller must not still spawn detached card generation:
-        // that work outlives this call and is not itself cancellable by it.
         try Task.checkCancellation()
-        generateKnowledgeCardIfConfigured(transcriptionId: transcription.id)
+        try await generateKnowledgeCardIfConfigured(transcriptionId: transcription.id)
+        // A generator may return normally after cooperative cancellation
+        // instead of throwing. Do not let the no-auto-prompts branch below
+        // turn that cancelled completion into durable success.
+        try Task.checkCancellation()
 
         let labelIDs = try transcriptionLabelRepository?.labelIDs(for: transcription.id) ?? []
         let visiblePrompts = try promptRepo.fetchVisible(category: .result)
@@ -238,10 +241,15 @@ public final class SavedAudioAutoPromptCompletionService: SavedAudioAutoPromptCo
         return TranscriptAIContextFormatter.format(projection: projection)
     }
 
-    private func generateKnowledgeCardIfConfigured(transcriptionId: UUID) {
+    private func generateKnowledgeCardIfConfigured(transcriptionId: UUID) async throws {
         guard let cardGenerator else { return }
-        Task.detached(priority: .utility) {
-            _ = try? await cardGenerator.generate(transcriptionId: transcriptionId, force: false)
+        do {
+            _ = try await cardGenerator.generate(transcriptionId: transcriptionId, force: false)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            // Knowledge cards remain best effort. Prompt completion owns
+            // cancellation, but an ordinary card failure is repairable later.
         }
     }
 

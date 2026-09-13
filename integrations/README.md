@@ -634,7 +634,8 @@ macparakeet-cli meetings split discard <operation-id> --json
 processes them sequentially in one call; it is safe to repeat with identical
 arguments after an interruption at any point — the same parts and progress
 are reused, never duplicated — and accepts `--dry-run` to print the preview
-instead. Both `create` and `status --source` accept an exact source UUID even
+instead. Every `--title` must contain non-whitespace text. Both `create` and
+`status --source` accept an exact source UUID even
 after that recording has been deleted, for retrying/discovering a committed
 split. `status --source` finds every split operation recorded for a meeting,
 which matters if a process died before returning an operation id. `resume`

@@ -186,11 +186,7 @@ struct MeetingSplitSheetView: View {
             .accessibilityLabel("Title for part \(index + 1)")
             if editing.partTitles.count > 2 {
                 Button {
-                    if index < editing.cutPointsMs.count {
-                        viewModel.removeCut(at: index)
-                    } else {
-                        viewModel.removeCut(at: index - 1)
-                    }
+                    viewModel.removePart(at: index)
                 } label: {
                     Image(systemName: "minus.circle")
                 }

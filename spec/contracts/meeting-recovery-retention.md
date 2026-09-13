@@ -303,12 +303,20 @@ substituted for, `recording.lock`.
 - `recording.lock` barriers are unchanged: `assertMeetingFolderUnlocked` still
   refuses a locked session folder regardless of this lease's state, and this
   lease never substitutes for that check.
-- GUI (`SettingsViewModel`, `TranscriptionViewModel`, `TranscriptionLibraryViewModel`,
-  `TranscriptionDeletionCleanup`) and the CLI `HistoryCommand` still call the
-  pre-existing unlocked entry points as of this change; migrating those call
-  sites to `deleteTranscription`/`clearManagedMeetingAudio` so every caller
-  inherits the combined-phase protection is follow-up work for whoever wires
-  the split feature's shared completion/CLI integration, not this foundation.
+- Production GUI and CLI full-row deletion paths use
+  `TranscriptionDeletionCoordinator.delete`, which holds this lease across
+  asset removal and row deletion. Settings and CLI `history
+  clear-meeting-audio` both use `clearManagedMeetingAudio`, which holds one
+  lease across bulk file removal and stored-path detachment. The narrow
+  `TranscriptionDeletionCleanup` adapter remains file-removal-only by design;
+  it is not a production full-row deletion sequence.
+- Split children add a second, narrower `MeetingSplitChildProcessingLease`
+  keyed by child ID under the stable recordings root. Full deletion acquires
+  this media-root lease first and then the child lease. Split completion
+  automation acquires only the child lease across provider work, so a provider
+  cannot start from a stale cached transcript after deletion succeeds and a
+  successful deletion cannot overlap in-flight provider work. Non-split rows
+  never acquire the child lease.
 - Older MacParakeet builds that predate this lease do not create or respect
   `.meeting-media-mutation.lock`. A split running only on a build with this
   lease is protected against *this build's* mutators; it offers no
@@ -378,6 +386,11 @@ actually runs both its file and row phases together, that the pre-existing
 `recording.lock` barrier still refuses a locked folder independent of this
 lease, and that a non-meeting delete never needs or touches an unrelated
 meeting root's lease.
+`MeetingSplitChildProcessingLeaseTests` pin same-child exclusion, independent
+child concurrency, symlink refusal, real cross-process exclusion and release
+after forced holder-process death. The split service integration coverage pins
+that deletion reports busy during a child's prompt and knowledge-card provider
+calls and succeeds after that work settles.
 
 ## When this changes
 

@@ -32,6 +32,16 @@ final class MeetingSplitCommandTests: XCTestCase {
         }
     }
 
+    func testCreateRejectsWhitespaceOnlyTitle() {
+        XCTAssertThrowsError(
+            try MeetingsCommand.SplitSubcommand.CreateSubcommand.parse([
+                "some-meeting", "--cut", "1000", "--title", "A", "--title", "  \t",
+            ])
+        ) { error in
+            XCTAssertTrue(String(describing: error).contains("non-whitespace"), String(describing: error))
+        }
+    }
+
     func testCreateDryRunAllowsOmittedTitles() throws {
         let command = try MeetingsCommand.SplitSubcommand.CreateSubcommand.parse([
             "some-meeting", "--cut", "1000", "--dry-run",

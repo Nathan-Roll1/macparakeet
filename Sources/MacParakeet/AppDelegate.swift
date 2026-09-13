@@ -561,7 +561,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         meetingSplitViewModel.configure(
             service: env.meetingSplitService,
-            recordingLookup: { [repository = env.transcriptionRepo] id in try repository.fetch(id: id) }
+            recordingLookup: { [repository = env.transcriptionRepo] id in try repository.fetch(id: id) },
+            onChildrenPublished: { [weak self] in
+                self?.libraryViewModel.loadTranscriptions()
+                self?.meetingsWorkspaceViewModel.refreshRecentMeetings()
+            }
         )
 
         let runtime = environmentConfigurer.configure(

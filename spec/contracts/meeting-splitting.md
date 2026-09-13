@@ -45,6 +45,9 @@ Callers do not sequence filesystem and database mutations themselves.
   summaries where configured, using existing selection/provider/result paths.
   Disabled automation remains disabled. This permits generating new derived
   content; it does not permit copying the parent's derived content.
+- Await best-effort knowledge-card generation inside this completion boundary
+  so the per-child processing lease covers that provider call too. A card
+  failure still does not fail otherwise successful prompt completion.
 - Reuse existing processing code pragmatically. Its current internal
   `retranscribe` method name does not mean a child already has a transcript or
   that the original should be processed. Prefer clear saved-audio naming at
@@ -63,6 +66,12 @@ Callers do not sequence filesystem and database mutations themselves.
 - Retry must not unnecessarily repeat completed automation. Do not promise
   exactly-once external side effects where the existing provider/hook cannot
   establish it. Surface uncertain delivery rather than silently duplicating it.
+- Completion automation acquires a narrow per-child processing lease before it
+  re-fetches the child and holds that lease through every provider call and the
+  resulting durable stage update. Deletion acquires the same lease after its
+  media-root lease. A deletion that finishes first prevents automation from
+  starting with a stale transcript; automation that starts first makes deletion
+  fail busy until the provider work settles.
 
 ## Retention, privacy and presentation
 
@@ -148,6 +157,10 @@ preview|create|status|resume|discard` CLI subcommands
 (`Sources/CLI/Commands/MeetingSplitCommand.swift`) call exactly this API; a
 native UI would call the same one.
 
+- **Part titles.** Creation requires one nonempty, non-whitespace title per
+  resulting child at the shared Core boundary. The CLI rejects the same input
+  during argument validation for an immediate actionable error.
+
 - **Idempotency lookup before touching the source.** `createAndProcess`
   compares the caller's `sourceId`/`cutPointsMs`/`titles`/
   `expectedSourceIdentity` against any existing operation for
@@ -165,7 +178,12 @@ native UI would call the same one.
 - **Stable destinations.** The receipt freezes `destinationRootPath`.
   Resume, ownership and discard use that root even if the configured folder
   changes. Processing reads each child's persisted path. A destination
-  inside the original is refused before creating any lock or output.
+  inside the original is refused before creating any lock or output. If a
+  first unlocked idempotency lookup misses but a later post-lease lookup finds
+  a receipt frozen by another caller under a different configured root, the
+  speculative root lease is released and the caller reacquires the operation
+  lease under the receipt's frozen root before export or publication. Every
+  `finishCreating` call derives its destination from that durable receipt.
 - **Operation ownership.** `MeetingSplitOperationLease`
   (`MeetingSplitOperationLease.swift`) is a nonblocking, per-`idempotencyKey`
   kernel `flock`, entirely separate from `MeetingMediaMutationLease`'s lock
@@ -227,6 +245,17 @@ native UI would call the same one.
   marks them `.failed` with that same error's message — a real fault is never
   relabeled as a deliberate stop — and the original error always propagates
   to the caller regardless.
+- **Deletion-safe automation.** `MeetingSplitChildProcessingLease` is a
+  nonblocking `flock` keyed by child ID under the stable recordings root's
+  `.meeting-split-child-processing-locks` directory, never inside the child
+  folder that deletion removes. The lock file is opened with `O_NOFOLLOW` and
+  verified as regular. Automation holds this child lease across provider work,
+  so it does not block cleanup of unrelated meetings. Its final best-effort
+  artifact refresh may also attempt the media-root lease nonblockingly and skips
+  the refresh if unavailable. Full deletion takes the media-root lease first and
+  then attempts this child lease nonblockingly; neither path waits while holding
+  the other lease, so there is no deadlock. Non-split rows retain their existing
+  deletion path and never create this lock.
 - **CLI specifics.** `create --dry-run` uses the same read-only,
   non-migrating `DatabaseManager(readOnlyPath:)` as `preview`, for the entire
   dry-run branch. Preview does not construct STT/LLM services or migrate

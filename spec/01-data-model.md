@@ -1108,6 +1108,7 @@ struct Transcription: Codable, Identifiable {
     var titleOverride: String?          // v0.26 — User-authored non-meeting display title override
     var derivedTitle: String?           // v0.9 — Semantic title derived from transcript text
     var derivedSnippet: String?         // v0.9 — Display preview snippet derived from transcript text
+    var splitProvenance: MeetingSplitProvenance? // v0.42 — Split child provenance; nil otherwise
     var updatedAt: Date
 
     struct WordTimestamp: Codable {

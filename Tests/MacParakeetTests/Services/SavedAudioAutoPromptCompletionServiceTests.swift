@@ -233,13 +233,52 @@ final class SavedAudioAutoPromptCompletionServiceTests: XCTestCase {
 
         _ = try await service.completeAutoPrompts(for: child)
 
-        var recordedIDs: [UUID] = []
-        for _ in 0..<20 {
-            recordedIDs = await cardGenerator.transcriptionIDs
-            if !recordedIDs.isEmpty { break }
-            try? await Task.sleep(for: .milliseconds(10))
-        }
+        let recordedIDs = await cardGenerator.transcriptionIDs
         XCTAssertEqual(recordedIDs, [child.id])
+    }
+
+    func testCompletionDoesNotReturnWhileKnowledgeCardProviderIsRunning() async throws {
+        promptRepo.prompts = [Prompt(name: "Summary", content: "Summarize", isAutoRun: false)]
+        let child = makeChild()
+        let cardGenerator = BlockingCardGenerator()
+        let completionProbe = CompletionProbe()
+        let service = makeService(cardGenerator: cardGenerator)
+
+        let completion = Task {
+            let result = try await service.completeAutoPrompts(for: child)
+            await completionProbe.markCompleted()
+            return result
+        }
+        await cardGenerator.waitUntilStarted()
+        await Task.yield()
+
+        let completedWhileProviderWasBlocked = await completionProbe.didComplete
+        XCTAssertFalse(completedWhileProviderWasBlocked)
+
+        await cardGenerator.release()
+        _ = try await completion.value
+        let providerDidFinish = await cardGenerator.didFinish
+        XCTAssertTrue(providerDidFinish)
+    }
+
+    func testCancellationDuringKnowledgeCardGenerationPropagatesWithoutAutoPrompts() async throws {
+        promptRepo.prompts = [Prompt(name: "Summary", content: "Summarize", isAutoRun: false)]
+        let cardGenerator = BlockingCardGenerator()
+        let service = makeService(cardGenerator: cardGenerator)
+        let completion = Task {
+            try await service.completeAutoPrompts(for: makeChild())
+        }
+        await cardGenerator.waitUntilStarted()
+
+        completion.cancel()
+        await cardGenerator.release()
+
+        do {
+            _ = try await completion.value
+            XCTFail("expected cancellation to propagate after card generation settles")
+        } catch is CancellationError {
+            // expected
+        }
     }
 
     func testWithoutInjectedCardGeneratorNoCardGenerationIsAttempted() async throws {
@@ -309,6 +348,44 @@ private actor RecordingCardGenerator: CardGenerating {
     func generate(transcriptionId: UUID, force _: Bool) async throws -> CardGenerationOutcome {
         transcriptionIDs.append(transcriptionId)
         return CardGenerationOutcome(card: nil, usage: nil, wasSkipped: true)
+    }
+}
+
+private actor BlockingCardGenerator: CardGenerating {
+    private var startedContinuation: CheckedContinuation<Void, Never>?
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+    private var started = false
+    private var released = false
+    private(set) var didFinish = false
+
+    func waitUntilStarted() async {
+        guard !started else { return }
+        await withCheckedContinuation { startedContinuation = $0 }
+    }
+
+    func release() {
+        released = true
+        releaseContinuation?.resume()
+        releaseContinuation = nil
+    }
+
+    func generate(transcriptionId _: UUID, force _: Bool) async throws -> CardGenerationOutcome {
+        started = true
+        startedContinuation?.resume()
+        startedContinuation = nil
+        if !released {
+            await withCheckedContinuation { releaseContinuation = $0 }
+        }
+        didFinish = true
+        return CardGenerationOutcome(card: nil, usage: nil, wasSkipped: true)
+    }
+}
+
+private actor CompletionProbe {
+    private(set) var didComplete = false
+
+    func markCompleted() {
+        didComplete = true
     }
 }
 

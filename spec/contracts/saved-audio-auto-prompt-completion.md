@@ -64,8 +64,9 @@ retention. Callers own those effects.
 - `meetingArtifactStore` (if configured) is refreshed once after the loop
   using the final saved `PromptResult`s; a refresh failure is logged and
   never un-saves a successful `PromptResult`.
-- `cardGenerator` (if configured) runs best-effort and detached; its
-  failure or absence never blocks or fails prompt completion.
+- `cardGenerator` (if configured) runs best-effort and is awaited so callers
+  retain ownership through its provider call. Its ordinary failure or absence
+  never fails prompt completion; cancellation still propagates.
 
 ## Non-stable fields
 
@@ -96,8 +97,8 @@ implementation now calls into the shared `PromptAutoRunSelector`.
   invoke it explicitly; re-deriving "did transcription succeed" from this
   service's output is out of scope here.
 - Knowledge-card generation reuses `CardGenerating.generate(transcriptionId:force:)`
-  as-is (fire-and-forget); this service adds no new observability for
-  whether that background generation actually completed.
+  as-is and awaits its completion. The result remains best effort and is not
+  represented in `SavedAudioAutoPromptCompletionResult`.
 
 ## Tests that enforce this
 
@@ -112,6 +113,8 @@ implementation now calls into the shared `PromptAutoRunSelector`.
 - `testSuccessfulPriorPromptRetainedWhenALaterPromptFails`
 - `testExistingParentPromptResultIsNeverConsideredForTheChild`
 - `testInjectedCardGeneratorIsInvokedForConfiguredMeeting`
+- `testCompletionDoesNotReturnWhileKnowledgeCardProviderIsRunning`
+- `testCancellationDuringKnowledgeCardGenerationPropagatesWithoutAutoPrompts`
 - `testWithoutInjectedCardGeneratorNoCardGenerationIsAttempted`
 - `testInjectedMeetingArtifactStoreIsRefreshedAfterCompletion`
 

@@ -141,6 +141,9 @@ extension MeetingsCommand.SplitSubcommand {
             guard dryRun || title.count == cut.count + 1 else {
                 throw ValidationError("--title must be supplied exactly cuts.count + 1 times.")
             }
+            guard dryRun || title.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
+                throw ValidationError("Every --title must contain non-whitespace text.")
+            }
         }
 
         func run() async throws {
