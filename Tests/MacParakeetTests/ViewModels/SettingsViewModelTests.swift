@@ -1934,6 +1934,15 @@ final class SettingsViewModelTests: XCTestCase {
         XCTAssertEqual(mockTranscriptionRepo.transcriptions.first?.filePath, meeting.filePath)
     }
 
+    func testClearMeetingAudioReportsUnavailableTranscriptionStorage() {
+        viewModel.clearMeetingAudio()
+
+        XCTAssertEqual(
+            viewModel.storageCleanupError,
+            "Could not clear meeting audio: transcription storage is unavailable."
+        )
+    }
+
     func testClearMeetingAudioRefusesWhileMeetingRecordingActive() throws {
         let folder = meetingRecordingsTestDir.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

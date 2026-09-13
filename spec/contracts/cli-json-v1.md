@@ -62,6 +62,12 @@ with human progress/status kept off stdout.
   `Transcription` object. It is zero-based and non-null only when a local-file
   audio stream was selected explicitly; this additive field does not change
   stdout/stderr or envelope shapes.
+- Transcription-shaped JSON payloads include nullable `splitProvenance`. It is
+  non-null only for a saved child created by Split and transcribe, with
+  `operationId`, `sourceId`, the snapshotted `sourceTitle`, approved
+  `approvedStartMs`/`approvedEndMs`, zero-based `ordinal`, and ISO-8601
+  `splitCreatedAt`. The provenance is historical and remains valid when the
+  source row, operation receipt, or a sibling is later deleted.
 - `cards list --json` returns an array; `--ndjson` returns the same card objects
   one compact object per line. Each object has exactly `transcriptionId`,
   `title`, `date`, nullable `durationMs`, `source`, nullable `attendees`, the
@@ -270,6 +276,29 @@ with human progress/status kept off stdout.
   restore-deleted`, `prompts collections`, `meetings types`, `meetings labels`,
   `meetings classify`, and meeting list classification filters. Classification
   names and prompt content are local user data and never become telemetry dimensions.
+
+## Split operation payloads
+
+`meetings split preview --json` (and `create --dry-run --json`) returns
+`sourceId`, `sourceTitle`, `totalDurationMs`, ordered `ranges` with `startMs`
+and `endMs`, track-presence Booleans, and an opaque `sourceIdentity` string.
+Pass that string unchanged to `create --expected-identity`. Preview, dry-run
+and status use a read-only database connection without migrations.
+
+`create`, `resume`, `discard`, and `status` return a `MeetingSplitOperation`;
+`status --source` returns an array. Its `id`, `idempotencyKey`, `sourceId`,
+frozen `request`, ordered `childIds`, `status`, timestamps and `childProgress`
+describe durable creation and processing separately. Progress entries carry
+`childId`, `stage`, `outcome`, optional `errorMessage`, and `updatedAt`.
+Operation `committed` means all recordings were saved, not that transcription
+succeeded. Any failed child causes exit 1 after emitting the complete receipt,
+without a second failure envelope. Deleted children may remain in the
+historical receipt and are never recreated.
+
+See [Split and transcribe](meeting-splitting.md) for stage values, ownership,
+retry and original-preservation semantics. These are additive v1 commands;
+progress stays on stderr. The default creation key uses canonical sorted JSON
+so identical source/cuts/titles remain idempotent across CLI processes.
 
 ## Failure Envelope
 
