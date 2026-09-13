@@ -370,7 +370,10 @@ struct MeetingSplitSheetView: View {
             .parakeetAction(.secondary)
             .keyboardShortcut(.cancelAction)
 
-            if viewModel.operation?.status == .preparing, !viewModel.isProcessingActive, !viewModel.isExternallyOwned {
+            if viewModel.operation?.status == .preparing,
+               !viewModel.isProcessingActive,
+               !viewModel.isExternallyOwned,
+               viewModel.canContinue {
                 Button("Discard unfinished split…") { isConfirmingDiscard = true }
                     .parakeetAction(.subtle)
             }

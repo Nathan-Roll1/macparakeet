@@ -395,7 +395,12 @@ final class HistoryCommandTests: XCTestCase {
             "--meeting-recordings-directory", meetingRoot.path,
         ])
 
-        XCTAssertThrowsError(try command.run())
+        XCTAssertThrowsError(try command.run()) { error in
+            guard case MeetingMediaMutationLease.AcquisitionError.busy(let busyRoot) = error else {
+                return XCTFail("expected a busy media mutation lease, got \(error)")
+            }
+            XCTAssertEqual(busyRoot, meetingRoot.resolvingSymlinksInPath().standardizedFileURL.path)
+        }
         XCTAssertTrue(FileManager.default.fileExists(atPath: audioURL.path))
         XCTAssertEqual(try repo.fetch(id: meeting.id)?.filePath, audioURL.path)
     }
