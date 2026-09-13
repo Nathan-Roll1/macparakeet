@@ -52,6 +52,34 @@ User triggers dictation
     → Clean up temp WAV (if storage disabled)
 ```
 
+### Shared microphone lifecycle diagnostics
+
+`AudioEngineLifecycleDiagnostics` observes engine start, idle preparation,
+recovery attempts, and stop for both dictation and meeting consumers. An
+independent utility timer can snapshot the last entered boundary while the
+platform queue or a native audio call remains blocked. Start/prepare/stop
+observers begin before queue admission; recovery timing starts with the current
+restart attempt and excludes its previously scheduled backoff.
+
+Each lifecycle can publish one `audio_engine_lifecycle` slow checkpoint after
+five seconds, then one terminal snapshot if the call returns. Start/recovery
+always publish terminal outcomes; prepare/stop publish only when slow,
+including failures. If a slow call returns before its timer runs, it publishes
+only a terminal with `was_slow=true`. This observes lifecycle progress without
+changing routing, capture, cancellation, or the existing readiness/recovery
+controls. Five seconds is an observation threshold, not a hard native timeout.
+The existing first-buffer deadline begins after native start returns; it cannot
+interrupt a native call that remains blocked during setup or start.
+
+The local record and optional telemetry event share a fresh lifecycle
+`attempt_id`, monotonic phase timings, finite route categories, and classified
+errors. That ID covers engine fallback attempts and does not identify a meeting
+or product operation. Both sinks are asynchronous and best effort; a missing
+terminal remains unknown, and an entered phase does not establish a native root
+cause. No audio render callback performs this diagnostic work. Exact fields,
+suppression, and the required server-first rollout are defined in the
+[telemetry contract](contracts/telemetry-v1.md#microphone-engine-lifecycle-observation).
+
 ---
 
 ## File Input (Transcription)
@@ -291,6 +319,7 @@ is the artifact and sidecar contract.
 |-----------|---------|
 | `SystemAudioStream` | ScreenCaptureKit system-audio wrapper - creates an audio-only `SCStream`, adapts `CMSampleBuffer` to `AVAudioPCMBuffer`, and maps first-buffer, heartbeat, and unexpected delegate stops into typed lifecycle failures |
 | `SharedMicrophoneStream` | Process-wide microphone engine owner, VPIO arbiter, synchronous buffer fan-out, source-owned startup readiness/device fallback, and terminal engine-death propagation after bounded configuration-change, callback-stall, or Bluetooth zero-filled recovery is exhausted |
+| `AudioEngineLifecycleDiagnostics` | Independent, bounded shared-microphone phase observations for the local log and optional telemetry; no capture control or product-operation counting |
 | `MicrophoneCapture` | Meeting mic subscriber with explicit mic-processing policy, effective-mode reporting, awaited teardown, and typed stall propagation |
 | `MeetingAudioCaptureService` | Actor combining the selected source stream(s) into `AsyncStream<MeetingAudioCaptureEvent>`; owns bounded fresh-instance system recovery, coalesces duplicate failures, and lets Stop invalidate every retry generation |
 | `CaptureOrchestrator` | Owns ingest/join/offset/chunk flow for live preview |
