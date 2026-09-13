@@ -35,7 +35,8 @@ Each contract document should include:
 
 ## Current Contracts
 
-- [Split and Transcribe](meeting-splitting.md) — approved design; implementation pending
+- [Split and Transcribe](meeting-splitting.md) — implemented shared Core, native app, and public CLI lifecycle
+- [Saved-Audio Auto-Prompt Completion](saved-audio-auto-prompt-completion.md)
 
 - [Meeting Artifacts v1](meeting-artifacts-v1.md)
 - [Meeting Recovery and Retention Safety](meeting-recovery-retention.md)

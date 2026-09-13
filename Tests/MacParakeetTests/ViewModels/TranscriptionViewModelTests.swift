@@ -900,10 +900,7 @@ final class TranscriptionViewModelTests: XCTestCase {
         defaults.set(false, forKey: UserDefaultsAppRuntimePreferences.saveMeetingAudioKey)
         viewModel = TranscriptionViewModel(defaults: defaults)
 
-        try AppPaths.ensureDirectories()
-        let folder = URL(fileURLWithPath: AppPaths.meetingRecordingsDir, isDirectory: true)
-            .appendingPathComponent("vm-meeting-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let folder = try makeTemporaryManagedMeetingFolder()
         let audioURL = folder.appendingPathComponent("meeting-playback.m4a")
         let notesURL = folder.appendingPathComponent("notes.md")
         XCTAssertTrue(FileManager.default.createFile(atPath: audioURL.path, contents: Data("audio".utf8)))
@@ -1007,10 +1004,7 @@ final class TranscriptionViewModelTests: XCTestCase {
         defaults.set(false, forKey: UserDefaultsAppRuntimePreferences.saveMeetingAudioKey)
         viewModel = TranscriptionViewModel(defaults: defaults)
 
-        try AppPaths.ensureDirectories()
-        let folder = URL(fileURLWithPath: AppPaths.meetingRecordingsDir, isDirectory: true)
-            .appendingPathComponent("vm-recovered-meeting-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let folder = try makeTemporaryManagedMeetingFolder()
         let audioURL = folder.appendingPathComponent("meeting-playback.m4a")
         XCTAssertTrue(FileManager.default.createFile(atPath: audioURL.path, contents: Data("audio".utf8)))
         defer { try? FileManager.default.removeItem(at: folder) }

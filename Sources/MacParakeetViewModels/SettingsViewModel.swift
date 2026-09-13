@@ -1700,22 +1700,22 @@ public final class SettingsViewModel {
             return
         }
 
-        do {
-            try fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
-            try TranscriptionAssetCleanup.removeManagedMeetingAudioFiles(under: dir, fileManager: fm)
-        } catch {
-            logger.error("Failed to clear meeting audio files error=\(error.localizedDescription, privacy: .public)")
-            storageCleanupError = "Could not clear meeting audio: \(error.localizedDescription)"
+        guard let repo = transcriptionRepo else {
+            storageCleanupError = "Could not clear meeting audio: transcription storage is unavailable."
             refreshStats()
             refreshPendingMeetingRecoveries()
             return
         }
 
         do {
-            try transcriptionRepo?.clearStoredAudioPathsForMeetingTranscriptions(under: dir)
+            try fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
+            try TranscriptionAssetCleanup.clearManagedMeetingAudio(under: dir, repository: repo, fileManager: fm)
         } catch {
-            logger.error("Failed to clear stored meeting audio paths error=\(error.localizedDescription, privacy: .public)")
-            storageCleanupError = "Could not detach meeting audio from transcripts: \(error.localizedDescription)"
+            logger.error("Failed to clear meeting audio error=\(error.localizedDescription, privacy: .public)")
+            storageCleanupError = "Could not clear meeting audio: \(error.localizedDescription)"
+            refreshStats()
+            refreshPendingMeetingRecoveries()
+            return
         }
         refreshStats()
         refreshPendingMeetingRecoveries()
