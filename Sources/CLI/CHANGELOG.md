@@ -89,6 +89,14 @@ by checking exit code first: `2` = misuse, `1` = runtime, `0` = success.
 
 ## [Unreleased]
 
+### Changed
+
+- `transcribe` and `retranscribe` still use the same `--speaker-count` /
+  `--speaker-min` / `--speaker-max` flags and JSON speaker fields. The engines
+  now run FluidAudio 0.15.7. Exact / max caps are held against both cluster
+  censuses (FluidAudio #891). Flags, defaults, and JSON schema are unchanged.
+  Auto speaker detection is unchanged and still not an exact count.
+
 ## [4.0.0] — 2026-09-07
 
 ### Added

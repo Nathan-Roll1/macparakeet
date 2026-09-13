@@ -1447,7 +1447,7 @@ are unaffected.
 **Technical notes:**
 - Uses FluidAudio's offline diarization pipeline (separate from ASR, see ADR-010)
 - Three-stage pipeline: pyannote community-1 (segmentation) + WeSpeaker v2 (embeddings) + VBx (clustering)
-- Current source pins FluidAudio 0.15.6 and uses `DiarizationService.highAccuracyConfig`. Older DER figures predate clustering fixes and are not a quality measurement of this build; see ADR-010's 2026-09-06 amendment.
+- Current source pins FluidAudio 0.15.7 and uses `DiarizationService.highAccuracyConfig`. Older DER figures predate clustering fixes and are not a quality measurement of this build; see ADR-010.
 - ~130 MB additional model download (one-time, cached alongside ASR models)
 - Runs after ASR completes, merges speaker segments with word-level timestamps by time overlap
 - Diarization is non-fatal — if it fails, ASR result is still persisted without speaker data
