@@ -295,7 +295,7 @@ Package requirements below describe this audited revision; `Package.swift` and
 
 | Dependency | Requirement and use |
 |---|---|
-| FluidAudio | Exact `0.15.6`; local STT and offline diarization. Deliberate upgrades require speech/diarization validation. |
+| FluidAudio | Exact `0.15.7`; local STT and offline diarization. Deliberate upgrades require speech/diarization validation. |
 | GRDB.swift | From `7.0.0`; database access and migrations. |
 | swift-argument-parser | From `1.3.0`; public CLI. |
 | Sparkle | From `2.9.0`; app updates and embedded framework packaging. |
