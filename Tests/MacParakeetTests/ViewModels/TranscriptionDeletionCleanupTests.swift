@@ -211,9 +211,19 @@ final class TranscriptionDeletionCleanupTests: XCTestCase {
     }
 
     func testMeetingDeletionRemovesArtifactFolderAfterAudioWasDetached() throws {
-        let folderURL = URL(fileURLWithPath: AppPaths.meetingRecordingsDir, isDirectory: true)
+        let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let folderURL = rootURL.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        try MeetingRecordingMetadataStore.save(
+            MeetingRecordingMetadata(sourceAlignment: MeetingSourceAlignment(
+                meetingOriginHostTime: nil,
+                microphone: nil,
+                system: nil
+            )),
+            folderURL: folderURL
+        )
         try Data("notes".utf8).write(to: folderURL.appendingPathComponent("notes.md"))
 
         let transcription = Transcription(

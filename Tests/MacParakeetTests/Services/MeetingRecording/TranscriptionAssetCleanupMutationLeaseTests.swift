@@ -13,9 +13,19 @@ final class TranscriptionAssetCleanupMutationLeaseTests: XCTestCase {
     }
 
     private func makeMeetingFolder() throws -> URL {
-        let folderURL = URL(fileURLWithPath: AppPaths.meetingRecordingsDir, isDirectory: true)
+        let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let folderURL = rootURL.appendingPathComponent("session", isDirectory: true)
         try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+        try MeetingRecordingMetadataStore.save(
+            MeetingRecordingMetadata(sourceAlignment: MeetingSourceAlignment(
+                meetingOriginHostTime: nil,
+                microphone: nil,
+                system: nil
+            )),
+            folderURL: folderURL
+        )
+        addTeardownBlock { try? FileManager.default.removeItem(at: rootURL) }
         return folderURL
     }
 
