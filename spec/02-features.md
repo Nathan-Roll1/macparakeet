@@ -2013,6 +2013,7 @@ These are implemented in source; release availability follows the
 | Local retrieval | Segment FTS search, bounded cited context and validated knowledge cards for file/URL/meeting transcripts; dictation history search remains separate. | [Integration guide](../integrations/README.md) |
 | Vocabulary cleanup | Confirmed deletion of selected rules, including all search matches, without rewriting existing transcripts. | [Deletion contract](contracts/custom-word-deletion.md) |
 | DAPT export | Timed speaker-attributed events when aligned; untimed fallback otherwise. | [DAPT contract](contracts/dapt-export-v1.md) |
+| Split and transcribe | User-approved cuts create independently owned saved meetings while preserving the original; sequential transcription and enabled completion can continue or resume from durable receipts in the app and public CLI. | [Split contract](contracts/meeting-splitting.md) |
 
 These do not enable activity-based meeting detection, app-aware AI Formatter
 profiles or public in-process MLX. Corpus-wide Ask and cross-file speaker

@@ -727,6 +727,10 @@ public final class MeetingSplitService: MeetingSplitServicing, @unchecked Sendab
             let isCancellation = error is CancellationError
             for progress in operation.childProgress
             where progress.stage != .automationCompleted && progress.outcome == .none {
+                // A committed child may have been deleted while processing.
+                // Its historical receipt stays untouched instead of being
+                // relabeled as failed or cancelled by an unrelated sibling.
+                guard (try? transcriptionRepo.fetch(id: progress.childId)) != nil else { continue }
                 if isCancellation {
                     _ = try? splitRepo.markChildCancelled(operationId: operation.id, childId: progress.childId, now: Date())
                 } else {

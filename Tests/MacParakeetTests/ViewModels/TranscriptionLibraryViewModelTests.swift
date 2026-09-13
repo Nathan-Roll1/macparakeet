@@ -1127,10 +1127,7 @@ final class TranscriptionLibraryViewModelTests: XCTestCase {
     }
 
     func testDeleteMeetingAudioKeepsTranscriptionAndClearsFilePath() async throws {
-        try AppPaths.ensureDirectories()
-        let folder = URL(fileURLWithPath: AppPaths.meetingRecordingsDir, isDirectory: true)
-            .appendingPathComponent("library-meeting-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let folder = try makeTemporaryManagedMeetingFolder()
         let audioURL = folder.appendingPathComponent("meeting-playback.m4a")
         let microphoneURL = folder.appendingPathComponent("microphone-raw.m4a")
         let notesURL = folder.appendingPathComponent("notes.md")
@@ -1163,10 +1160,7 @@ final class TranscriptionLibraryViewModelTests: XCTestCase {
     }
 
     func testDeleteMeetingAudioRefusesProcessingMeeting() async throws {
-        try AppPaths.ensureDirectories()
-        let folder = URL(fileURLWithPath: AppPaths.meetingRecordingsDir, isDirectory: true)
-            .appendingPathComponent("library-processing-meeting-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let folder = try makeTemporaryManagedMeetingFolder()
         let audioURL = folder.appendingPathComponent("meeting-playback.m4a")
         let microphoneURL = folder.appendingPathComponent("microphone-raw.m4a")
         XCTAssertTrue(FileManager.default.createFile(atPath: audioURL.path, contents: Data("audio".utf8)))
@@ -1338,10 +1332,7 @@ final class TranscriptionLibraryViewModelTests: XCTestCase {
     }
 
     func testBulkDeleteAudioOnlyClearsMeetingAudioAndSkipsIneligibleSelection() async throws {
-        try AppPaths.ensureDirectories()
-        let folder = URL(fileURLWithPath: AppPaths.meetingRecordingsDir, isDirectory: true)
-            .appendingPathComponent("library-bulk-meeting-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let folder = try makeTemporaryManagedMeetingFolder()
         let audioURL = folder.appendingPathComponent("meeting-playback.m4a")
         let systemURL = folder.appendingPathComponent("system-raw.m4a")
         let manifestURL = folder.appendingPathComponent(MeetingArtifactStore.manifestFileName)
@@ -1401,10 +1392,7 @@ final class TranscriptionLibraryViewModelTests: XCTestCase {
         // "Remove Audio" skipped count must reflect meetings-without-removable-audio
         // only, so the confirmation copy never mislabels videos/podcasts/local
         // files as skipped meetings.
-        try AppPaths.ensureDirectories()
-        let folder = URL(fileURLWithPath: AppPaths.meetingRecordingsDir, isDirectory: true)
-            .appendingPathComponent("library-mixed-skip-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let folder = try makeTemporaryManagedMeetingFolder()
         let audioURL = folder.appendingPathComponent("meeting-playback.m4a")
         let processingAudioURL = folder.appendingPathComponent("processing-meeting-playback.m4a")
         XCTAssertTrue(FileManager.default.createFile(atPath: audioURL.path, contents: Data("audio".utf8)))

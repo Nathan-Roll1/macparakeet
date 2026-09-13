@@ -66,6 +66,7 @@ public final class MeetingSplitViewModel {
     private var presentationGeneration = UUID()
     private var processingGeneration = UUID()
     private var creationKey = UUID().uuidString
+    private var presentedSourceTitle = ""
     private var notifiedPublishedOperationIds: Set<UUID> = []
 
     public init(
@@ -99,6 +100,7 @@ public final class MeetingSplitViewModel {
 
     private func present(sourceId: UUID, sourceTitle: String, operationId: UUID?, discoverExisting: Bool) async {
         presentedSourceId = sourceId
+        presentedSourceTitle = sourceTitle
         if isProcessingActive {
             presentationNotice = activeSourceId == sourceId ? nil
                 : "Finish or stop the split for “\(activeSourceTitle)” before starting another."
@@ -335,6 +337,14 @@ public final class MeetingSplitViewModel {
             progress = nil
             processingTask = nil
             isStopping = false
+            if let presentedSourceId, presentedSourceId != sourceId {
+                await present(
+                    sourceId: presentedSourceId,
+                    sourceTitle: presentedSourceTitle,
+                    operationId: nil,
+                    discoverExisting: true
+                )
+            }
         }
     }
 

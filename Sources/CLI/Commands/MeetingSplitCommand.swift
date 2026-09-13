@@ -454,12 +454,12 @@ extension MeetingsCommand.SplitSubcommand {
 func withSIGINTCooperativeCancellation<T: Sendable>(
     _ operation: @escaping @Sendable () async throws -> T
 ) async throws -> T {
+    // Disable the default terminate-on-SIGINT disposition first: left in
+    // place, the signal's default action could terminate the process in the
+    // gap between starting the operation and arming the dispatch source.
+    let previousDisposition = signal(SIGINT, SIG_IGN)
     let task = Task { try await operation() }
     let signalSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: .global())
-    // Disable the default terminate-on-SIGINT disposition first: left in
-    // place, the signal's default action can still terminate the process
-    // before the dispatch source below ever gets a chance to fire.
-    let previousDisposition = signal(SIGINT, SIG_IGN)
     signalSource.setEventHandler { task.cancel() }
     signalSource.resume()
     defer {
@@ -583,6 +583,7 @@ private func makeMeetingSplitService(
     let promptLabelPolicyRepository = PromptLabelPolicyRepository(dbQueue: dbQueue)
     let transcriptionLabelRepository = TranscriptionMeetingLabelRepository(dbQueue: dbQueue)
     let speakerAttributionReader = SpeakerAttributionReadService(dbQueue: dbQueue)
+    let cardRepository = CardRepository(dbQueue: dbQueue)
     let customWordRepo = CustomWordRepository(dbQueue: dbQueue)
     let segmentRepo = SegmentRepository(dbQueue: dbQueue)
     let knowledgeLayerMutator = KnowledgeLayerMutationService(dbQueue: dbQueue)
@@ -628,7 +629,14 @@ private func makeMeetingSplitService(
         promptLabelPolicyRepository: promptLabelPolicyRepository,
         transcriptionLabelRepository: transcriptionLabelRepository,
         speakerAttributionReader: speakerAttributionReader,
-        meetingArtifactStore: MeetingArtifactStore(speakerAttributionReader: speakerAttributionReader)
+        meetingArtifactStore: MeetingArtifactStore(speakerAttributionReader: speakerAttributionReader),
+        cardGenerator: CardGenerationService(
+            transcriptionRepository: transcriptionRepo,
+            segmentRepository: segmentRepo,
+            cardRepository: cardRepository,
+            speakerAttributionReader: speakerAttributionReader,
+            completionProvider: llmService
+        )
     )
 
     return MeetingSplitService(

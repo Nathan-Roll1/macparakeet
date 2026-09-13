@@ -269,12 +269,10 @@ final class MeetingSplitViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.activeSourceId, sourceId, "the original batch must still be the active one")
 
         await gate.open()
-        try await waitUntil { !self.viewModel.isProcessingActive }
+        try await waitUntil {
+            !self.viewModel.isProcessingActive && self.viewModel.editing?.sourceId == otherSourceId
+        }
         XCTAssertEqual(viewModel.presentedSourceId, otherSourceId)
-        XCTAssertFalse(viewModel.canContinue, "the other source's sheet must not continue the completed batch")
-        XCTAssertFalse(viewModel.canStartNewSplit, "the other source's sheet must not start from the completed batch")
-
-        await viewModel.present(sourceId: otherSourceId, sourceTitle: "Other meeting")
         XCTAssertNil(viewModel.presentationNotice)
         XCTAssertEqual(viewModel.editing?.sourceId, otherSourceId)
         XCTAssertTrue(viewModel.canSubmit)

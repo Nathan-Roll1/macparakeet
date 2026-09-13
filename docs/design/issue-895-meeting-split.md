@@ -1,7 +1,7 @@
 # Native Split and transcribe (issue #895)
 
 Governing contract: `spec/contracts/meeting-splitting.md`. This note is a
-short index of the implementation in progress and its design; it does not restate the
+short index of the implemented design; it does not restate the
 contract's normative rules.
 
 ## What exists

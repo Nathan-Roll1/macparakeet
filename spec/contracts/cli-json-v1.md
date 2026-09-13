@@ -62,6 +62,12 @@ with human progress/status kept off stdout.
   `Transcription` object. It is zero-based and non-null only when a local-file
   audio stream was selected explicitly; this additive field does not change
   stdout/stderr or envelope shapes.
+- Transcription-shaped JSON payloads include nullable `splitProvenance`. It is
+  non-null only for a saved child created by Split and transcribe, with
+  `operationId`, `sourceId`, the snapshotted `sourceTitle`, approved
+  `approvedStartMs`/`approvedEndMs`, zero-based `ordinal`, and ISO-8601
+  `splitCreatedAt`. The provenance is historical and remains valid when the
+  source row, operation receipt, or a sibling is later deleted.
 - `cards list --json` returns an array; `--ndjson` returns the same card objects
   one compact object per line. Each object has exactly `transcriptionId`,
   `title`, `date`, nullable `durationMs`, `source`, nullable `attendees`, the

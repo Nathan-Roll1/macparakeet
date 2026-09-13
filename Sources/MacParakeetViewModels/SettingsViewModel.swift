@@ -1700,9 +1700,15 @@ public final class SettingsViewModel {
             return
         }
 
+        guard let repo = transcriptionRepo else {
+            storageCleanupError = "Could not clear meeting audio: transcription storage is unavailable."
+            refreshStats()
+            refreshPendingMeetingRecoveries()
+            return
+        }
+
         do {
             try fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
-            guard let repo = transcriptionRepo else { return }
             try TranscriptionAssetCleanup.clearManagedMeetingAudio(under: dir, repository: repo, fileManager: fm)
         } catch {
             logger.error("Failed to clear meeting audio error=\(error.localizedDescription, privacy: .public)")

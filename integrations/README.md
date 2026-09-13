@@ -614,7 +614,8 @@ macparakeet-cli meetings export <id> --format md --stdout
 
 Split a saved recording that spans multiple meetings. Every resulting part,
 including the first, is a brand-new saved meeting that receives its own first
-transcription and normal enabled completion automation (e.g. summaries); the
+transcription and normal enabled completion automation, including summaries
+and best-effort knowledge-card generation; the
 original recording is never modified, retranscribed, or deleted:
 
 ```bash

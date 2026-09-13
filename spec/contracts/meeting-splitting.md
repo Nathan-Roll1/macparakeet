@@ -1,8 +1,7 @@
 # Split and transcribe
 
-> Status: Core service, CLI, and native lifecycle state are implemented.
-> Native sheet integration and isolated-library runtime acceptance are complete.
-> Shipping review and final focused regression verification are in progress.
+> Status: Core service, public CLI, native sheet, and recovery lifecycle are
+> implemented. Release verification remains separate from source integration.
 
 ## Purpose and ownership
 
@@ -63,6 +62,11 @@ Callers do not sequence filesystem and database mutations themselves.
   load. Keep operation and media ownership until that speech call drains;
   explain the wait instead of releasing protection while audio is still in
   use. Cancellation must not start the next part.
+- The media mutation lease remains root-scoped for each speech call. Root-wide
+  cleanup and deletion of other meetings under that recordings root fail busy
+  while STT uses a child file. This keeps bulk cleanup safe without a second
+  registry of every in-flight child; completion provider calls use the narrow
+  child lease below and do not impose that library-wide cost.
 - Retry must not unnecessarily repeat completed automation. Do not promise
   exactly-once external side effects where the existing provider/hook cannot
   establish it. Surface uncertain delivery rather than silently duplicating it.
@@ -318,6 +322,9 @@ continues, with direct Open actions. Closing the sheet does not stop processing.
 Stop preserves saved audio and completed work; Continue processing uses the
 same operation, never another split. Interrupted preparation offers Continue
 creation or an explicitly confirmed discard of only that unfinished split.
+If another meeting's sheet is requested while processing is active, it stays
+blocked from acting on the running source and loads that requested meeting
+automatically when the current task settles.
 Deleted children are not resumable work and do not trap the source in an old
 progress screen. Explicit history still opens their receipt. When a published
 operation is idle and not externally owned, "Start a new split" preserves its
