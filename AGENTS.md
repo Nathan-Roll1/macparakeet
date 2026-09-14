@@ -161,7 +161,8 @@ with the documented PR workflow and say so in the handoff or PR notes.
 
 Commit messages should help a future reader understand the change. The rich
 format in [`docs/commit-guidelines.md`](./docs/commit-guidelines.md) is a tool
-for significant work, not ceremony for every typo.
+for significant work, not ceremony for every typo. Do not add Cursor or other
+assistant `Co-authored-by` trailers.
 
 ## Where To Look
 
