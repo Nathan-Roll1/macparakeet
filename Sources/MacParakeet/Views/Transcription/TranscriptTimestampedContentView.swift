@@ -219,6 +219,7 @@ struct TranscriptTimestampedContentView<SpeakerLabelContent: View>: View {
     var effectiveTurnCards: [IdentifiedEffectiveSpeakerTurn] = []
     var availableSpeakers: [SpeakerInfo] = []
     var isSpeakerEditing = false
+    var isTimedTextEditingAvailable = true
     var isSpeakerActionDisabled = false
     var selectedSegmentIDs: Set<SpeakerEditableSegmentID> = []
     var effectiveIsSegmentActive: (SpeakerEditableSegment) -> Bool = { _ in false }
@@ -230,6 +231,9 @@ struct TranscriptTimestampedContentView<SpeakerLabelContent: View>: View {
     var onAssignSegment: (SpeakerEditableSegment, SpeakerAssignment) -> Void = { _, _ in }
     var onCreateSpeakerForSegment: (SpeakerEditableSegment) -> Void = { _ in }
     var onSplitSegment: (SpeakerEditableSegment) -> Void = { _ in }
+    var onEditSegmentText: (SpeakerEditableSegment) -> Void = { _ in }
+    var canMergeSegment: (SpeakerEditableSegment, TimedTranscriptMergeDirection) -> Bool = { _, _ in false }
+    var onMergeSegment: (SpeakerEditableSegment, TimedTranscriptMergeDirection) -> Void = { _, _ in }
     var onAssignTurn: ([SpeakerEditableSegment], SpeakerAssignment) -> Void = { _, _ in }
     var onCreateSpeakerForTurn: ([SpeakerEditableSegment]) -> Void = { _ in }
 
@@ -341,6 +345,7 @@ struct TranscriptTimestampedContentView<SpeakerLabelContent: View>: View {
             speakerColorMap: speakerColorMap,
             speakerLabelContent: speakerLabelContent,
             isSpeakerEditing: isSpeakerEditing,
+            isTimedTextEditingAvailable: isTimedTextEditingAvailable,
             isSpeakerActionDisabled: isSpeakerActionDisabled,
             selectedSegmentIDs: selectedSegmentIDs,
             timestampLabel: timestampLabel,
@@ -349,6 +354,7 @@ struct TranscriptTimestampedContentView<SpeakerLabelContent: View>: View {
             textSelectionEnabled: textSelectionEnabled,
             highlightRanges: effectiveHighlightRanges,
             currentHighlight: effectiveCurrentHighlight,
+            isSegmentActive: effectiveIsSegmentActive,
             onTimestampTap: onTimestampTap,
             onSelectSegment: onSelectSegment,
             onToggleTurnSelection: onToggleTurnSelection,
@@ -356,6 +362,9 @@ struct TranscriptTimestampedContentView<SpeakerLabelContent: View>: View {
             onAssignSegment: onAssignSegment,
             onCreateSpeakerForSegment: onCreateSpeakerForSegment,
             onSplitSegment: onSplitSegment,
+            onEditSegmentText: onEditSegmentText,
+            canMergeSegment: canMergeSegment,
+            onMergeSegment: onMergeSegment,
             onAssignTurn: onAssignTurn,
             onCreateSpeakerForTurn: onCreateSpeakerForTurn
         )
@@ -382,13 +391,19 @@ struct TranscriptTimestampedContentView<SpeakerLabelContent: View>: View {
                 editableSegment: segment,
                 availableSpeakers: availableSpeakers,
                 isSpeakerEditing: isSpeakerEditing,
+                isTimedTextEditingAvailable: isTimedTextEditingAvailable,
                 isSpeakerActionDisabled: isSpeakerActionDisabled,
                 isSelectedForSpeakerEditing: selectedSegmentIDs.contains(segment.id),
                 onSelectForSpeakerEditing: { onSelectSegment(segment.id) },
                 onBeginSpeakerEditing: onBeginSpeakerEditing,
                 onAssignSpeaker: { onAssignSegment(segment, $0) },
                 onCreateSpeaker: { onCreateSpeakerForSegment(segment) },
-                onSplit: { onSplitSegment(segment) }
+                onSplit: { onSplitSegment(segment) },
+                onEditText: { onEditSegmentText(segment) },
+                canMergePrevious: canMergeSegment(segment, .previous),
+                canMergeNext: canMergeSegment(segment, .next),
+                onMergePrevious: { onMergeSegment(segment, .previous) },
+                onMergeNext: { onMergeSegment(segment, .next) }
             )
         }
         .onAppear(perform: onRenderedChildAppear)
@@ -416,6 +431,7 @@ private struct EditableTranscriptTurnCardView<SpeakerLabelContent: View>: View {
     let speakerColorMap: [String: Color]
     let speakerLabelContent: (String, String, Color, String, Bool) -> SpeakerLabelContent
     let isSpeakerEditing: Bool
+    let isTimedTextEditingAvailable: Bool
     let isSpeakerActionDisabled: Bool
     let selectedSegmentIDs: Set<SpeakerEditableSegmentID>
     let timestampLabel: (Int) -> String
@@ -424,6 +440,7 @@ private struct EditableTranscriptTurnCardView<SpeakerLabelContent: View>: View {
     var textSelectionEnabled: Bool
     let highlightRanges: [SpeakerEditableSegmentID: [NSRange]]
     let currentHighlight: (id: SpeakerEditableSegmentID, range: NSRange)?
+    let isSegmentActive: (SpeakerEditableSegment) -> Bool
     let onTimestampTap: (Int) -> Void
     let onSelectSegment: (SpeakerEditableSegmentID) -> Void
     let onToggleTurnSelection: ([SpeakerEditableSegmentID]) -> Void
@@ -431,6 +448,9 @@ private struct EditableTranscriptTurnCardView<SpeakerLabelContent: View>: View {
     let onAssignSegment: (SpeakerEditableSegment, SpeakerAssignment) -> Void
     let onCreateSpeakerForSegment: (SpeakerEditableSegment) -> Void
     let onSplitSegment: (SpeakerEditableSegment) -> Void
+    let onEditSegmentText: (SpeakerEditableSegment) -> Void
+    let canMergeSegment: (SpeakerEditableSegment, TimedTranscriptMergeDirection) -> Bool
+    let onMergeSegment: (SpeakerEditableSegment, TimedTranscriptMergeDirection) -> Void
     let onAssignTurn: ([SpeakerEditableSegment], SpeakerAssignment) -> Void
     let onCreateSpeakerForTurn: ([SpeakerEditableSegment]) -> Void
 
@@ -511,7 +531,7 @@ private struct EditableTranscriptTurnCardView<SpeakerLabelContent: View>: View {
                             startMs: segment.startMs,
                             text: segment.text,
                             timestampText: timestampLabel(segment.startMs),
-                            isActive: false,
+                            isActive: segment.isTextEdited && isSegmentActive(segment),
                             isSeekable: isTimestampSeekable,
                             bodyFont: bodyFont,
                             showRowBackground: false,
@@ -523,13 +543,19 @@ private struct EditableTranscriptTurnCardView<SpeakerLabelContent: View>: View {
                             editableSegment: segment,
                             availableSpeakers: availableSpeakers,
                             isSpeakerEditing: isSpeakerEditing,
+                            isTimedTextEditingAvailable: isTimedTextEditingAvailable,
                             isSpeakerActionDisabled: isSpeakerActionDisabled,
                             isSelectedForSpeakerEditing: selectedSegmentIDs.contains(segment.id),
                             onSelectForSpeakerEditing: { onSelectSegment(segment.id) },
                             onBeginSpeakerEditing: onBeginSpeakerEditing,
                             onAssignSpeaker: { onAssignSegment(segment, $0) },
                             onCreateSpeaker: { onCreateSpeakerForSegment(segment) },
-                            onSplit: { onSplitSegment(segment) }
+                            onSplit: { onSplitSegment(segment) },
+                            onEditText: { onEditSegmentText(segment) },
+                            canMergePrevious: canMergeSegment(segment, .previous),
+                            canMergeNext: canMergeSegment(segment, .next),
+                            onMergePrevious: { onMergeSegment(segment, .previous) },
+                            onMergeNext: { onMergeSegment(segment, .next) }
                         )
                     }
                 }
@@ -734,6 +760,7 @@ private struct TranscriptSegmentRow: View {
     var editableSegment: SpeakerEditableSegment? = nil
     var availableSpeakers: [SpeakerInfo] = []
     var isSpeakerEditing = false
+    var isTimedTextEditingAvailable = true
     var isSpeakerActionDisabled = false
     var isSelectedForSpeakerEditing = false
     var onSelectForSpeakerEditing: () -> Void = {}
@@ -741,6 +768,11 @@ private struct TranscriptSegmentRow: View {
     var onAssignSpeaker: (SpeakerAssignment) -> Void = { _ in }
     var onCreateSpeaker: () -> Void = {}
     var onSplit: () -> Void = {}
+    var onEditText: () -> Void = {}
+    var canMergePrevious = false
+    var canMergeNext = false
+    var onMergePrevious: () -> Void = {}
+    var onMergeNext: () -> Void = {}
 
     @State private var isHovering = false
 
@@ -780,7 +812,7 @@ private struct TranscriptSegmentRow: View {
         .frame(minHeight: 30, alignment: .top)
         .contentShape(Rectangle())
         .background {
-            if showRowBackground {
+            if showRowBackground || isActive {
                 RoundedRectangle(cornerRadius: DesignSystem.Layout.rowCornerRadius)
                     .fill(isActive
                           ? DesignSystem.Colors.accent.opacity(0.12)
@@ -802,7 +834,7 @@ private struct TranscriptSegmentRow: View {
         }
         .contextMenu {
             if editableSegment != nil {
-                segmentSpeakerMenu
+                segmentEditingMenu
                     .disabled(isSpeakerActionDisabled)
             }
         }
@@ -840,7 +872,7 @@ private struct TranscriptSegmentRow: View {
         HStack(spacing: 2) {
             if editableSegment != nil {
                 Menu {
-                    segmentSpeakerMenu
+                    segmentEditingMenu
                 } label: {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 11, weight: .semibold))
@@ -851,8 +883,8 @@ private struct TranscriptSegmentRow: View {
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
                 .fixedSize()
-                .help("Speaker actions")
-                .accessibilityLabel("Speaker actions")
+                .help("Transcript actions")
+                .accessibilityLabel("Transcript actions")
                 .disabled(isSpeakerActionDisabled)
             }
             // Play-from-here mirrors the timestamp chip's ready-state guard: when
@@ -882,11 +914,23 @@ private struct TranscriptSegmentRow: View {
     }
 
     @ViewBuilder
-    private var segmentSpeakerMenu: some View {
+    private var segmentEditingMenu: some View {
         if isSpeakerEditing {
+            if isTimedTextEditingAvailable {
+                Button("Edit text…", action: onEditText)
+                if canMergePrevious || canMergeNext {
+                    if canMergePrevious {
+                        Button("Merge with previous line", action: onMergePrevious)
+                    }
+                    if canMergeNext {
+                        Button("Merge with next line", action: onMergeNext)
+                    }
+                }
+                Divider()
+            }
             speakerEditingMenu
         } else {
-            Button("Edit speakers", action: onBeginSpeakerEditing)
+            Button("Edit transcript", action: onBeginSpeakerEditing)
         }
     }
 
@@ -911,8 +955,7 @@ private struct TranscriptSegmentRow: View {
     }
 
     private var canSplitEditableSegment: Bool {
-        guard let range = editableSegment?.wordRange else { return false }
-        return range.endIndexExclusive - range.startIndex > 1
+        TimedTranscriptSplitModel.canSplit(editableSegment)
     }
 
     private func rowActionButton(

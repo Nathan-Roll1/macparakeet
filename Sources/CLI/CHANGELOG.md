@@ -91,6 +91,18 @@ by checking exit code first: `2` = misuse, `1` = runtime, `0` = success.
 
 ### Added
 
+- `meetings show --json` and `meetings transcript --format json` expose
+  additive `textCorrectionsApplied` and `transcriptTextAlignment` fields.
+  Effective transcript segments may include `isTextEdited: true`; automatic
+  word text and timing remain available as original evidence.
+- `meetings corrections edit-line|merge-lines|undo|redo|reset` gives agents
+  optimistic, revision-checked access to the same reversible timed transcript
+  journal as the app. Successful JSON writes return the updated effective
+  transcript and revision.
+- Meeting list previews now use the effective corrected transcript. One-to-one
+  text edits retain the durable segment ID; structural edits include additive
+  `anchorTranscriptSegmentIDs`. Transcripts without word timestamps report
+  `transcriptTextAlignment: "untimed"`.
 - `meetings import <path>` imports one supported local audio or video file as
   a managed meeting. It accepts optional `--title` and historical
   `--started-at`, supports `--json` and `--envelope`, keeps progress on stderr,
@@ -113,6 +125,10 @@ by checking exit code first: `2` = misuse, `1` = runtime, `0` = success.
 
 ### Changed
 
+- Meeting JSON, prompt context, and exports use the effective timed-text
+  correction projection. Corrected lines retain segment-envelope timing and
+  are never represented as word-aligned; legacy whole-text edits remain
+  untimed.
 - `transcribe` and `retranscribe` still use the same `--speaker-count` /
   `--speaker-min` / `--speaker-max` flags and JSON speaker fields. The engines
   now run FluidAudio 0.15.7. Exact / max caps are held against both cluster
