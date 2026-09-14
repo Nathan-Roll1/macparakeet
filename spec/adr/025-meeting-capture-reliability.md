@@ -79,6 +79,28 @@ website deployment are separate from this source implementation.
 The [issue #931 investigation](../../docs/audits/2026-09-13-issue-931-startup-observability.md)
 records the incident evidence and unresolved native cause.
 
+### 2026-09-14 regression amendment: silence is not engine death
+
+Issue #1032 on v0.8.0 shows repeated `zero_filled` recovery triggers despite
+`engine_is_running=true`, followed by terminal mic interruption while system
+audio continues. The shared-source classifier introduced with #862 conflated
+valid silent PCM and empty callbacks. Its two-second silence timeout could
+destroy a working Bluetooth stream and exhaust the recovery budget.
+
+After startup successfully commits, valid silent PCM must reach consumers on
+every transport and must not trigger restart. Empty/invalid callbacks remain
+distinct failures, with a two-second bounded recovery threshold; stopped graphs
+and five-second callback gaps retain their existing recovery. Bluetooth and
+unresolved routes still require a nonzero microphone sample during startup.
+Bounded pre-filter counters distinguish silence, empty/invalid input, and signal
+resumption without logging audio or making native calls on the render thread.
+
+The reporter's physical trigger remains unknown: mute, noise suppression, and
+driver faults can all produce zeros. System-audio activity does not resolve that
+ambiguity: someone listening through headphones may legitimately have a silent
+microphone. Signal-level evidence therefore remains warning/diagnostic input,
+not authority to tear down an established source.
+
 ### 2026-07-22 field-evidence amendment: microphone callback liveness
 
 Issue #820's opt-in diagnostic captured the exact source failure that the
@@ -408,11 +430,10 @@ and the actual STT/VAD invocations.
 A bare "no usable mic signal for N seconds = stall" timeout cannot tell a dead
 mic from a genuinely quiet moment, so it either false-alarms during
 silence or sets N so high it misses real stalls (the field incident was
-~18 s). Cross-checking against system audio resolves the ambiguity:
-"others are clearly talking, the room is not silent, yet your mic is
-delivering nothing" is a high-confidence signal that fixed timeouts
-can't match. It also costs nothing — both buffer streams already flow
-through `MeetingAudioCaptureService`.
+~18 s). Cross-checking against system audio adds warning context, but does not
+prove microphone failure: remote participants can speak while the local user
+is quiet or muted. Both streams already flow through `MeetingAudioCaptureService`,
+so this context is useful for diagnostics, not a destructive restart decision.
 
 Raw callback delivery is a separate liveness fact: quiet sources still deliver
 PCM buffers. Meeting health therefore warns when a selected source delivers no
