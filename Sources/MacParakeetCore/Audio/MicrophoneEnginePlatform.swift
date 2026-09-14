@@ -78,7 +78,30 @@ final class MutableMicrophoneTapHandler: @unchecked Sendable {
 
     enum LivenessFailure: Equatable {
         case callbackGap(TimeInterval)
-        case zeroFilled(TimeInterval)
+        case invalidBuffers(TimeInterval)
+    }
+
+    /// Scalar, pre-filter evidence only. Never retain PCM or format log lines on
+    /// the render thread. Snapshots are formatted on the platform queue.
+    struct SignalSnapshot {
+        var callbacks: UInt64 = 0
+        var emptyBuffers: UInt64 = 0
+        var invalidBuffers: UInt64 = 0
+        var silentBuffers: UInt64 = 0
+        var nonzeroBuffers: UInt64 = 0
+        var uninspectedBuffers: UInt64 = 0
+        var forwardedBuffers: UInt64 = 0
+        var lastFrameCount: AVAudioFrameCount = 0
+        var lastChannelCount: AVAudioChannelCount = 0
+        var lastSampleRate: Double = 0
+
+        var logFields: String {
+            "callbacks=\(callbacks) empty_buffers=\(emptyBuffers) invalid_buffers=\(invalidBuffers) silent_buffers=\(silentBuffers) nonzero_buffers=\(nonzeroBuffers) uninspected_buffers=\(uninspectedBuffers) forwarded_buffers=\(forwardedBuffers) last_frames=\(lastFrameCount) last_channels=\(lastChannelCount) last_sample_rate=\(lastSampleRate)"
+        }
+    }
+
+    private enum SignalKind {
+        case empty, invalid, silent, nonzero, uninspected
     }
 
     /// Keep the function behind a stable reference. Repeatedly copying a
@@ -102,8 +125,14 @@ final class MutableMicrophoneTapHandler: @unchecked Sendable {
         var latestUsableBufferConfigurationGeneration: UInt64?
         var lastCallbackUptimeNanoseconds: UInt64?
         var zeroFilledSinceUptimeNanoseconds: UInt64?
+        var invalidBuffersSinceUptimeNanoseconds: UInt64?
+        var signal = SignalSnapshot()
+        var reportedSilence = false
+        var nonzeroBuffersAtReportedSilence: UInt64 = 0
+        var reportedSignalReturn = false
     }
 
+    let diagnosticID = UUID().uuidString
     private let state: OSAllocatedUnfairLock<State>
     private let nowUptimeNanoseconds: @Sendable () -> UInt64
     private let configurationGenerationProvider: @Sendable () -> UInt64
@@ -150,6 +179,11 @@ final class MutableMicrophoneTapHandler: @unchecked Sendable {
             state.latestUsableBufferConfigurationGeneration = nil
             state.lastCallbackUptimeNanoseconds = nil
             state.zeroFilledSinceUptimeNanoseconds = nil
+            state.invalidBuffersSinceUptimeNanoseconds = nil
+            state.signal = SignalSnapshot()
+            state.reportedSilence = false
+            state.nonzeroBuffersAtReportedSilence = 0
+            state.reportedSignalReturn = false
         }
     }
 
@@ -158,25 +192,50 @@ final class MutableMicrophoneTapHandler: @unchecked Sendable {
         // The render callback owns `buffer` for this synchronous critical
         // section; it is read here but never stored or allowed to escape.
         let current: Target? = state.withLockUnchecked { state -> Target? in
-            let hasUsableSignal =
-                !state.requiresNonZeroSignal
-                || Self.hasNonZeroSample(
-                    buffer,
-                    channelZeroOnly: checksOnlyChannelZeroForSignal
-                )
             if state.monitoringCallbacks {
+                let signal = Self.classifySignal(buffer, channelZeroOnly: checksOnlyChannelZeroForSignal)
                 state.lastCallbackUptimeNanoseconds = now
-                if !hasUsableSignal {
-                    state.zeroFilledSinceUptimeNanoseconds =
-                        state.zeroFilledSinceUptimeNanoseconds ?? now
+                state.signal.callbacks &+= 1
+                state.signal.lastFrameCount = buffer.frameLength
+                state.signal.lastChannelCount = buffer.format.channelCount
+                state.signal.lastSampleRate = buffer.format.sampleRate
+                switch signal {
+                case .empty:
+                    state.signal.emptyBuffers &+= 1
+                case .invalid:
+                    break
+                case .silent:
+                    state.signal.silentBuffers &+= 1
+                case .nonzero:
+                    state.signal.nonzeroBuffers &+= 1
+                case .uninspected:
+                    state.signal.uninspectedBuffers &+= 1
+                }
+                if signal == .empty || signal == .invalid {
+                    state.signal.invalidBuffers &+= 1
+                    state.invalidBuffersSinceUptimeNanoseconds =
+                        state.invalidBuffersSinceUptimeNanoseconds ?? now
+                    state.zeroFilledSinceUptimeNanoseconds = nil
                     return nil
                 }
-                state.zeroFilledSinceUptimeNanoseconds = nil
+                state.invalidBuffersSinceUptimeNanoseconds = nil
+                if signal == .silent {
+                    state.zeroFilledSinceUptimeNanoseconds =
+                        state.zeroFilledSinceUptimeNanoseconds ?? now
+                    // Silence cannot certify Bluetooth startup, but after the
+                    // route commits it is valid PCM, not proof of engine death.
+                    if state.requiresNonZeroSignal && state.tracksStartupConfiguration {
+                        return nil
+                    }
+                } else {
+                    state.zeroFilledSinceUptimeNanoseconds = nil
+                }
                 state.receivedUsableBuffer = true
                 if state.tracksStartupConfiguration {
                     state.latestUsableBufferConfigurationGeneration =
                         configurationGenerationProvider()
                 }
+                if state.target != nil { state.signal.forwardedBuffers &+= 1 }
             }
             return state.target
         }
@@ -194,19 +253,17 @@ final class MutableMicrophoneTapHandler: @unchecked Sendable {
         }
     }
 
-    /// Stop the startup-only generation snapshot after the route is committed,
-    /// avoiding an additional generation-lock read on the steady-state render
-    /// callback path.
+    /// Only a successful route commit ends both the startup signal gate and
+    /// generation tracking. A first nonzero buffer alone must not end either.
     func completeStartupConfigurationTracking() {
         state.withLock { $0.tracksStartupConfiguration = false }
     }
 
     @discardableResult
-    func setFiltersZeroFilledBuffers(_ enabled: Bool) -> Bool {
+    func setStartupRequiresNonZeroSignal(_ enabled: Bool) -> Bool {
         state.withLock { state in
             guard state.requiresNonZeroSignal != enabled else { return false }
             state.requiresNonZeroSignal = enabled
-            state.zeroFilledSinceUptimeNanoseconds = nil
             return true
         }
     }
@@ -232,58 +289,92 @@ final class MutableMicrophoneTapHandler: @unchecked Sendable {
         return hasReceivedUsableBuffer() ? .ready : .timedOut
     }
 
-    /// Bluetooth route failures can keep delivering correctly shaped buffers
-    /// whose samples are all exactly zero. Bluetooth and unresolved inputs use
-    /// this fail-closed gate; known non-Bluetooth inputs preserve digital silence.
-    private static func hasNonZeroSample(
+    /// Keep valid digital silence distinct from malformed/empty callbacks.
+    /// VPIO reference-channel activity cannot certify microphone signal.
+    private static func classifySignal(
         _ buffer: AVAudioPCMBuffer,
         channelZeroOnly: Bool
-    ) -> Bool {
+    ) -> SignalKind {
         let frameCount = Int(buffer.frameLength)
         let channelCount = Int(buffer.format.channelCount)
-        guard frameCount > 0, channelCount > 0 else { return false }
+        guard frameCount > 0 else { return .empty }
+        guard channelCount > 0, buffer.format.sampleRate.isFinite,
+            buffer.format.sampleRate > 0
+        else { return .invalid }
 
         // AVAudioEngine input taps use Float32. Fail open for an unexpected
-        // format instead of rejecting legitimate audio we cannot inspect.
-        guard buffer.format.commonFormat == .pcmFormatFloat32,
-            let channelData = buffer.floatChannelData
-        else { return true }
+        // format, but do not mislabel it as observed nonzero Float32 PCM.
+        guard buffer.format.commonFormat == .pcmFormatFloat32 else { return .uninspected }
+        guard let channelData = buffer.floatChannelData else { return .invalid }
 
+        var hasNonzero = false
         if buffer.format.isInterleaved {
             let sampleCount = frameCount * channelCount
             let stride = channelZeroOnly ? channelCount : 1
-            for sample in Swift.stride(from: 0, to: sampleCount, by: stride)
-            where channelData[0][sample] != 0 {
-                return true
+            for sample in Swift.stride(from: 0, to: sampleCount, by: stride) {
+                let value = channelData[0][sample]
+                guard value.isFinite else { return .invalid }
+                hasNonzero = hasNonzero || value != 0
             }
-            return false
+        } else {
+            let channelsToScan = channelZeroOnly ? 1 : channelCount
+            for channel in 0..<channelsToScan {
+                for frame in 0..<frameCount {
+                    let value = channelData[channel][frame]
+                    guard value.isFinite else { return .invalid }
+                    hasNonzero = hasNonzero || value != 0
+                }
+            }
         }
+        return hasNonzero ? .nonzero : .silent
+    }
 
-        let channelsToScan = channelZeroOnly ? 1 : channelCount
-        for channel in 0..<channelsToScan {
-            for frame in 0..<frameCount where channelData[channel][frame] != 0 {
-                return true
+    func signalSnapshot() -> SignalSnapshot {
+        state.withLock { $0.signal }
+    }
+
+    /// At most one silence/resumption pair per engine, sampled by the liveness
+    /// timer. Ordinary pauses never become an unbounded diagnostic stream.
+    func takeSignalDiagnosticEvent() -> String? {
+        state.withLock { state in
+            guard state.monitoringCallbacks, !state.tracksStartupConfiguration else { return nil }
+            if !state.reportedSilence,
+                let since = state.zeroFilledSinceUptimeNanoseconds,
+                let last = state.lastCallbackUptimeNanoseconds,
+                last >= since, last - since >= 2_000_000_000
+            {
+                state.reportedSilence = true
+                state.nonzeroBuffersAtReportedSilence = state.signal.nonzeroBuffers
+                return "sustained_silence"
             }
+            if state.reportedSilence, !state.reportedSignalReturn,
+                state.zeroFilledSinceUptimeNanoseconds == nil,
+                state.invalidBuffersSinceUptimeNanoseconds == nil,
+                state.signal.nonzeroBuffers > state.nonzeroBuffersAtReportedSilence
+            {
+                state.reportedSignalReturn = true
+                return "signal_resumed"
+            }
+            return nil
         }
-        return false
     }
 
     func livenessFailure(
         nowUptimeNanoseconds: UInt64,
         callbackStallTimeout: TimeInterval,
-        zeroFilledTimeout: TimeInterval
+        invalidBufferTimeout: TimeInterval
     ) -> LivenessFailure? {
         state.withLock { state in
             guard state.monitoringCallbacks else { return nil }
 
-            if zeroFilledTimeout > 0,
-                let zeroFilledSince = state.zeroFilledSinceUptimeNanoseconds,
+            if invalidBufferTimeout > 0,
+                let invalidSince = state.invalidBuffersSinceUptimeNanoseconds,
                 let lastCallback = state.lastCallbackUptimeNanoseconds,
-                lastCallback >= zeroFilledSince
+                lastCallback >= invalidSince
             {
-                let duration = Double(lastCallback - zeroFilledSince) / 1_000_000_000
-                if duration >= zeroFilledTimeout {
-                    return .zeroFilled(duration)
+                let duration = Double(lastCallback - invalidSince) / 1_000_000_000
+                if duration >= invalidBufferTimeout {
+                    return .invalidBuffers(duration)
                 }
             }
 
@@ -306,6 +397,7 @@ final class MutableMicrophoneTapHandler: @unchecked Sendable {
             state.latestUsableBufferConfigurationGeneration = nil
             state.lastCallbackUptimeNanoseconds = nil
             state.zeroFilledSinceUptimeNanoseconds = nil
+            state.invalidBuffersSinceUptimeNanoseconds = nil
             return previous
         }
         // An in-flight invocation retains its own Target. Future invocations
@@ -405,10 +497,9 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
     /// long enough to ignore route-settle jitter while matching the existing
     /// recorder heartbeat cadence that exposed the frozen callback count.
     private static let defaultCallbackStallTimeout: TimeInterval = 5
-    /// Bluetooth or unresolved routes that continuously emit exact-zero PCM are
-    /// as unusable as a stopped callback stream, but need a shorter bounded gate
-    /// so callers can fall back before recording empty audio.
-    private static let defaultZeroFilledTimeout: TimeInterval = 2
+    /// Empty or malformed callbacks cannot provide audio on any transport.
+    /// Valid silent PCM is deliberately excluded from this recovery trigger.
+    private static let defaultInvalidBufferTimeout: TimeInterval = 2
     private static let defaultCallbackStallCheckInterval: TimeInterval = 1
     private let recoveryRetryDelays: [TimeInterval]
     private let recoveryRouteChangeDebounce: TimeInterval
@@ -416,7 +507,7 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
     private let bluetoothInputState: @Sendable (AudioDeviceID) -> Bool?
     private let callbackUptimeProvider: @Sendable () -> UInt64
     private let callbackStallTimeout: TimeInterval
-    private let zeroFilledTimeout: TimeInterval
+    private let invalidBufferTimeout: TimeInterval
     private let callbackStallCheckInterval: TimeInterval
     private var audioEngine = AVAudioEngine()
     private var running: Bool = false
@@ -552,7 +643,7 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
         self.bluetoothInputState = { AudioDeviceManager.bluetoothInputState($0) }
         self.callbackUptimeProvider = { DispatchTime.now().uptimeNanoseconds }
         self.callbackStallTimeout = Self.defaultCallbackStallTimeout
-        self.zeroFilledTimeout = Self.defaultZeroFilledTimeout
+        self.invalidBufferTimeout = Self.defaultInvalidBufferTimeout
         self.callbackStallCheckInterval = Self.defaultCallbackStallCheckInterval
     }
 
@@ -571,7 +662,7 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
             DispatchTime.now().uptimeNanoseconds
         },
         callbackStallTimeout: TimeInterval = AVAudioEngineMicrophonePlatform.defaultCallbackStallTimeout,
-        zeroFilledTimeout: TimeInterval = AVAudioEngineMicrophonePlatform.defaultZeroFilledTimeout,
+        invalidBufferTimeout: TimeInterval = AVAudioEngineMicrophonePlatform.defaultInvalidBufferTimeout,
         callbackStallCheckInterval: TimeInterval = AVAudioEngineMicrophonePlatform.defaultCallbackStallCheckInterval,
         lifecycleDiagnosticsFactory: @escaping LifecycleDiagnosticsFactory = { operation, vpio, bufferSize in
             AudioEngineLifecycleDiagnostics(operation: operation, vpioEnabled: vpio, bufferSize: bufferSize)
@@ -588,7 +679,7 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
         self.bluetoothInputState = bluetoothInputState
         self.callbackUptimeProvider = callbackUptimeProvider
         self.callbackStallTimeout = max(0, callbackStallTimeout)
-        self.zeroFilledTimeout = max(0, zeroFilledTimeout)
+        self.invalidBufferTimeout = max(0, invalidBufferTimeout)
         self.callbackStallCheckInterval = max(0, callbackStallCheckInterval)
     }
 
@@ -1477,6 +1568,7 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
         preparedRouteSnapshot = nil
         preparedInputConfiguration = nil
         preparedConfigurationGeneration = 0
+        if let tapHandlerBox { logSignalSnapshotLocked(tapHandlerBox, reason: "teardown") }
         tapHandlerBox?.clear()
         tapHandlerBox = nil
         removeConfigurationChangeObserverLocked()
@@ -1520,6 +1612,7 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
         preparedRouteSnapshot = nil
         preparedInputConfiguration = nil
         preparedConfigurationGeneration = 0
+        if let tapHandlerBox { logSignalSnapshotLocked(tapHandlerBox, reason: "failed_attempt") }
         tapHandlerBox?.clear()
         tapHandlerBox = nil
         removeConfigurationChangeObserverLocked()
@@ -1648,8 +1741,10 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
             }
         ) {
         case .ready:
+            logSignalSnapshotLocked(tapHandler, reason: "startup_ready")
             return
         case .timedOut:
+            logSignalSnapshotLocked(tapHandler, reason: "startup_timeout")
             throw AVAudioEngineMicrophonePlatformError.initialReadinessTimedOut
         case .cancelled:
             throw AVAudioEngineMicrophonePlatformError.startupCancelled
@@ -1714,7 +1809,7 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
 
     private func armCallbackLivenessTimerLocked(tapHandler: MutableMicrophoneTapHandler) {
         cancelCallbackLivenessTimerLocked()
-        let enabledTimeouts = [callbackStallTimeout, zeroFilledTimeout].filter { $0 > 0 }
+        let enabledTimeouts = [callbackStallTimeout, invalidBufferTimeout].filter { $0 > 0 }
         guard let firstCheckDelay = enabledTimeouts.min(), callbackStallCheckInterval > 0 else {
             return
         }
@@ -1745,11 +1840,14 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
         else { return }
 
         let now = callbackUptimeProvider()
+        if let event = tapHandler.takeSignalDiagnosticEvent() {
+            logSignalSnapshotLocked(tapHandler, reason: event)
+        }
         guard
             let failure = tapHandler.livenessFailure(
                 nowUptimeNanoseconds: now,
                 callbackStallTimeout: callbackStallTimeout,
-                zeroFilledTimeout: zeroFilledTimeout
+                invalidBufferTimeout: invalidBufferTimeout
             )
         else {
             completeRecoveryProbationIfHealthyLocked(nowUptimeNanoseconds: now)
@@ -1767,15 +1865,16 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
             logger.error(
                 "shared_mic_engine_callback_stalled callback_gap_s=\(gap, privacy: .public) engine_is_running=\(engineIsRunning, privacy: .public)"
             )
-        case .zeroFilled(let duration):
-            trigger = "zero_filled"
+        case .invalidBuffers(let duration):
+            trigger = "invalid_buffers"
             AudioCaptureDiagnostics.append(
-                "shared_mic_engine_zero_filled zero_filled_s=\(String(format: "%.3f", duration)) engine_is_running=\(engineIsRunning)"
+                "shared_mic_engine_invalid_buffers invalid_buffer_s=\(String(format: "%.3f", duration)) engine_is_running=\(engineIsRunning)"
             )
             logger.error(
-                "shared_mic_engine_zero_filled zero_filled_s=\(duration, privacy: .public) engine_is_running=\(engineIsRunning, privacy: .public)"
+                "shared_mic_engine_invalid_buffers invalid_buffer_s=\(duration, privacy: .public) engine_is_running=\(engineIsRunning, privacy: .public)"
             )
         }
+        logSignalSnapshotLocked(tapHandler, reason: trigger)
         cancelCallbackLivenessTimerLocked()
         recoverAfterLivenessFailureLocked(trigger: trigger)
     }
@@ -1799,8 +1898,8 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
 
     /// System Default can move to a new endpoint without changing this
     /// platform's implicit routing attempt. Aggregate topology can likewise
-    /// change behind a stable device ID. Refresh only the Bluetooth exact-zero
-    /// policy; the engine's routing contract remains untouched.
+    /// change behind a stable device ID. Refresh the startup-only signal
+    /// requirement; a committed engine always preserves valid silent PCM.
     private func refreshActiveTapSignalPolicyLocked() {
         guard let tapHandlerBox, let lastSucceededAttemptLocked else { return }
         let deviceID: AudioDeviceID?
@@ -1812,14 +1911,19 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
         } else {
             deviceID = lastSucceededAttemptLocked.deviceID
         }
-        // Preserve fail-closed filtering while Core Audio temporarily cannot
-        // resolve the device or aggregate topology. A positively identified
-        // non-Bluetooth route is the only state where exact digital silence is
-        // accepted as healthy PCM.
+        // Unknown topology still requires signal during startup. This must not
+        // re-enable silence filtering after the running route has committed.
         let shouldFilter = deviceID.flatMap(bluetoothInputState) ?? true
-        guard tapHandlerBox.setFiltersZeroFilledBuffers(shouldFilter) else { return }
+        guard tapHandlerBox.setStartupRequiresNonZeroSignal(shouldFilter) else { return }
         AudioCaptureDiagnostics.append(
-            "shared_mic_engine_zero_filter_changed enabled=\(shouldFilter)"
+            "shared_mic_engine_startup_signal_policy_changed requires_nonzero=\(shouldFilter)"
+        )
+    }
+
+    private func logSignalSnapshotLocked(_ tapHandler: MutableMicrophoneTapHandler, reason: String) {
+        let snapshot = tapHandler.signalSnapshot()
+        AudioCaptureDiagnostics.append(
+            "shared_mic_engine_signal tap_id=\(tapHandler.diagnosticID) reason=\(reason) \(snapshot.logFields)"
         )
     }
 
@@ -1908,7 +2012,7 @@ public final class AVAudioEngineMicrophonePlatform: MicrophoneEnginePlatform, @u
             let startedAt = recoveryProbationStartedAtLocked
         else { return }
 
-        let probationInterval = max(callbackStallTimeout, zeroFilledTimeout)
+        let probationInterval = max(callbackStallTimeout, invalidBufferTimeout)
         let elapsedNanoseconds =
             nowUptimeNanoseconds >= startedAt
             ? nowUptimeNanoseconds - startedAt

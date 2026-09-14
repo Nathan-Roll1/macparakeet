@@ -24,8 +24,9 @@ owned by `AppEnvironment`.
   device), `AVAudioEngineConfigurationChangeNotification` observer,
   and source-liveness self-healing. Initial starts must produce a usable tap
   buffer before the route is accepted. A stopped graph, a tap that stops
-  delivering callbacks, or a Bluetooth/unresolved route that continuously
-  emits exact-zero PCM converges on the same bounded fresh-engine recovery.
+  delivering callbacks, or a route continuously emitting empty/invalid buffers
+  converges on the same bounded fresh-engine recovery. Valid silence after
+  startup commits never triggers teardown, including on Bluetooth inputs.
   Notifications received while a replacement still awaits its first buffer
   remain in the same recovery episode; they do not replenish the retry budget.
   Removing route observers retires their generation, pending coalesced delivery,
@@ -359,13 +360,19 @@ the current engine instance, an active capture request, and
 `AVAudioEngine.isRunning == false`; benign notifications around a healthy graph
 are no-ops. Second, once a tap has delivered its first buffer, a five-second gap
 with no further tap callbacks is treated as a stalled source even if
-`AVAudioEngine.isRunning` remains true. Third, a Bluetooth or unresolved route
-that continuously emits exact-zero PCM for two seconds is treated as unusable
-and recovered through the same path. This is exact-zero detection, not a
-voice-activity or loudness threshold: any non-zero sample is valid, and digital
-silence remains valid on every positively identified non-Bluetooth input. VPIO
-liveness uses microphone channel 0; raw multichannel liveness scans all input
-channels.
+`AVAudioEngine.isRunning` remains true. Third, a route that continuously emits
+empty or invalid buffers for two seconds is recovered through the same path.
+Empty buffers, invalid format shape, and nonfinite Float32 microphone samples
+never certify startup or reach consumers. VPIO validates only microphone channel
+0, not discarded reference channels; raw input validates every channel.
+Unexpected non-Float32 formats retain the existing
+fail-open policy and are counted separately as uninspected.
+
+Valid digital silence is not a source-lifecycle failure. After startup commits,
+it is forwarded on every transport, including Bluetooth and unresolved inputs,
+preserving the timeline and allowing speech to resume without engine teardown
+(issue #1032). The nonzero Bluetooth startup requirement above remains intact;
+a first nonzero buffer alone does not relax it before the route commits.
 Callback stalls are route-agnostic because USB, aggregate, and virtual devices
 can fail at the same source-lifecycle seam.
 
@@ -378,8 +385,9 @@ recovery: the same source-owned readiness gate used by initial startup requires
 the replacement's first usable buffer before accepting the attempt. That first
 buffer begins a liveness probation window; only a replacement that remains
 healthy for the full window resets the episode's retry budget. A replacement
-with no usable first buffer is torn down and retried, while one that becomes
-silent during probation consumes the same bounded episode. Explicit Stop
+with no usable first buffer is torn down and retried, while one that loses
+callbacks or delivers invalid buffers during probation consumes the same bounded
+episode. Valid silence can complete probation. Explicit Stop
 cancels that wait as well as the episode, and no queued retry may resurrect
 capture. If every retry fails, the platform reports terminal engine death to
 `SharedMicrophoneStream`, which
@@ -389,7 +397,7 @@ when system audio is also selected, so the healthy sibling source continues;
 microphone-only capture keeps the existing whole-capture failure semantics.
 The watchdog and heartbeat in `AudioRecorder` remain log-only; platform callback
 liveness is the single mid-session recovery owner. Recovery log events include
-`shared_mic_engine_callback_stalled`, `shared_mic_engine_zero_filled`,
+`shared_mic_engine_callback_stalled`, `shared_mic_engine_invalid_buffers`,
 `shared_mic_engine_config_change_recovery_attempt`,
 `shared_mic_engine_config_change_recovery_succeeded`, and
 `shared_mic_engine_config_change_recovery_failed`, plus scheduling and terminal
@@ -397,6 +405,19 @@ exhaustion records. The
 `shared_mic_engine_configuration_changed` line now includes an
 `engine_is_running=` field (actual `AVAudioEngine.isRunning`) alongside the
 existing `isRunning=` (platform `running` flag).
+
+`shared_mic_engine_signal` adds a random per-tap `tap_id`, a bounded `reason`,
+and cumulative pre-filter callback, empty, invalid, silent, nonzero, uninspected,
+and forwarded buffer counts plus last frame count, channels, and sample rate.
+Empty buffers are included in invalid counts. Snapshots are emitted on startup
+readiness/timeout, failure, and teardown; at most one sustained-silence/resumption
+pair is sampled per engine. Brief signal returns between timer polls can be
+absent from transition events but still increment the cumulative counters.
+The render callback only scans PCM and updates
+scalars under its existing lock; formatting and logging happen on the platform
+queue. No audio, transcript text, or raw device identity is added. Counters
+distinguish the old ambiguous `zero_filled` report, but cannot identify a hardware
+mute or establish why a driver supplies valid zeros.
 
 `MicrophoneEnginePlatform` also logs per-phase engine-start timings
 (`shared_mic_engine_start_timing`) so a slow first-buffer report can be split

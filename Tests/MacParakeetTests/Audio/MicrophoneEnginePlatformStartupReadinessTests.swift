@@ -627,7 +627,7 @@ final class MicrophoneEnginePlatformStartupReadinessTests: XCTestCase {
         )
     }
 
-    func testImplicitDefaultRefreshesBluetoothSignalPolicyWhileRunning() throws {
+    func testImplicitDefaultPolicyRefreshCannotRestoreSilenceFilteringAfterCommit() throws {
         let currentDeviceID = OSAllocatedUnfairLock<AudioDeviceID>(initialState: 20)
         let currentBluetoothState = OSAllocatedUnfairLock<Bool?>(initialState: false)
         let installedTapHandler = OSAllocatedUnfairLock<
@@ -683,8 +683,8 @@ final class MicrophoneEnginePlatformStartupReadinessTests: XCTestCase {
 
         XCTAssertEqual(
             deliveredBufferCount.withLock { $0 },
-            2,
-            "Unresolved/Bluetooth transitions must filter zero PCM but forward real samples"
+            5,
+            "An established stream preserves silence through unresolved/Bluetooth policy refreshes"
         )
     }
 }
