@@ -819,6 +819,7 @@ final class MeetingRecordingFlowCoordinator {
                         outcome: .failure,
                         trigger: trigger.map(TelemetryMeetingOperationTrigger.init),
                         stage: .startRecording,
+                        durationSeconds: Observability.durationSeconds(since: operationContext.startedAt),
                         errorType: TelemetryErrorClassifier.classify(error)
                     )
                     self.currentMeetingOperationContext = nil

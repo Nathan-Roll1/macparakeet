@@ -1775,6 +1775,23 @@ final class TelemetryServiceTests: XCTestCase {
         }
     }
 
+    func testAudioEngineLifecycleEnvelopePreservesSlowDiagnosticSemantics() throws {
+        let snapshot = sampleAudioEngineLifecycle()
+        let event = TelemetryEvent(
+            spec: .audioEngineLifecycle(snapshot), appVer: "0.8.0", osVer: "26.0",
+            locale: "en-US", chip: "Apple M1", session: "test-session"
+        )
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: encoder.encode(event)) as? [String: Any])
+        XCTAssertEqual(json["event"] as? String, "audio_engine_lifecycle")
+        let props = try XCTUnwrap(json["props"] as? [String: String])
+        XCTAssertEqual(props, snapshot.props)
+        XCTAssertEqual(props["outcome"], "slow")
+        XCTAssertNil(props["operation_id"], "Engine diagnostics must not pretend to be product operation outcomes")
+        XCTAssertNotNil(json["event_id"], "Delivery deduplication remains distinct from attempt correlation")
+    }
+
     func testHotkeyCustomizedPropsUseStructuralCategoriesOnly() {
         let cases: [(TelemetryHotkeySurface, TelemetryHotkeyKind, String, String)] = [
             (.dictation, .disabled, "dictation", "disabled"),
@@ -1919,8 +1936,19 @@ final class TelemetryServiceTests: XCTestCase {
         XCTAssertEqual(props["stack_trace"]?.count, TelemetryEventSpec.maxCrashStackTraceCharacters)
     }
 
+    private func sampleAudioEngineLifecycle() -> AudioEngineLifecycleSnapshot {
+        AudioEngineLifecycleSnapshot(
+            attemptID: "1c1e5746-0a59-45c3-a365-44a931000001", operation: .start, outcome: .slow,
+            phase: .startEngine, elapsedMilliseconds: 5_000, phaseMilliseconds: 4_800,
+            attemptCount: 1, prepared: false, vpioEnabled: false, bufferSize: 512,
+            routeSource: "selected", transport: "usb", lastErrorType: nil, lastErrorPhase: nil,
+            wasSlow: true, phaseDurationsMilliseconds: [.queueWait: 200, .startEngine: 4_800]
+        )
+    }
+
     private func sampleEvents() -> [TelemetryEventSpec] {
         [
+            .audioEngineLifecycle(sampleAudioEngineLifecycle()),
             .appLaunched,
             .appQuit(sessionDurationSeconds: 12.5),
             .dictationStarted(trigger: .hotkey, mode: .persistent),

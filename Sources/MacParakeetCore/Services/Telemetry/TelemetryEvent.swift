@@ -112,6 +112,7 @@ public enum TelemetryEventName: String, Sendable, CaseIterable {
     case meetingAutoStopConfirmed = "meeting_auto_stop_confirmed"
     case meetingAutoStopVetoed = "meeting_auto_stop_vetoed"
     case micStallDetected = "mic_stall_detected"
+    case audioEngineLifecycle = "audio_engine_lifecycle"
     /// Universal launch-time Silero VAD model prep for VAD-guided meeting live
     /// chunking (`plans/completed/2026-05-meeting-vad-guided-live-chunking.md` §6).
     /// Confirms the installed base actually acquires the model once the feature
@@ -951,6 +952,9 @@ public enum TelemetryEventSpec: Sendable {
     /// - `state_busy` — recording flow was non-idle (back-to-back meeting)
     /// - `service_threw` — `MeetingRecordingService.startRecording` errored
     case calendarAutoStartFailed(reason: String)
+    // Shared microphone lifecycle checkpoints and terminal diagnostics.
+    // Separate from product operation outcomes and their failure denominators.
+    case audioEngineLifecycle(AudioEngineLifecycleSnapshot)
     // STT runtime observability. Fires when an STT runtime call (cancel-drain,
     // model-cache clear, shutdown, engine swap) exceeds the watchdog timeout.
     // Detection-only; the caller continues to await as today.
@@ -1084,6 +1088,7 @@ extension TelemetryEventSpec {
         case .meetingAutoStopConfirmed: return .meetingAutoStopConfirmed
         case .meetingAutoStopVetoed: return .meetingAutoStopVetoed
         case .micStallDetected: return .micStallDetected
+        case .audioEngineLifecycle: return .audioEngineLifecycle
         case .vadModelPrep: return .vadModelPrep
         case .calendarReminderShown: return .calendarReminderShown
         case .calendarAutoStartTriggered: return .calendarAutoStartTriggered
@@ -1709,6 +1714,8 @@ extension TelemetryEventSpec {
             return ["reason": reason]
         case .calendarAutoStartFailed(let reason):
             return ["reason": reason]
+        case .audioEngineLifecycle(let snapshot):
+            return snapshot.props
         case .sttRuntimeUnhealthy(let reason):
             return ["reason": reason]
         case .errorOccurred(let domain, let code, _):
@@ -1942,6 +1949,10 @@ public enum TelemetryImplementedContract {
         .meetingAutoStopConfirmed: ["reason"],
         .meetingAutoStopVetoed: ["reason"],
         .micStallDetected: ["stall_count"],
+        .audioEngineLifecycle: [
+            "attempt_id", "operation", "outcome", "phase", "elapsed_ms", "phase_ms", "attempt_count",
+            "prepared", "vpio", "buffer_size", "route_source", "transport", "was_slow",
+        ],
         .vadModelPrep: ["outcome"],
         .calendarReminderShown: ["mode", "lead_minutes", "has_meet_url"],
         .calendarAutoStartTriggered: ["lead_seconds", "has_meet_url"],

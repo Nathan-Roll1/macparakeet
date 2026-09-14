@@ -455,6 +455,9 @@ final class MeetingRecordingFlowCoordinatorTests: XCTestCase {
         XCTAssertFalse(coordinator.testHook_panelViewModel?.canToggleMicrophoneMute ?? true)
         XCTAssertFalse(menuStates.contains(.recording))
         XCTAssertFalse(telemetry.snapshot().map(\.name).contains(.meetingRecordingStarted))
+        let failure = try XCTUnwrap(telemetry.snapshot().compactMap(\.meetingOperationPayload).last)
+        XCTAssertEqual(failure.outcome, .failure)
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(failure.durationSeconds), 0)
     }
 
     func testStopWhileServiceStartIsPendingSuppressesLateStartSideEffects() async throws {
