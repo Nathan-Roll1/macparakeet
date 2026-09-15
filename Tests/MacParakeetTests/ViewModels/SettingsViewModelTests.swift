@@ -231,6 +231,10 @@ final class SettingsViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.youtubeAudioQuality, .m4a, "youtubeAudioQuality should default to Apple-friendly saved audio")
         XCTAssertTrue(viewModel.speakerDiarization, "speakerDiarization should default to true")
         XCTAssertTrue(viewModel.meetingSpeakerDiarization, "meetingSpeakerDiarization should default to true")
+        XCTAssertTrue(
+            viewModel.meetingLiveTranscriptionEnabled,
+            "meetingLiveTranscriptionEnabled should default to true"
+        )
         XCTAssertEqual(viewModel.meetingHotkeyTrigger, .chord(modifiers: ["command", "shift"], keyCode: 46))
         XCTAssertEqual(viewModel.meetingAudioSourceMode, .microphoneAndSystem)
         XCTAssertTrue(viewModel.showMeetingRecordingPill, "showMeetingRecordingPill should default to true")
@@ -1163,6 +1167,42 @@ final class SettingsViewModelTests: XCTestCase {
             false
         )
         XCTAssertNil(testDefaults.object(forKey: UserDefaultsAppRuntimePreferences.speakerDiarizationKey))
+    }
+
+    func testSettingMeetingLiveTranscriptionEnabledPersistsExplicitFalse() {
+        viewModel.meetingLiveTranscriptionEnabled = false
+
+        XCTAssertEqual(
+            testDefaults.object(forKey: UserDefaultsAppRuntimePreferences.meetingLiveTranscriptionEnabledKey) as? Bool,
+            false
+        )
+    }
+
+    func testMeetingLiveTranscriptionPreferenceSurvivesReopeningSettings() {
+        let preferences = UserDefaultsAppRuntimePreferences(defaults: testDefaults)
+        viewModel.meetingLiveTranscriptionEnabled = false
+
+        let reopened = SettingsViewModel(defaults: testDefaults)
+        XCTAssertFalse(reopened.meetingLiveTranscriptionEnabled)
+        XCTAssertFalse(preferences.meetingLiveTranscriptionEnabled)
+
+        reopened.meetingLiveTranscriptionEnabled = true
+        XCTAssertTrue(preferences.meetingLiveTranscriptionEnabled)
+        XCTAssertTrue(SettingsViewModel(defaults: testDefaults).meetingLiveTranscriptionEnabled)
+        XCTAssertNil(testDefaults.object(forKey: UserDefaultsAppRuntimePreferences.meetingSpeakerDiarizationKey))
+    }
+
+    func testMeetingLiveTranscriptionEnabledEmitsTelemetry() {
+        let telemetry = SettingsTelemetrySpy()
+        Telemetry.configure(telemetry)
+
+        viewModel.meetingLiveTranscriptionEnabled = false
+
+        let settings = telemetry.snapshot().compactMap { event -> TelemetrySettingName? in
+            guard case .settingChanged(let setting, _) = event else { return nil }
+            return setting
+        }
+        XCTAssertEqual(settings, [.meetingLiveTranscriptionEnabled])
     }
 
     func testMeetingSpeakerDiarizationEmitsDistinctTelemetry() {

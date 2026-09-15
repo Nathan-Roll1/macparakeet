@@ -223,6 +223,18 @@ final class SettingsSearchIndexTests: XCTestCase {
         }
     }
 
+    func testLiveTranscriptionQueriesFindMeetingToggle() {
+        for query in ["live transcription", "live captions", "battery", "just record"] {
+            let entry = SettingsSearchIndex.matches(query).first { $0.id == "meeting.liveTranscription" }
+            if AppFeatures.meetingRecordingEnabled {
+                XCTAssertEqual(entry?.tab, .capture, "Query \(query) should find the meeting toggle")
+                XCTAssertEqual(entry?.cardAnchor, "meeting")
+            } else {
+                XCTAssertNil(entry)
+            }
+        }
+    }
+
     func testMeetingSpeakerDetectionQueriesFindMeetingSetting() {
         let queries = ["system audio", "participants", "others", "speaker labels"]
 
@@ -345,6 +357,7 @@ final class SettingsSearchIndexTests: XCTestCase {
             "meeting.openAppAfterEnd",
             "meeting.notifyOnEnd",
             "meeting.speakerDetection",
+            "meeting.liveTranscription",
             "meeting.autoStop",
             "meeting.calendar",
             "system.permissions.screen"

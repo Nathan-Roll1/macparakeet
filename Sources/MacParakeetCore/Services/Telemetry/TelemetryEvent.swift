@@ -549,6 +549,7 @@ public enum TelemetrySettingName: String, Sendable, Equatable {
     case youtubeAudioQuality = "youtube_audio_quality"
     case speakerDiarization = "speaker_diarization"
     case meetingSpeakerDiarization = "meeting_speaker_diarization"
+    case meetingLiveTranscriptionEnabled = "meeting_live_transcription_enabled"
     case parakeetModelVariant = "parakeet_model_variant"
     case nemotronModelVariant = "nemotron_model_variant"
     case transcriptionSpeechEngine = "transcription_speech_engine"
