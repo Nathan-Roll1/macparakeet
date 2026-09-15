@@ -562,6 +562,19 @@ public final class SettingsViewModel {
             ))
         }
     }
+    public var meetingLiveTranscriptionEnabled: Bool {
+        didSet {
+            defaults.set(
+                meetingLiveTranscriptionEnabled,
+                forKey: UserDefaultsAppRuntimePreferences.meetingLiveTranscriptionEnabledKey
+            )
+            Telemetry.send(
+                .settingChanged(
+                    setting: .meetingLiveTranscriptionEnabled,
+                    value: Self.settingValue(meetingLiveTranscriptionEnabled)
+                ))
+        }
+    }
 
     /// Set through `requestRememberSpeakers` / `acknowledgeVoiceprintConsent`,
     /// never bound straight to a toggle: turning this on with no consent on
@@ -744,6 +757,22 @@ public final class SettingsViewModel {
             guard !isResolvingCalendarSettings else { return }
             NotificationCenter.default.post(name: .macParakeetCalendarSettingsDidChange, object: nil)
             Telemetry.send(.settingChanged(setting: .calendarIncludedCalendars))
+        }
+    }
+    public var calendarSkippedOccurrences: Set<String> {
+        didSet {
+            defaults.set(Array(calendarSkippedOccurrences), forKey: CalendarAutoStartPreferences.skippedOccurrencesKey)
+            guard !isResolvingCalendarSettings else { return }
+            NotificationCenter.default.post(name: .macParakeetCalendarSettingsDidChange, object: nil)
+            Telemetry.send(.settingChanged(setting: .calendarEventSkip, value: "occurrence"))
+        }
+    }
+    public var calendarSkippedEvents: Set<String> {
+        didSet {
+            defaults.set(Array(calendarSkippedEvents), forKey: CalendarAutoStartPreferences.skippedEventsKey)
+            guard !isResolvingCalendarSettings else { return }
+            NotificationCenter.default.post(name: .macParakeetCalendarSettingsDidChange, object: nil)
+            Telemetry.send(.settingChanged(setting: .calendarEventSkip, value: "event"))
         }
     }
     /// Three-state Calendar permission. Settings UI needs to distinguish
@@ -972,6 +1001,9 @@ public final class SettingsViewModel {
         youtubeAudioQuality = YouTubeAudioQuality.current(defaults: defaults)
         speakerDiarization = UserDefaultsAppRuntimePreferences.speakerDiarizationEnabled(defaults: defaults)
         meetingSpeakerDiarization = UserDefaultsAppRuntimePreferences.meetingSpeakerDiarizationEnabled(defaults: defaults)
+        meetingLiveTranscriptionEnabled = UserDefaultsAppRuntimePreferences.meetingLiveTranscriptionEnabled(
+            defaults: defaults
+        )
         // The stored preference, not the resolved gate: the switch has to show
         // what the user last chose even while the feature flag is off.
         rememberSpeakers = defaults.object(
@@ -1006,6 +1038,8 @@ public final class SettingsViewModel {
         calendarReminderMinutes = Self.resolveCalendarReminderMinutes(defaults: defaults)
         meetingTriggerFilter = Self.resolveMeetingTriggerFilter(defaults: defaults)
         calendarExcludedIdentifiers = Self.resolveCalendarExcludedIdentifiers(defaults: defaults)
+        calendarSkippedOccurrences = CalendarAutoStartPreferences.skippedOccurrences(defaults: defaults)
+        calendarSkippedEvents = CalendarAutoStartPreferences.skippedEvents(defaults: defaults)
 
         // Keep the transcription toggle consistent with its resolved folder.
         // Meeting auto-save deliberately preserves its enabled preference when
@@ -1046,7 +1080,9 @@ public final class SettingsViewModel {
         }
     }
 
-    private func reloadCalendarSettings() {
+    /// Refresh persisted policy synchronously before a calendar effect or
+    /// reconciliation; notification observers may run in either order.
+    public func reloadCalendarSettings() {
         // Avoid the `didSet` → post-notification → reload → `didSet` loop:
         // re-resolving has to skip the `didSet` write-through. The flag
         // guards the entire batch so partial updates can't fire telemetry
@@ -1066,6 +1102,38 @@ public final class SettingsViewModel {
 
         let resolvedExcluded = Self.resolveCalendarExcludedIdentifiers(defaults: defaults)
         if calendarExcludedIdentifiers != resolvedExcluded { calendarExcludedIdentifiers = resolvedExcluded }
+
+        let resolvedSkippedOccurrences = CalendarAutoStartPreferences.skippedOccurrences(defaults: defaults)
+        if calendarSkippedOccurrences != resolvedSkippedOccurrences {
+            calendarSkippedOccurrences = resolvedSkippedOccurrences
+        }
+        let resolvedSkippedEvents = CalendarAutoStartPreferences.skippedEvents(defaults: defaults)
+        if calendarSkippedEvents != resolvedSkippedEvents {
+            calendarSkippedEvents = resolvedSkippedEvents
+        }
+    }
+
+    public func skipOccurrence(_ event: CalendarEvent) {
+        calendarSkippedOccurrences.insert(event.dedupeKey)
+    }
+
+    public func skipEvent(_ event: CalendarEvent) {
+        calendarSkippedEvents.insert(event.eventKey)
+    }
+
+    public func unskipOccurrence(_ event: CalendarEvent) {
+        calendarSkippedOccurrences.remove(event.dedupeKey)
+    }
+
+    public func unskipEvent(_ event: CalendarEvent) {
+        calendarSkippedEvents.remove(event.eventKey)
+        calendarSkippedOccurrences.remove(event.dedupeKey)
+    }
+
+    public func pruneSkippedOccurrences(now: Date = Date()) {
+        let pruned = CalendarSkip.prunedOccurrences(calendarSkippedOccurrences, now: now)
+        guard pruned != calendarSkippedOccurrences else { return }
+        calendarSkippedOccurrences = pruned
     }
 
     public func setMeetingAudioRetention(_ retention: MeetingAudioRetention) {

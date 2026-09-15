@@ -1286,6 +1286,15 @@ struct SettingsView: View {
                 Divider()
 
                 settingsToggleRow(
+                    title: "Live transcription during recording",
+                    detail: "Show a transcript as you record. Turn off to reduce processing during meetings; "
+                        + "the full transcript is still created after you stop. Changes apply to your next recording.",
+                    isOn: $viewModel.meetingLiveTranscriptionEnabled
+                )
+
+                Divider()
+
+                settingsToggleRow(
                     title: "Speaker detection",
                     detail: "Split captured system audio into other speakers after recording when audio is clear.",
                     isOn: $viewModel.meetingSpeakerDiarization

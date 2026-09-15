@@ -751,7 +751,6 @@ final class MeetingRecordingFlowCoordinator {
                         )
                         self.refreshInitialLiveTranscriptStatus(
                             for: panelViewModel,
-                            liveSpeechEngineSelection: activeLiveSpeechEngineSelection,
                             plan: activeSpeechPlan
                         )
                     }
@@ -781,7 +780,7 @@ final class MeetingRecordingFlowCoordinator {
                         self.panelViewModel?.updateLiveTranscriptStatus(.preparingSpeechModel(message: nil))
                     case .some(.preparingSpeechModel) where isSpeechModelReady:
                         self.panelViewModel?.updateLiveTranscriptStatus(.listening)
-                    case .some(.listening), .some(.live), .some(.previewUnsupported), .some(.previewUnavailable), .none:
+                    case .some(.listening), .some(.live), .some(.previewOff), .some(.previewUnavailable), .none:
                         break
                     case .some(.preparingSpeechModel):
                         break
@@ -1527,7 +1526,7 @@ final class MeetingRecordingFlowCoordinator {
 
     private func handleSpeechWarmUpState(_ state: STTWarmUpState) {
         guard let panelViewModel, panelViewModel.previewLines.isEmpty else { return }
-        if case .previewUnsupported = panelViewModel.liveTranscriptStatus {
+        if case .previewOff = panelViewModel.liveTranscriptStatus {
             return
         }
 
@@ -1547,17 +1546,14 @@ final class MeetingRecordingFlowCoordinator {
 
     private func refreshInitialLiveTranscriptStatus(
         for panelViewModel: MeetingRecordingPanelViewModel,
-        liveSpeechEngineSelection: SpeechEngineSelection?,
         plan: MeetingSpeechPlan?
     ) {
         guard let plan else {
             panelViewModel.updateLiveTranscriptStatus(.previewUnavailable)
             return
         }
-        guard plan.preview == nil, let liveSpeechEngineSelection else { return }
-        panelViewModel.updateLiveTranscriptStatus(
-            .previewUnsupported(engine: liveSpeechEngineSelection.engine)
-        )
+        guard plan.preview == nil else { return }
+        panelViewModel.updateLiveTranscriptStatus(.previewOff)
     }
 
     nonisolated private static func makePreviewLines(from update: MeetingTranscriptUpdate)

@@ -2291,6 +2291,125 @@ final class MeetingRecordingServiceTests: XCTestCase {
         XCTAssertEqual(output.speechEngine, SpeechEngineSelection(engine: .cohere, language: "ja"))
     }
 
+    func testDisabledLiveTranscriptionPreservesSourceAudioAndFinalRoute() async throws {
+        let captureService = MockMeetingAudioCaptureService()
+        let lockStore = RecordingLockFileStore()
+        let liveSelection = SpeechEngineSelection(engine: .parakeet)
+        let finalSelection = SpeechEngineSelection(engine: .cohere, language: "fr")
+        let sttClient = LeasingMeetingSTTClient(selection: liveSelection)
+        let service = MeetingRecordingService(
+            audioCaptureService: captureService,
+            audioConverter: MockMeetingAudioFileConverter(),
+            sttTranscriber: sttClient,
+            lockFileStore: lockStore,
+            finalSpeechEngineSelection: { finalSelection },
+            isLiveTranscriptionEnabled: { false },
+            micConditionerFactory: { PassthroughMicConditioner() }
+        )
+
+        try await service.startRecording()
+
+        let activePlan = await service.activeMeetingSpeechPlan
+        XCTAssertEqual(activePlan, MeetingSpeechPlan(preview: nil, final: finalSelection))
+        let activeLeaseCountAfterStart = await sttClient.activeLeaseCount
+        XCTAssertEqual(activeLeaseCountAfterStart, 1)
+        XCTAssertEqual(lockStore.writes.first?.file.speechEngine, finalSelection)
+
+        let microphoneBuffer = try XCTUnwrap(makeMonoFloatBuffer(frameCount: 80_000, sampleValue: 0.25))
+        let systemBuffer = try XCTUnwrap(makeMonoFloatBuffer(frameCount: 80_000, sampleValue: 0.5))
+        let time = AVAudioTime(hostTime: AVAudioTime.hostTime(forSeconds: 100.0))
+        await captureService.yield(.microphoneBuffer(microphoneBuffer, time))
+        await captureService.yield(.systemBuffer(systemBuffer, time))
+
+        // Stop drains every captured buffer before the no-preview assertion.
+        let output = try await service.stopRecording()
+        defer { try? FileManager.default.removeItem(at: output.folderURL) }
+        let routedSelections = await sttClient.routedSelections
+        XCTAssertEqual(routedSelections, [])
+        let activeLeaseCountAfterStop = await sttClient.activeLeaseCount
+        XCTAssertEqual(activeLeaseCountAfterStop, 0)
+
+        let microphoneDuration = try await playableAudioDuration(at: output.microphoneAudioURL)
+        let systemDuration = try await playableAudioDuration(at: output.systemAudioURL)
+        XCTAssertEqual(microphoneDuration, 5, accuracy: 0.1)
+        XCTAssertEqual(systemDuration, 5, accuracy: 0.1)
+        XCTAssertGreaterThan(output.sourceAlignment.microphone?.writtenFrameCount ?? 0, 0)
+        XCTAssertGreaterThan(output.sourceAlignment.system?.writtenFrameCount ?? 0, 0)
+        XCTAssertEqual(output.speechEngine, finalSelection)
+        XCTAssertTrue(output.speechEngineWasCaptured)
+        XCTAssertNil(output.previewSpeechEngine)
+
+        let metadata = try MeetingRecordingMetadataStore.load(from: output.folderURL)
+        XCTAssertEqual(metadata.speechEngine, finalSelection)
+        XCTAssertTrue(metadata.speechEngineWasCaptured)
+        XCTAssertNil(metadata.previewSpeechEngine)
+        XCTAssertEqual(lockStore.writes.last?.file.speechEngine, finalSelection)
+        XCTAssertEqual(lockStore.writes.last?.file.state, .awaitingTranscription)
+    }
+
+    func testLiveTranscriptionPreferenceChangesApplyToNextRecording() async throws {
+        for initiallyEnabled in [false, true] {
+            let captureService = MockMeetingAudioCaptureService()
+            let liveSelection = SpeechEngineSelection(engine: .parakeet)
+            let finalSelection = SpeechEngineSelection(engine: .cohere, language: "fr")
+            let sttClient = LeasingMeetingSTTClient(selection: liveSelection)
+            let preference = MeetingLiveTranscriptionPreferenceBox(initiallyEnabled)
+            let service = MeetingRecordingService(
+                audioCaptureService: captureService,
+                audioConverter: MockMeetingAudioFileConverter(),
+                sttTranscriber: sttClient,
+                lockFileStore: RecordingLockFileStore(),
+                finalSpeechEngineSelection: { finalSelection },
+                isLiveTranscriptionEnabled: { preference.value },
+                micConditionerFactory: { PassthroughMicConditioner() }
+            )
+
+            try await service.startRecording()
+            preference.value = !initiallyEnabled
+            let firstPlan = await service.activeMeetingSpeechPlan
+            XCTAssertEqual(
+                firstPlan,
+                MeetingSpeechPlan(preview: initiallyEnabled ? liveSelection : nil, final: finalSelection)
+            )
+
+            let buffer = try XCTUnwrap(makeMonoFloatBuffer(frameCount: 80_000, sampleValue: 0.25))
+            let time = AVAudioTime(hostTime: AVAudioTime.hostTime(forSeconds: 100.0))
+            await captureService.yield(.microphoneBuffer(buffer, time))
+            if initiallyEnabled {
+                try await waitForRoutedLiveChunkSelection(sttClient)
+            }
+
+            let firstOutput = try await service.stopRecording()
+            defer { try? FileManager.default.removeItem(at: firstOutput.folderURL) }
+            let firstRoutedSelections = await sttClient.routedSelections
+            XCTAssertEqual(firstRoutedSelections, initiallyEnabled ? [liveSelection] : [])
+            XCTAssertEqual(firstOutput.previewSpeechEngine, initiallyEnabled ? liveSelection : nil)
+            XCTAssertEqual(firstOutput.speechEngine, finalSelection)
+            let activeLeaseCountAfterFirstStop = await sttClient.activeLeaseCount
+            XCTAssertEqual(activeLeaseCountAfterFirstStop, 0)
+
+            try await service.startRecording()
+            let secondPlan = await service.activeMeetingSpeechPlan
+            XCTAssertEqual(
+                secondPlan,
+                MeetingSpeechPlan(preview: initiallyEnabled ? nil : liveSelection, final: finalSelection)
+            )
+            await captureService.yield(.microphoneBuffer(buffer, time))
+            if !initiallyEnabled {
+                try await waitForRoutedLiveChunkSelection(sttClient)
+            }
+
+            let secondOutput = try await service.stopRecording()
+            defer { try? FileManager.default.removeItem(at: secondOutput.folderURL) }
+            let allRoutedSelections = await sttClient.routedSelections
+            XCTAssertEqual(allRoutedSelections, [liveSelection])
+            XCTAssertEqual(secondOutput.previewSpeechEngine, initiallyEnabled ? nil : liveSelection)
+            XCTAssertEqual(secondOutput.speechEngine, finalSelection)
+            let activeLeaseCountAfterSecondStop = await sttClient.activeLeaseCount
+            XCTAssertEqual(activeLeaseCountAfterSecondStop, 0)
+        }
+    }
+
     func testMeetingLivePreviewDryRunUsesInjectedCapabilitiesForNextVariant() async throws {
         let captureService = MockMeetingAudioCaptureService()
         let audioConverter = MockMeetingAudioFileConverter()
@@ -4868,6 +4987,20 @@ private final class MeetingSpeechSelectionBox: @unchecked Sendable {
     var value: SpeechEngineSelection {
         get { lock.withLock { selection } }
         set { lock.withLock { selection = newValue } }
+    }
+}
+
+private final class MeetingLiveTranscriptionPreferenceBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var enabled: Bool
+
+    init(_ enabled: Bool) {
+        self.enabled = enabled
+    }
+
+    var value: Bool {
+        get { lock.withLock { enabled } }
+        set { lock.withLock { enabled = newValue } }
     }
 }
 
