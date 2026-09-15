@@ -69,6 +69,7 @@ struct MainWindowView: View {
     let historyViewModel: DictationHistoryViewModel
     let settingsViewModel: SettingsViewModel
     let llmSettingsViewModel: LLMSettingsViewModel
+    let voiceProfilesViewModel: VoiceProfilesViewModel
     let chatViewModel: TranscriptChatViewModel
     let promptResultsViewModel: PromptResultsViewModel
     let promptsViewModel: PromptsViewModel
@@ -286,6 +287,7 @@ struct MainWindowView: View {
                         SettingsView(
                             viewModel: settingsViewModel,
                             llmSettingsViewModel: llmSettingsViewModel,
+                            voiceProfilesViewModel: voiceProfilesViewModel,
                             updater: updater,
                             transformHotkeys: transformsViewModel.transforms,
                             requestedTab: state.requestedSettingsTab,

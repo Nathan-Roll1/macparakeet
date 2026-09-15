@@ -66,6 +66,27 @@ final class SpeakerProfileRepositoryTests: XCTestCase {
         XCTAssertEqual(stored.identity, identity)
     }
 
+    func testFieldUpdatesPreserveRenameAndMatchingMetadata() throws {
+        let profile = try enrolledProfile(named: "Sarah")
+        let evaluatedAt = Date(timeIntervalSince1970: 1_757_000_000)
+        _ = try repo.updateProfile(id: profile.id) { $0.displayName = "Marie" }
+        _ = try repo.updateProfile(id: profile.id) {
+            $0.lastEvaluatedAt = evaluatedAt
+            $0.lastEvaluatedDistance = 0.12
+        }
+        _ = try repo.updateProfile(id: profile.id) { $0.lastMatchedAt = evaluatedAt }
+        let stored = try XCTUnwrap(try repo.profile(id: profile.id))
+        XCTAssertEqual(stored.displayName, "Marie")
+        XCTAssertEqual(stored.lastEvaluatedDistance, 0.12)
+        XCTAssertEqual(stored.lastMatchedAt, evaluatedAt)
+        XCTAssertEqual(try repo.profile(named: "Marie")?.id, profile.id)
+        XCTAssertNil(try repo.profile(named: "Sarah"))
+        _ = try repo.deleteProfile(id: profile.id)
+        let deleted = try repo.updateProfile(id: profile.id) { $0.displayName = "Resurrected" }
+        XCTAssertNil(deleted)
+        XCTAssertTrue(try repo.profiles().isEmpty)
+    }
+
     // MARK: Constraints
 
     func testRejectsVectorOfTheWrongLength() throws {
@@ -624,6 +645,86 @@ final class SpeakerProfileRepositoryTests: XCTestCase {
         XCTAssertTrue(try repo.exemplars(profileId: profile.id).isEmpty)
     }
 
+    // MARK: Deleting one sample
+
+    /// Deleting by id alone would let a mismatched id take another profile's
+    /// last sample, which the caller believes it is protecting.
+    func testASampleFromAnotherProfileIsNotDeleted() throws {
+        let sarah = try enrolledProfile(named: "Sarah")
+        let nadia = try enrolledProfile(named: "Nadia")
+        let nadiasOnly = exemplar(profileId: nadia.id, embedding: makeEmbedding(index: 2))
+        try repo.insert(exemplar(profileId: sarah.id, embedding: makeEmbedding(index: 1)))
+        try repo.insert(exemplar(profileId: sarah.id, embedding: makeEmbedding(index: 3)))
+        try repo.insert(nadiasOnly)
+
+        // Sarah has two, so the count check alone would allow this.
+        let deleted = try repo.deleteExemplar(
+            id: nadiasOnly.id, profileId: sarah.id, keepingAtLeastOne: true
+        )
+
+        XCTAssertFalse(deleted)
+        XCTAssertEqual(try repo.exemplars(profileId: nadia.id).count, 1)
+    }
+
+    func testTheLastSampleIsRefusedInTheSameWrite() throws {
+        let profile = try enrolledProfile(named: "Sarah")
+        let only = exemplar(profileId: profile.id, embedding: makeEmbedding(index: 1))
+        try repo.insert(only)
+
+        XCTAssertFalse(
+            try repo.deleteExemplar(id: only.id, profileId: profile.id, keepingAtLeastOne: true)
+        )
+        XCTAssertEqual(try repo.exemplars(profileId: profile.id).count, 1)
+    }
+
+    /// The rule bounds what a profile keeps, so it has to hold when several
+    /// callers delete at once. Counting outside the write cannot do that.
+    func testConcurrentDeletesNeverEmptyAProfile() throws {
+        let profile = try enrolledProfile(named: "Sarah")
+        let samples = (1...6).map { exemplar(profileId: profile.id, embedding: makeEmbedding(index: $0)) }
+        for sample in samples { try repo.insert(sample) }
+        let store = repo!
+
+        DispatchQueue.concurrentPerform(iterations: samples.count) { index in
+            _ = try? store.deleteExemplar(
+                id: samples[index].id, profileId: profile.id, keepingAtLeastOne: true
+            )
+        }
+
+        XCTAssertEqual(try store.exemplars(profileId: profile.id).count, 1)
+    }
+
+    // MARK: Counting recognitions
+
+    /// Links are fingerprint-scoped, so one recording re-diarized and confirmed
+    /// again holds several rows for the same profile. Counting rows would tell
+    /// the user they were recognized in more recordings than exist.
+    func testRecognitionsCountDistinctRecordings() throws {
+        let profile = try enrolledProfile(named: "Sarah")
+        let recording = try savedTranscription()
+        for fingerprint in ["fingerprint-1", "fingerprint-2"] {
+            var confirmed = link(
+                transcriptionId: recording.id, profileId: profile.id, fingerprint: fingerprint
+            )
+            confirmed.status = .confirmed
+            try repo.save(confirmed)
+        }
+
+        XCTAssertEqual(try repo.confirmedLinkCount(profileId: profile.id), 1)
+    }
+
+    func testRecognitionsIgnoreSuggestionsAndRefusals() throws {
+        let profile = try enrolledProfile(named: "Sarah")
+        let suggested = try savedTranscription()
+        let dismissed = try savedTranscription()
+        try repo.save(link(transcriptionId: suggested.id, profileId: profile.id))
+        var refused = link(transcriptionId: dismissed.id, profileId: profile.id)
+        refused.status = .dismissed
+        try repo.save(refused)
+
+        XCTAssertEqual(try repo.confirmedLinkCount(profileId: profile.id), 0)
+    }
+
     // MARK: Claiming a name
 
     /// Two enrollments of one name can both find nothing before either writes,
@@ -861,6 +962,57 @@ final class SpeakerProfileRepositoryTests: XCTestCase {
         // longer apply, so a stale dismissal cannot suppress a fresh suggestion.
         XCTAssertTrue(
             try repo.links(transcriptionId: transcription.id, fingerprint: "after").isEmpty
+        )
+    }
+
+    /// The reservation and the decision commit together. Read from outside the
+    /// write, the holder check lets two speakers named from one voice at the
+    /// same time both find it free and both confirm it.
+    func testClaimingAVoiceAnotherSpeakerHoldsRecordsNothing() throws {
+        let profile = try enrolledProfile(named: "Sarah")
+        let transcription = try savedTranscription()
+        var first = link(transcriptionId: transcription.id, profileId: profile.id)
+        first.status = .confirmed
+        XCTAssertNil(try repo.claimProfile(first))
+
+        let second = SpeakerProfileLink(
+            transcriptionId: transcription.id,
+            speakerId: "system:S2",
+            transcriptFingerprint: "fingerprint",
+            profileId: profile.id,
+            status: .confirmed,
+            distance: SpeakerProfileLink.manualDecisionDistance,
+            runnerUpDistance: nil
+        )
+
+        XCTAssertEqual(try repo.claimProfile(second), "system:S1")
+        let stored = try repo.links(transcriptionId: transcription.id, fingerprint: "fingerprint")
+        XCTAssertEqual(stored.map(\.speakerId), ["system:S1"])
+    }
+
+    /// The same speaker answering again is not a conflict, and the row keeps
+    /// dating their first decision rather than their latest one.
+    func testReclaimingAVoiceForItsOwnSpeakerKeepsTheOriginalCreationTime() throws {
+        let profile = try enrolledProfile(named: "Sarah")
+        let transcription = try savedTranscription()
+        let decidedAt = Date(timeIntervalSince1970: 1_000_000)
+        var first = link(transcriptionId: transcription.id, profileId: profile.id)
+        first.status = .confirmed
+        first.createdAt = decidedAt
+        first.updatedAt = decidedAt
+        XCTAssertNil(try repo.claimProfile(first))
+
+        var again = link(transcriptionId: transcription.id, profileId: profile.id)
+        again.status = .confirmed
+        XCTAssertNil(try repo.claimProfile(again))
+
+        let stored = try XCTUnwrap(
+            try repo.links(transcriptionId: transcription.id, fingerprint: "fingerprint").first
+        )
+        XCTAssertEqual(
+            stored.createdAt.timeIntervalSince1970,
+            decidedAt.timeIntervalSince1970,
+            accuracy: 0.001
         )
     }
 

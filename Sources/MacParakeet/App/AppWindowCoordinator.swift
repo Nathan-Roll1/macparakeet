@@ -52,6 +52,7 @@ final class AppWindowCoordinator: NSObject, NSWindowDelegate {
     private let historyViewModel: DictationHistoryViewModel
     private let settingsViewModel: SettingsViewModel
     private let llmSettingsViewModel: LLMSettingsViewModel
+    private let voiceProfilesViewModel: VoiceProfilesViewModel
     private let chatViewModel: TranscriptChatViewModel
     private let promptResultsViewModel: PromptResultsViewModel
     private let promptsViewModel: PromptsViewModel
@@ -84,6 +85,7 @@ final class AppWindowCoordinator: NSObject, NSWindowDelegate {
         historyViewModel: DictationHistoryViewModel,
         settingsViewModel: SettingsViewModel,
         llmSettingsViewModel: LLMSettingsViewModel,
+        voiceProfilesViewModel: VoiceProfilesViewModel,
         chatViewModel: TranscriptChatViewModel,
         promptResultsViewModel: PromptResultsViewModel,
         promptsViewModel: PromptsViewModel,
@@ -112,6 +114,7 @@ final class AppWindowCoordinator: NSObject, NSWindowDelegate {
         self.historyViewModel = historyViewModel
         self.settingsViewModel = settingsViewModel
         self.llmSettingsViewModel = llmSettingsViewModel
+        self.voiceProfilesViewModel = voiceProfilesViewModel
         self.chatViewModel = chatViewModel
         self.promptResultsViewModel = promptResultsViewModel
         self.promptsViewModel = promptsViewModel
@@ -227,6 +230,7 @@ final class AppWindowCoordinator: NSObject, NSWindowDelegate {
             historyViewModel: historyViewModel,
             settingsViewModel: settingsViewModel,
             llmSettingsViewModel: llmSettingsViewModel,
+            voiceProfilesViewModel: voiceProfilesViewModel,
             chatViewModel: chatViewModel,
             promptResultsViewModel: promptResultsViewModel,
             promptsViewModel: promptsViewModel,

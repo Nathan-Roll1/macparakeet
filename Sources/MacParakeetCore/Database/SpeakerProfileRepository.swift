@@ -55,6 +55,8 @@ public protocol SpeakerProfileRepositoryProtocol: Sendable {
     ) throws -> SpeakerExemplarInsertion
     /// Updates an existing profile; a stale write cannot recreate a deleted one.
     func save(_ profile: SpeakerProfile) throws
+    /// Reads and changes only the intended fields under one write, preserving concurrent edits.
+    func updateProfile(id: UUID, update: (inout SpeakerProfile) -> Void) throws -> SpeakerProfile?
     func exemplars(profileId: UUID) throws -> [SpeakerProfileExemplar]
     /// One read for a whole matching pass.
     func exemplarsByProfile() throws -> [UUID: [SpeakerProfileExemplar]]
@@ -69,9 +71,22 @@ public protocol SpeakerProfileRepositoryProtocol: Sendable {
         evicting: SpeakerProfileExemplar.Origin
     ) throws -> SpeakerExemplarInsertion
     func deleteExemplar(id: UUID) throws -> Bool
+    /// Ownership, the last-sample rule and the delete in one write.
+    func deleteExemplar(id: UUID, profileId: UUID, keepingAtLeastOne: Bool) throws -> Bool
     /// Rows from an earlier fingerprint are deliberately invisible here.
     func links(transcriptionId: UUID, fingerprint: String) throws -> [SpeakerProfileLink]
     func save(_ link: SpeakerProfileLink) throws
+    /// Replaces a decision the user made themselves, terminal ones included.
+    /// Separate from `save`, which still refuses to overwrite a terminal
+    /// choice: the guard protects an answer from the matcher, not from the
+    /// person who gave it.
+    func replaceUserDecision(_ link: SpeakerProfileLink) throws
+    /// Reserves `link.profileId` for `link.speakerId` and records the decision
+    /// in the same transaction, returning the speaker that already holds the
+    /// profile instead when there is one — nothing is written in that case.
+    /// A holder check made outside the write lets two concurrent assignments
+    /// both find the voice free and confirm it for different speakers.
+    func claimProfile(_ link: SpeakerProfileLink, replacingUserDecision: Bool) throws -> String?
     /// Replaces pending offers for one run atomically, preserving terminal choices.
     /// Returns the offers still allowed after checking current terminal decisions.
     func replaceSuggestions(
@@ -79,6 +94,9 @@ public protocol SpeakerProfileRepositoryProtocol: Sendable {
     ) throws -> [SpeakerProfileLink]
     /// Removes a profile with its samples and decisions in one transaction.
     /// Transcripts and labels already applied are untouched.
+    /// Recordings where this voice was accepted — what "recognized in N
+    /// recordings" counts. Suggestions and refusals are excluded.
+    func confirmedLinkCount(profileId: UUID) throws -> Int
     func deleteProfile(id: UUID) throws -> Bool
     func deleteAllProfiles() throws
 }
@@ -187,6 +205,31 @@ public final class SpeakerProfileRepository: SpeakerProfileRepositoryProtocol {
                 throw SpeakerProfileStoreError.embeddingModelChangeWithExemplars(profile.id)
             }
             try profile.update(db)
+        }
+    }
+
+    public func updateProfile(
+        id: UUID, update: (inout SpeakerProfile) -> Void
+    ) throws -> SpeakerProfile? {
+        try dbQueue.write { db in
+            guard var profile = try SpeakerProfile.fetchOne(db, key: id) else { return nil }
+            let previousModel = profile.embeddingModelId
+            update(&profile)
+            profile = try normalized(profile)
+            if previousModel != profile.embeddingModelId,
+                try SpeakerProfileExemplar.filter(Column("profileId") == id).fetchCount(db) > 0
+            {
+                throw SpeakerProfileStoreError.embeddingModelChangeWithExemplars(id)
+            }
+            if try SpeakerProfile
+                .filter(Column("normalizedName") == profile.normalizedName)
+                .filter(Column("id") != profile.id)
+                .fetchCount(db) > 0
+            {
+                throw SpeakerProfileStoreError.nameAlreadyTaken(normalizedName: profile.normalizedName)
+            }
+            try profile.update(db)
+            return profile
         }
     }
 
@@ -317,6 +360,23 @@ public final class SpeakerProfileRepository: SpeakerProfileRepositoryProtocol {
         ).insert(db)
     }
 
+    /// Ownership, the last-sample rule and the delete in one write.
+    ///
+    /// Checking the count outside cannot hold the rule — two callers both see
+    /// more than one and both delete — and deleting by id alone would let a
+    /// mismatched id take another profile's final sample.
+    public func deleteExemplar(id: UUID, profileId: UUID, keepingAtLeastOne: Bool) throws -> Bool {
+        try dbQueue.write { db in
+            let owned =
+                try SpeakerProfileExemplar
+                .filter(Column("profileId") == profileId)
+                .fetchAll(db)
+            guard owned.contains(where: { $0.id == id }) else { return false }
+            if keepingAtLeastOne, owned.count <= 1 { return false }
+            return try SpeakerProfileExemplar.deleteOne(db, key: id)
+        }
+    }
+
     public func deleteExemplar(id: UUID) throws -> Bool {
         try dbQueue.write { db in
             try SpeakerProfileExemplar.deleteOne(db, key: id)
@@ -370,6 +430,69 @@ public final class SpeakerProfileRepository: SpeakerProfileRepositoryProtocol {
         }
     }
 
+    /// No terminal guard, by design. Re-evaluation must never overwrite an
+    /// answer, but the user changing their mind is the one case that must
+    /// stay repairable — a misclicked refusal would otherwise lock a speaker
+    /// out of naming for this fingerprint for good.
+    public func replaceUserDecision(_ link: SpeakerProfileLink) throws {
+        try dbQueue.write { db in
+            var link = link
+            let key = try SpeakerTranscriptionPersistence.key(link.transcriptionId, in: db)
+            let existing =
+                try SpeakerProfileLink
+                .filter(Column("transcriptionId") == key)
+                .filter(Column("speakerId") == link.speakerId)
+                .filter(Column("transcriptFingerprint") == link.transcriptFingerprint)
+                .fetchOne(db)
+            // Kept as in `save`: the row dates this speaker's first decision,
+            // not the latest answer about them.
+            if let existing { link.createdAt = existing.createdAt }
+            try SpeakerTranscriptionRecord(
+                record: link, column: "transcriptionId", transcriptionKey: key
+            ).save(db)
+        }
+    }
+
+    /// `replaceUserDecision` guarded by the one-voice-per-transcript rule, both
+    /// under a single write. The scope is this fingerprint, like every other
+    /// link query: rows from an earlier diarization describe speakers that no
+    /// longer exist.
+    public func claimProfile(
+        _ link: SpeakerProfileLink, replacingUserDecision: Bool = false
+    ) throws -> String? {
+        try dbQueue.write { db in
+            var link = link
+            let key = try SpeakerTranscriptionPersistence.key(link.transcriptionId, in: db)
+            let scope =
+                SpeakerProfileLink
+                .filter(Column("transcriptionId") == key)
+                .filter(Column("transcriptFingerprint") == link.transcriptFingerprint)
+            if let holder =
+                try scope
+                .filter(Column("profileId") == link.profileId)
+                .filter(Column("status") == SpeakerProfileLink.Status.confirmed.rawValue)
+                .filter(Column("speakerId") != link.speakerId)
+                .fetchOne(db)
+            {
+                return holder.speakerId
+            }
+            // Kept as in `replaceUserDecision`: the row dates this speaker's
+            // first decision, not the latest answer about them.
+            if let existing = try scope.filter(Column("speakerId") == link.speakerId).fetchOne(db) {
+                if !replacingUserDecision, existing.status != .suggested,
+                    existing.status != link.status || existing.profileId != link.profileId
+                {
+                    throw SpeakerProfileStoreError.terminalDecisionAlreadyRecorded(status: existing.status)
+                }
+                link.createdAt = existing.createdAt
+            }
+            try SpeakerTranscriptionRecord(
+                record: link, column: "transcriptionId", transcriptionKey: key
+            ).save(db)
+            return nil
+        }
+    }
+
     public func replaceSuggestions(
         transcriptionId: UUID, fingerprint: String, with links: [SpeakerProfileLink]
     ) throws -> [SpeakerProfileLink] {
@@ -414,6 +537,22 @@ public final class SpeakerProfileRepository: SpeakerProfileRepositoryProtocol {
 
     /// Exemplars and links go with it through their cascades; transcripts and
     /// any label already applied are untouched.
+    /// Distinct recordings, not rows: links are fingerprint-scoped, so one
+    /// transcription re-diarized and re-confirmed holds several rows for the
+    /// same profile and would inflate "recognized in N recordings".
+    public func confirmedLinkCount(profileId: UUID) throws -> Int {
+        try dbQueue.read { db in
+            try Int.fetchOne(
+                db,
+                sql: """
+                    SELECT COUNT(DISTINCT transcriptionId) FROM speaker_profile_links
+                    WHERE profileId = ? AND status = ?
+                    """,
+                arguments: [profileId, SpeakerProfileLink.Status.confirmed.rawValue]
+            ) ?? 0
+        }
+    }
+
     public func deleteProfile(id: UUID) throws -> Bool {
         try dbQueue.write { db in
             try SpeakerProfile.deleteOne(db, key: id)

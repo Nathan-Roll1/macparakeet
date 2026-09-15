@@ -2,7 +2,7 @@
 
 - **Date:** 2026-07-03 (amended 2026-09-09; integration and release decision
   2026-09-10 — see [Release gates](#integration-and-release-gates-2026-09-10))
-- **Status:** EXPERIMENTAL FOUNDATIONS, DISABLED BY DEFAULT. Phase 0: NO-GO on the July meeting corpus
+- **Status:** EXPERIMENTAL IMPLEMENTATION, DISABLED BY DEFAULT. Phase 0: NO-GO on the July meeting corpus
   (pre-AEC echo contamination + only 3 usable sessions). Phase 0b (clean public
   corpus): **GO — embedding path validated** (no overlap: same-narrator
   0.05–0.23 vs different 0.47–0.84; tau/margin sweep = 100% TPR, 0% FPR across
@@ -40,6 +40,16 @@ preference remains off by default and requires acknowledged consent and meeting
 speaker detection. PRs #994/#996/#1000/#1001/#1004/#1005 supply foundations and
 meeting wiring, not the consent, enrollment, suggestion or administration UI.
 Those surfaces must be complete before ordinary user dogfooding or release.
+
+**2026-09-15 integration review:** PRs #1007, #1008, #1011 and #1017 add
+consent/enrollment, confirmed suggestions, profile management, manual assignment
+and documentation. The review addresses stale candidate enrollment, identity
+reservation, consent-gated transcript actions and concurrent profile metadata
+updates. The unrelated speaker-consolidation simulator is excluded. Merge/test
+receipts and remaining qualification gaps are recorded in
+[`docs/audits/2026-09-15-voice-profile-review.md`](../../docs/audits/2026-09-15-voice-profile-review.md).
+The scope remains meetings-only and does not implement recurring unnamed-speaker
+discovery or configurable recurrence thresholds from the original issue.
 
 **Official release gate:** publish a reviewable evaluation report for the exact
 model, aggregation settings, policy and build being considered. The report must:

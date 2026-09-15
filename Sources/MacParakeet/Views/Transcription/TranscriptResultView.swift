@@ -586,6 +586,10 @@ struct TranscriptResultView: View {
     /// manual-scroll pause when find never navigated.
     @State private var findPausedAutoScroll = false
     @State private var speakerRename = SpeakerRenameState()
+    /// Where each speaker was last renamed, by speaker id. A voice prompt is
+    /// rendered against the control that produced it, so it lands in the part
+    /// of the transcript the user is already looking at.
+    @State private var voiceProfileRenameContexts: [String: String] = [:]
     @State private var editingSpeakers = false
     @State private var speakerSelection = SpeakerEditSelectionModel()
     @State private var showingNewSpeakerPrompt = false
@@ -837,6 +841,9 @@ struct TranscriptResultView: View {
         transcriptDisplayModeBeforeEdit = nil
         speakerRename = SpeakerRenameState()
         focusedSpeakerRenameContext = nil
+        // Speaker ids are positional, so a context kept across transcripts
+        // would anchor a prompt to whoever happens to be `S1` here.
+        voiceProfileRenameContexts.removeAll()
         editingSpeakers = false
         speakerSelection.clear()
         showingNewSpeakerPrompt = false
@@ -2008,6 +2015,8 @@ struct TranscriptResultView: View {
                        let banner = meetingNoWordTimestampsBannerPresentation {
                         meetingNoWordTimestampsBanner(banner)
                     }
+
+                    voiceProfileBanners(at: .transcriptTop)
 
                     if shouldShowTranscriptAISetupBanner {
                         chatConfigurationBanner
@@ -3951,6 +3960,269 @@ struct TranscriptResultView: View {
         )
     }
 
+    /// Where a voice-profile prompt is rendered.
+    ///
+    /// The prompt used to sit at the top of the transcript while the speaker it
+    /// names can be an hour further down, so it answered a gesture the user had
+    /// made off screen. Anchoring it to the control that produced it puts the
+    /// answer where the question was asked and needs no scrolling.
+    private enum VoiceProfileBannerPlacement: Equatable {
+        /// A turn card, addressed by the rename context of its speaker label.
+        case turn(String)
+        /// A row of the speaker overview, addressed by speaker id.
+        case overviewRow(String)
+        /// No turn card and no overview row owns this speaker — a plain-text
+        /// transcript, for instance. Keeps the prompt reachable.
+        case transcriptTop
+    }
+
+    /// Whether any prompt is waiting. Checked before resolving placements: the
+    /// resolver walks the turn list, and it runs once per rendered card.
+    private var hasVoiceProfileBanner: Bool {
+        !viewModel.voiceSuggestions.isEmpty
+            || viewModel.voiceEnrollmentConflict != nil
+            || viewModel.pendingVoiceEnrollment != nil
+            || viewModel.voiceEnrollmentMessage != nil
+    }
+
+    /// The rename contexts the transcript currently exposes for one speaker, in
+    /// reading order.
+    private func turnRenameContexts(forSpeaker speakerID: String) -> [String] {
+        guard transcriptDisplayMode == .timed, !editingTranscript else { return [] }
+        if let attribution = viewModel.speakerAttribution, !attribution.speakers.isEmpty {
+            return identifiedEffectiveSpeakerTurnCards(attribution.turns)
+                .filter { $0.assignment == .speaker(id: speakerID) }
+                .compactMap(effectiveSpeakerTurnRenameContextIdentifier)
+        }
+        return cachedIdentifiedTurnCards
+            .filter { $0.turn.speakerId == speakerID }
+            .map(speakerTurnRenameContextIdentifier)
+    }
+
+    private func voiceProfileBannerPlacement(
+        forSpeaker speakerID: String
+    ) -> VoiceProfileBannerPlacement {
+        let overviewContext = SpeakerRenameAccessibility.overviewRenameContextIdentifier(
+            for: speakerID
+        )
+        let recorded = voiceProfileRenameContexts[speakerID]
+        if recorded == overviewContext { return .overviewRow(speakerID) }
+        let contexts = turnRenameContexts(forSpeaker: speakerID)
+        // A recorded context that no longer exists means the transcript was
+        // re-diarized or re-cached under the prompt; fall back rather than
+        // render nowhere.
+        if let recorded, contexts.contains(recorded) { return .turn(recorded) }
+        if let first = contexts.first { return .turn(first) }
+        return .transcriptTop
+    }
+
+    /// The prompts that belong at one placement. Resolved into a value first so
+    /// the view builder stays a plain series of `if`s — this file's view bodies
+    /// are already among the slowest to type-check.
+    private struct VoiceProfileBannerSet {
+        var suggestions: [SpeakerVoiceprintSuggestion] = []
+        var conflict: TranscriptionViewModel.PendingVoiceEnrollment?
+        var offer: TranscriptionViewModel.PendingVoiceEnrollment?
+        var message: TranscriptionViewModel.VoiceProfileMessage?
+    }
+
+    private func voiceProfileBannerSet(
+        at placement: VoiceProfileBannerPlacement
+    ) -> VoiceProfileBannerSet {
+        var set = VoiceProfileBannerSet()
+        guard hasVoiceProfileBanner else { return set }
+        set.suggestions = viewModel.voiceSuggestions.filter {
+            voiceProfileBannerPlacement(forSpeaker: $0.speakerId) == placement
+        }
+        if let conflict = viewModel.voiceEnrollmentConflict {
+            if voiceProfileBannerPlacement(forSpeaker: conflict.speakerId) == placement {
+                set.conflict = conflict
+            }
+        } else if let offer = viewModel.pendingVoiceEnrollment {
+            if voiceProfileBannerPlacement(forSpeaker: offer.speakerId) == placement {
+                set.offer = offer
+            }
+        }
+        if let message = viewModel.voiceEnrollmentMessage {
+            let messagePlacement = message.speakerId
+                .map(voiceProfileBannerPlacement(forSpeaker:)) ?? .transcriptTop
+            if messagePlacement == placement { set.message = message }
+        }
+        return set
+    }
+
+    @ViewBuilder
+    private func voiceProfileBanners(at placement: VoiceProfileBannerPlacement) -> some View {
+        let set = voiceProfileBannerSet(at: placement)
+        ForEach(set.suggestions, id: \.speakerId) { suggestion in
+            voiceSuggestionBanner(suggestion)
+        }
+        if let conflict = set.conflict {
+            voiceEnrollmentConflictBanner(conflict)
+        } else if let offer = set.offer {
+            voiceEnrollmentOfferBanner(offer)
+        }
+        if let message = set.message {
+            voiceEnrollmentMessageBanner(message)
+        }
+    }
+
+    /// One proposed name, awaiting an answer. Says who it thinks it is and
+    /// leaves the decision open — a wrong name applied silently is worse than
+    /// a speaker left as "Others 1".
+    private func voiceSuggestionBanner(
+        _ suggestion: SpeakerVoiceprintSuggestion
+    ) -> some View {
+        HStack(alignment: .top, spacing: DesignSystem.Spacing.sm) {
+            Image(systemName: "person.crop.circle.badge.questionmark")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(DesignSystem.Colors.accent)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Is \(speakerLabel(for: suggestion.speakerId)) \(suggestion.displayName)?")
+                    .font(DesignSystem.Typography.body.weight(.semibold))
+                    .foregroundStyle(DesignSystem.Colors.textPrimary)
+                Text("This voice matches a speaker you named before.")
+                    .font(DesignSystem.Typography.bodySmall)
+                    .foregroundStyle(DesignSystem.Colors.textSecondary)
+            }
+
+            Spacer()
+
+            Button("Not \(suggestion.displayName)") {
+                viewModel.dismissVoiceSuggestion(suggestion)
+            }
+            .parakeetAction(.secondary)
+            .controlSize(.small)
+            Button("Yes") {
+                viewModel.confirmVoiceSuggestion(suggestion)
+            }
+            .parakeetAction(.primary)
+            .controlSize(.small)
+        }
+        .padding(DesignSystem.Spacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: DesignSystem.Layout.rowCornerRadius)
+                .fill(DesignSystem.Colors.accentLight)
+        )
+    }
+
+    /// The label the transcript shows, so the question names what the user can
+    /// see rather than an internal id.
+    private func speakerLabel(for speakerId: String) -> String {
+        activeTranscription.speakers?.first { $0.id == speakerId }?.label ?? "this speaker"
+    }
+
+    /// Offers to remember the voice just named. Non-modal on purpose: the user
+    /// came here to fix a label, and declining has to cost nothing more than
+    /// ignoring it.
+    private func voiceEnrollmentOfferBanner(
+        _ offer: TranscriptionViewModel.PendingVoiceEnrollment
+    ) -> some View {
+        HStack(alignment: .top, spacing: DesignSystem.Spacing.sm) {
+            Image(systemName: "waveform.badge.person")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(DesignSystem.Colors.accent)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Remember \(offer.displayName)'s voice?")
+                    .font(DesignSystem.Typography.body.weight(.semibold))
+                    .foregroundStyle(DesignSystem.Colors.textPrimary)
+                Text("Later meetings will suggest this name. Suggestions always need your confirmation.")
+                    .font(DesignSystem.Typography.bodySmall)
+                    .foregroundStyle(DesignSystem.Colors.textSecondary)
+            }
+
+            Spacer()
+
+            Button("Not Now") { viewModel.dismissVoiceEnrollment() }
+                .parakeetAction(.secondary)
+                .controlSize(.small)
+            Button("Remember") {
+                viewModel.confirmVoiceEnrollment()
+            }
+            .parakeetAction(.primary)
+            .controlSize(.small)
+        }
+        .padding(DesignSystem.Spacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: DesignSystem.Layout.rowCornerRadius)
+                .fill(DesignSystem.Colors.accentLight)
+        )
+    }
+
+    /// The name is taken by a voice that does not match. Merging would fuse two
+    /// people, so the choice is the user's and the wording says what each
+    /// option does.
+    private func voiceEnrollmentConflictBanner(
+        _ offer: TranscriptionViewModel.PendingVoiceEnrollment
+    ) -> some View {
+        HStack(alignment: .top, spacing: DesignSystem.Spacing.sm) {
+            Image(systemName: "person.2.badge.questionmark")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(DesignSystem.Colors.warningAmber)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Another \(offer.displayName) is already saved")
+                    .font(DesignSystem.Typography.body.weight(.semibold))
+                    .foregroundStyle(DesignSystem.Colors.textPrimary)
+                Text("This voice sounds different from the \(offer.displayName) you saved before. Add it to that profile only if it is the same person.")
+                    .font(DesignSystem.Typography.bodySmall)
+                    .foregroundStyle(DesignSystem.Colors.textSecondary)
+            }
+
+            Spacer()
+
+            Button("Cancel") { viewModel.dismissVoiceEnrollment() }
+                .parakeetAction(.secondary)
+                .controlSize(.small)
+            Button("Same Person") {
+                viewModel.confirmVoiceEnrollment(allowMerge: true)
+            }
+            .parakeetAction(.secondary)
+            .controlSize(.small)
+        }
+        .padding(DesignSystem.Spacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: DesignSystem.Layout.rowCornerRadius)
+                .fill(DesignSystem.Colors.warningAmber.opacity(0.1))
+        )
+    }
+
+    private func voiceEnrollmentMessageBanner(
+        _ message: TranscriptionViewModel.VoiceProfileMessage
+    ) -> some View {
+        let failed = message.kind == .failure
+        return HStack(alignment: .top, spacing: DesignSystem.Spacing.sm) {
+            Image(systemName: failed ? "exclamationmark.circle" : "checkmark.circle")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(failed ? DesignSystem.Colors.warningAmber : DesignSystem.Colors.accent)
+
+            Text(message.text)
+                .font(DesignSystem.Typography.bodySmall)
+                .foregroundStyle(DesignSystem.Colors.textSecondary)
+
+            Spacer()
+
+            Button { viewModel.clearVoiceEnrollmentMessage() } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .semibold))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(DesignSystem.Colors.textSecondary)
+            .accessibilityLabel("Dismiss voice profile message")
+        }
+        .padding(DesignSystem.Spacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: DesignSystem.Layout.rowCornerRadius)
+                .fill(
+                    failed
+                        ? DesignSystem.Colors.warningAmber.opacity(0.1)
+                        : DesignSystem.Colors.accentLight
+                )
+        )
+    }
+
     /// Shown above a meeting transcript that has text but no word timestamps
     /// (for example, it was transcribed with Cohere). Makes the
     /// text-only trade-off visible without promising speaker-label quality.
@@ -4181,6 +4453,7 @@ struct TranscriptResultView: View {
                     )
                 )
             },
+            turnBanner: { voiceProfileBanners(at: .turn($0)) },
             isSegmentActive: isSegmentActiveBinarySearch(segmentIndex:),
             timestampLabel: { formatTimestamp(ms: $0) },
             isTimestampSeekable: playerViewModel.playerState == .ready,
@@ -4363,6 +4636,18 @@ struct TranscriptResultView: View {
         viewModel.applySpeakerCorrection(.assign(targets: targets, to: assignment))
     }
 
+    /// Scoped to the whole speaker, not the turn the menu was opened from: a
+    /// voice link is keyed by speaker, and naming one turn Marie while the
+    /// rest stay "Speaker 2" is not what the menu says it does.
+    private func assignKnownVoice(_ speakerId: String, _ profileId: UUID) {
+        // Sends the outcome to this speaker's overview row — the menu it was
+        // chosen from — instead of the top of the transcript, which is where
+        // an unplaced message lands.
+        voiceProfileRenameContexts[speakerId] =
+            SpeakerRenameAccessibility.overviewRenameContextIdentifier(for: speakerId)
+        viewModel.assignKnownVoice(profileId: profileId, toSpeakerId: speakerId)
+    }
+
     private func presentNewSpeaker(for segments: [SpeakerEditableSegment]) {
         pendingNewSpeakerSegments = segments
         let next = (viewModel.speakerAttribution?.speakers.count ?? 0) + 1
@@ -4468,6 +4753,7 @@ struct TranscriptResultView: View {
                 }
                 ForEach(speakers, id: \.id) { speaker in
                     let stats = speakerStats[speaker.id]
+                    voiceProfileBanners(at: .overviewRow(speaker.id))
                     HStack(spacing: DesignSystem.Spacing.md) {
                         Circle()
                             .fill(colorMap[speaker.id] ?? DesignSystem.Colors.textTertiary)
@@ -4504,6 +4790,22 @@ struct TranscriptResultView: View {
                                         for: speaker.id
                                     )
                                 )
+                            }
+
+                            // Sits beside the other whole-speaker actions because
+                            // that is its scope: the name applies everywhere this
+                            // speaker talks, not to one turn.
+                            if !viewModel.assignableVoices.isEmpty,
+                                AudioSource(rawValue: speaker.id) == nil
+                            {
+                                Menu("This speaker is…") {
+                                    ForEach(viewModel.assignableVoices, id: \.id) { voice in
+                                        Button(voice.profile.displayName) {
+                                            assignKnownVoice(speaker.id, voice.profile.id)
+                                        }
+                                    }
+                                }
+                                .disabled(viewModel.isApplyingVoiceIdentity)
                             }
 
                             Menu("Merge into…") {
@@ -4671,6 +4973,9 @@ struct TranscriptResultView: View {
         let trimmed = draft.label.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return true }
         guard viewModel.renameSpeaker(id: draft.speakerID, to: trimmed) else { return false }
+        // Remembered before the offer lands: it arrives asynchronously, by
+        // which time the editor that produced it is gone.
+        voiceProfileRenameContexts[draft.speakerID] = draft.contextID
         if transcriptDisplayMode == .timed {
             scheduleSegmentCacheRebuild()
         }

@@ -135,9 +135,55 @@ private actor MeetingVoiceprintSpy: SpeakerVoiceprintServicing {
     }
 
     func confirm(
-        _ suggestion: SpeakerVoiceprintSuggestion, observation: SpeakerClusterObservation,
+        _ suggestion: SpeakerVoiceprintSuggestion,
         transcriptionId: UUID, fingerprint: TranscriptFingerprint
     ) async throws {
+        throw Failure.unexpectedOperation
+    }
+
+    func pendingSuggestions(
+        transcriptionId: UUID, fingerprint: TranscriptFingerprint
+    ) async throws -> [SpeakerVoiceprintSuggestion] {
+        throw Failure.unexpectedOperation
+    }
+
+    func confirmedVoiceHolders(
+        transcriptionId _: UUID, fingerprint _: TranscriptFingerprint
+    ) async throws -> [UUID: String] {
+        throw Failure.unexpectedOperation
+    }
+
+    func recognitionVoices() async throws -> [EnrolledVoice] { [] }
+    func validateAssignment(
+        profileId _: UUID, toSpeakerId _: String, transcriptionId _: UUID,
+        fingerprint _: TranscriptFingerprint
+    ) async throws -> SpeakerManualAssignment { .unknownProfile }
+    func enrollCandidate(
+        displayName _: String, speakerId _: String, transcriptionId _: UUID,
+        fingerprint _: TranscriptFingerprint, allowMergeIntoExistingName _: Bool
+    ) async throws -> SpeakerProfileEnrollment { .candidateUnavailable }
+
+    func enrolledVoices() async throws -> [EnrolledVoice] {
+        throw Failure.unexpectedOperation
+    }
+
+    func samples(profileId _: UUID) async throws -> [SpeakerProfileExemplar] {
+        throw Failure.unexpectedOperation
+    }
+
+    func renameProfile(id _: UUID, to _: String) async throws {
+        throw Failure.unexpectedOperation
+    }
+
+    func deleteSample(id _: UUID, profileId _: UUID) async throws -> Bool {
+        throw Failure.unexpectedOperation
+    }
+
+    func forgetVoice(profileId _: UUID) async throws {
+        throw Failure.unexpectedOperation
+    }
+
+    func forgetAllVoices() async throws {
         throw Failure.unexpectedOperation
     }
 
@@ -145,6 +191,13 @@ private actor MeetingVoiceprintSpy: SpeakerVoiceprintServicing {
         _ suggestion: SpeakerVoiceprintSuggestion, transcriptionId: UUID,
         fingerprint: TranscriptFingerprint
     ) async throws {
+        throw Failure.unexpectedOperation
+    }
+
+    func assign(
+        profileId: UUID, toSpeakerId speakerId: String, transcriptionId: UUID,
+        fingerprint: TranscriptFingerprint
+    ) async throws -> SpeakerManualAssignment {
         throw Failure.unexpectedOperation
     }
 }
