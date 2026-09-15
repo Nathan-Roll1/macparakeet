@@ -100,6 +100,21 @@ final class AppRuntimePreferencesTests: XCTestCase {
         XCTAssertFalse(preferences.shouldDiarizeMeetings)
     }
 
+    func testMeetingLiveTranscriptionEnabledDefaultsToTrueWhenUnset() {
+        let preferences = makePreferences()
+        XCTAssertTrue(preferences.meetingLiveTranscriptionEnabled)
+    }
+
+    func testMeetingLiveTranscriptionEnabledRespectsExplicitFalse() {
+        let suite = "app-runtime-prefs-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(false, forKey: UserDefaultsAppRuntimePreferences.meetingLiveTranscriptionEnabledKey)
+
+        let preferences = UserDefaultsAppRuntimePreferences(defaults: defaults)
+        XCTAssertFalse(preferences.meetingLiveTranscriptionEnabled)
+    }
+
     func testSpeakerDiarizationPreferencesAreIndependent() {
         let suite = "app-runtime-prefs-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!

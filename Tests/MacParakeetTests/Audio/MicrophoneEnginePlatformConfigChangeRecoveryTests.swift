@@ -916,7 +916,108 @@ final class MicrophoneEnginePlatformConfigChangeRecoveryTests: XCTestCase {
         XCTAssertEqual(invocationLock.withLock { $0 }, 2)
     }
 
-    func testSustainedBluetoothZeroFilledCallbacksRecoverThroughFallbackRoute() throws {
+    func testEstablishedBluetoothRouteSurvivesSixtySecondsOfSilence() throws {
+        for attempt in [
+            MeetingInputDeviceAttempt(source: .selected(uid: "bluetooth"), deviceID: 10),
+            .implicitSystemDefault(resolvedDeviceID: 10),
+        ] {
+            let starts = OSAllocatedUnfairLock(initialState: 0)
+            let deaths = OSAllocatedUnfairLock(initialState: 0)
+            let deliveries = OSAllocatedUnfairLock(initialState: 0)
+            let clock = OSAllocatedUnfairLock(initialState: UInt64(0))
+            let currentTap = OSAllocatedUnfairLock<
+                (@Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void)?
+            >(initialState: nil)
+            let zero = UncheckedSendableAudioPCMBuffer(makeRecoveryTestBuffer(nonZero: false))
+            let signal = UncheckedSendableAudioPCMBuffer(makeRecoveryTestBuffer(nonZero: true))
+            let platform = AVAudioEngineMicrophonePlatform(
+                deviceAttemptsBuilder: { [attempt] },
+                inputDeviceSetter: { _, _ in true },
+                recoveryRetryDelays: [],
+                startupReadinessTimeout: 0,
+                bluetoothInputState: { _ in true },
+                callbackUptimeProvider: { clock.withLock { $0 } },
+                callbackStallCheckInterval: 0,
+                engineStarter: { _, _, _, tap in
+                    starts.withLock { $0 += 1 }
+                    currentTap.withLock { $0 = tap }
+                    tap(signal.buffer, AVAudioTime(hostTime: 1))
+                }
+            )
+            platform.setUnexpectedStopHandler { deaths.withLock { $0 += 1 } }
+            defer { platform.stopEngine() }
+            try platform.configureAndStart(vpioEnabled: false, bufferSize: 256) { _, _ in
+                deliveries.withLock { $0 += 1 }
+            }
+            let tap = try XCTUnwrap(currentTap.withLock { $0 })
+            for second in 1...60 {
+                clock.withLock { $0 = UInt64(second) * 1_000_000_000 }
+                tap(zero.buffer, AVAudioTime(hostTime: UInt64(second + 1)))
+                platform.checkCallbackLivenessNowForTesting()
+            }
+            tap(signal.buffer, AVAudioTime(hostTime: 62))
+            XCTAssertTrue(platform.isEngineRunning)
+            XCTAssertEqual(starts.withLock { $0 }, 1, "Silence must not recreate the engine")
+            XCTAssertEqual(deaths.withLock { $0 }, 0)
+            XCTAssertEqual(deliveries.withLock { $0 }, 62)
+        }
+    }
+
+    func testBluetoothSilencePreservesBothSharedSubscribersAndFrameDelivery() async throws {
+        let clock = OSAllocatedUnfairLock(initialState: UInt64(0))
+        let starts = OSAllocatedUnfairLock(initialState: 0)
+        let tap = OSAllocatedUnfairLock<(@Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void)?>(initialState: nil)
+        let firstFrames = OSAllocatedUnfairLock(initialState: UInt64(0))
+        let secondFrames = OSAllocatedUnfairLock(initialState: UInt64(0))
+        let deaths = OSAllocatedUnfairLock(initialState: 0)
+        let signal = UncheckedSendableAudioPCMBuffer(makeRecoveryTestBuffer(nonZero: true))
+        let silence = UncheckedSendableAudioPCMBuffer(makeRecoveryTestBuffer(nonZero: false))
+        let platform = AVAudioEngineMicrophonePlatform(
+            deviceAttemptsBuilder: { [.implicitSystemDefault(resolvedDeviceID: 10)] },
+            recoveryRetryDelays: [],
+            bluetoothInputState: { _ in true },
+            callbackUptimeProvider: { clock.withLock { $0 } },
+            callbackStallCheckInterval: 0,
+            engineStarter: { _, _, _, handler in
+                starts.withLock { $0 += 1 }
+                tap.withLock { $0 = handler }
+                handler(signal.buffer, AVAudioTime(hostTime: 1))
+            }
+        )
+        let stream = SharedMicrophoneStream(platform: platform, bufferSize: 256)
+        let first = try await stream.subscribe(
+            wantsVPIO: false,
+            onEngineDeath: {
+                deaths.withLock { $0 += 1 }
+            }
+        ) { buffer, _ in firstFrames.withLock { $0 += UInt64(buffer.frameLength) } }
+        let second = try await stream.subscribe(
+            wantsVPIO: false,
+            onEngineDeath: {
+                deaths.withLock { $0 += 1 }
+            }
+        ) { buffer, _ in secondFrames.withLock { $0 += UInt64(buffer.frameLength) } }
+        let firstBaseline = firstFrames.withLock { $0 }
+        let secondBaseline = secondFrames.withLock { $0 }
+        let handler = try XCTUnwrap(tap.withLock { $0 })
+        for second in 1...60 {
+            clock.withLock { $0 = UInt64(second) * 1_000_000_000 }
+            handler(silence.buffer, AVAudioTime(hostTime: UInt64(second)))
+            platform.checkCallbackLivenessNowForTesting()
+        }
+        handler(signal.buffer, AVAudioTime(hostTime: 61))
+        let expectedFrames = UInt64(silence.buffer.frameLength) * 60 + UInt64(signal.buffer.frameLength)
+        XCTAssertEqual(firstFrames.withLock { $0 } - firstBaseline, expectedFrames)
+        XCTAssertEqual(secondFrames.withLock { $0 } - secondBaseline, expectedFrames)
+        XCTAssertEqual(stream.diagnostics.subscriberCount, 2)
+        XCTAssertTrue(stream.diagnostics.engineRunning)
+        XCTAssertEqual(starts.withLock { $0 }, 1)
+        XCTAssertEqual(deaths.withLock { $0 }, 0)
+        await stream.unsubscribe(first)
+        await stream.unsubscribe(second)
+    }
+
+    func testSustainedEmptyCallbacksRecoverThroughFallbackRoute() throws {
         let invocationCount = OSAllocatedUnfairLock(initialState: 0)
         let deliveredBufferCount = OSAllocatedUnfairLock(initialState: 0)
         let currentDeviceID = OSAllocatedUnfairLock<AudioDeviceID?>(initialState: nil)
@@ -925,6 +1026,8 @@ final class MicrophoneEnginePlatformConfigChangeRecoveryTests: XCTestCase {
             (@Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void)?
         >(initialState: nil)
         let zeroBuffer = UncheckedSendableAudioPCMBuffer(makeRecoveryTestBuffer(nonZero: false))
+        let emptyBuffer = UncheckedSendableAudioPCMBuffer(makeRecoveryTestBuffer(nonZero: false))
+        emptyBuffer.buffer.frameLength = 0
         let signalBuffer = UncheckedSendableAudioPCMBuffer(
             makeRecoveryTestBuffer(nonZero: true)
         )
@@ -948,7 +1051,7 @@ final class MicrophoneEnginePlatformConfigChangeRecoveryTests: XCTestCase {
             bluetoothInputState: { $0 == 10 },
             callbackUptimeProvider: { uptimeNanoseconds.withLock { $0 } },
             callbackStallTimeout: 1,
-            zeroFilledTimeout: 0.02,
+            invalidBufferTimeout: 0.02,
             callbackStallCheckInterval: 0,
             engineStarter: { _, _, _, tapHandler in
                 let invocation = invocationCount.withLock { value -> Int in
@@ -982,7 +1085,7 @@ final class MicrophoneEnginePlatformConfigChangeRecoveryTests: XCTestCase {
 
         for hostTime in 2...12 {
             uptimeNanoseconds.withLock { $0 = UInt64(hostTime) * 5_000_000 }
-            tapHandler(zeroBuffer.buffer, AVAudioTime(hostTime: UInt64(hostTime)))
+            tapHandler(emptyBuffer.buffer, AVAudioTime(hostTime: UInt64(hostTime)))
         }
         platform.checkCallbackLivenessNowForTesting()
 
@@ -991,7 +1094,7 @@ final class MicrophoneEnginePlatformConfigChangeRecoveryTests: XCTestCase {
         XCTAssertEqual(
             deliveredBufferCount.withLock { $0 },
             2,
-            "Bluetooth zero-filled buffers must not reach consumers"
+            "Empty callbacks and Bluetooth startup silence must not reach consumers"
         )
         XCTAssertEqual(
             platform.lastSucceededAttempt,
@@ -1002,14 +1105,15 @@ final class MicrophoneEnginePlatformConfigChangeRecoveryTests: XCTestCase {
     /// A replacement's first usable buffer is only readiness, not proof that
     /// the route has recovered durably. Repeated short-lived starts must consume
     /// one bounded episode instead of resetting the budget forever.
-    func testRepeatedOneBufferThenBluetoothZeroExhaustsSingleRecoveryEpisode() throws {
+    func testRepeatedOneBufferThenEmptyCallbacksExhaustsSingleRecoveryEpisode() throws {
         let invocationCount = OSAllocatedUnfairLock(initialState: 0)
         let currentTapHandler = OSAllocatedUnfairLock<
             (@Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void)?
         >(initialState: nil)
         let uptimeNanoseconds = OSAllocatedUnfairLock<UInt64>(initialState: 0)
         let unexpectedStop = expectation(description: "unstable recovery is exhausted")
-        let zeroBuffer = UncheckedSendableAudioPCMBuffer(makeRecoveryTestBuffer(nonZero: false))
+        let emptyBuffer = UncheckedSendableAudioPCMBuffer(makeRecoveryTestBuffer(nonZero: false))
+        emptyBuffer.buffer.frameLength = 0
         let signalBuffer = UncheckedSendableAudioPCMBuffer(
             makeRecoveryTestBuffer(nonZero: true)
         )
@@ -1024,7 +1128,7 @@ final class MicrophoneEnginePlatformConfigChangeRecoveryTests: XCTestCase {
             bluetoothInputState: { $0 == 10 },
             callbackUptimeProvider: { uptimeNanoseconds.withLock { $0 } },
             callbackStallTimeout: 1,
-            zeroFilledTimeout: 0.02,
+            invalidBufferTimeout: 0.02,
             callbackStallCheckInterval: 0,
             engineStarter: { _, _, _, tapHandler in
                 let invocation = invocationCount.withLock { value -> Int in
@@ -1050,9 +1154,9 @@ final class MicrophoneEnginePlatformConfigChangeRecoveryTests: XCTestCase {
             let tapHandler = try XCTUnwrap(currentTapHandler.withLock { $0 })
             let base = UInt64(cycle) * 50_000_000
             uptimeNanoseconds.withLock { $0 = base + 5_000_000 }
-            tapHandler(zeroBuffer.buffer, AVAudioTime(hostTime: base + 1))
+            tapHandler(emptyBuffer.buffer, AVAudioTime(hostTime: base + 1))
             uptimeNanoseconds.withLock { $0 = base + 30_000_000 }
-            tapHandler(zeroBuffer.buffer, AVAudioTime(hostTime: base + 2))
+            tapHandler(emptyBuffer.buffer, AVAudioTime(hostTime: base + 2))
             platform.checkCallbackLivenessNowForTesting()
         }
 
@@ -1065,7 +1169,7 @@ final class MicrophoneEnginePlatformConfigChangeRecoveryTests: XCTestCase {
         )
     }
 
-    func testHealthyRecoveryCompletesProbationBeforeLaterFailureStartsNewEpisode() throws {
+    func testSilentHealthyRecoveryCompletesProbationBeforeLaterFailureStartsNewEpisode() throws {
         let invocationCount = OSAllocatedUnfairLock(initialState: 0)
         let currentTapHandler = OSAllocatedUnfairLock<
             (@Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void)?
@@ -1074,6 +1178,8 @@ final class MicrophoneEnginePlatformConfigChangeRecoveryTests: XCTestCase {
         let unexpectedStop = expectation(description: "healthy recovery keeps future budget")
         unexpectedStop.isInverted = true
         let zeroBuffer = UncheckedSendableAudioPCMBuffer(makeRecoveryTestBuffer(nonZero: false))
+        let emptyBuffer = UncheckedSendableAudioPCMBuffer(makeRecoveryTestBuffer(nonZero: false))
+        emptyBuffer.buffer.frameLength = 0
         let signalBuffer = UncheckedSendableAudioPCMBuffer(
             makeRecoveryTestBuffer(nonZero: true)
         )
@@ -1088,7 +1194,7 @@ final class MicrophoneEnginePlatformConfigChangeRecoveryTests: XCTestCase {
             bluetoothInputState: { $0 == 10 },
             callbackUptimeProvider: { uptimeNanoseconds.withLock { $0 } },
             callbackStallTimeout: 1,
-            zeroFilledTimeout: 0.02,
+            invalidBufferTimeout: 0.02,
             callbackStallCheckInterval: 0,
             engineStarter: { _, _, _, tapHandler in
                 let invocation = invocationCount.withLock { value -> Int in
@@ -1112,24 +1218,24 @@ final class MicrophoneEnginePlatformConfigChangeRecoveryTests: XCTestCase {
 
         let firstTapHandler = try XCTUnwrap(currentTapHandler.withLock { $0 })
         uptimeNanoseconds.withLock { $0 = 5_000_000 }
-        firstTapHandler(zeroBuffer.buffer, AVAudioTime(hostTime: 1))
+        firstTapHandler(emptyBuffer.buffer, AVAudioTime(hostTime: 1))
         uptimeNanoseconds.withLock { $0 = 30_000_000 }
-        firstTapHandler(zeroBuffer.buffer, AVAudioTime(hostTime: 2))
+        firstTapHandler(emptyBuffer.buffer, AVAudioTime(hostTime: 2))
         platform.checkCallbackLivenessNowForTesting()
         XCTAssertEqual(invocationCount.withLock { $0 }, 2)
 
         let recoveredTapHandler = try XCTUnwrap(currentTapHandler.withLock { $0 })
         uptimeNanoseconds.withLock { $0 = 500_000_000 }
-        recoveredTapHandler(signalBuffer.buffer, AVAudioTime(hostTime: 3))
+        recoveredTapHandler(zeroBuffer.buffer, AVAudioTime(hostTime: 3))
         platform.checkCallbackLivenessNowForTesting()
         uptimeNanoseconds.withLock { $0 = 1_100_000_000 }
-        recoveredTapHandler(signalBuffer.buffer, AVAudioTime(hostTime: 4))
+        recoveredTapHandler(zeroBuffer.buffer, AVAudioTime(hostTime: 4))
         platform.checkCallbackLivenessNowForTesting()
 
         uptimeNanoseconds.withLock { $0 = 1_105_000_000 }
-        recoveredTapHandler(zeroBuffer.buffer, AVAudioTime(hostTime: 5))
+        recoveredTapHandler(emptyBuffer.buffer, AVAudioTime(hostTime: 5))
         uptimeNanoseconds.withLock { $0 = 1_130_000_000 }
-        recoveredTapHandler(zeroBuffer.buffer, AVAudioTime(hostTime: 6))
+        recoveredTapHandler(emptyBuffer.buffer, AVAudioTime(hostTime: 6))
         platform.checkCallbackLivenessNowForTesting()
 
         wait(for: [unexpectedStop], timeout: 0.05)

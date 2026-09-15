@@ -310,6 +310,17 @@ public enum SettingsSearchIndex {
             cardAnchor: "meeting"
         ),
         SettingsSearchEntry(
+            id: "meeting.liveTranscription",
+            tab: .capture,
+            title: "Live transcription during recording",
+            subtitle: "in Meeting Recording",
+            keywords: [
+                "live transcription", "live preview", "live captions", "cpu", "gpu",
+                "performance", "battery", "disable live transcription", "just record",
+            ],
+            cardAnchor: "meeting"
+        ),
+        SettingsSearchEntry(
             id: "meeting.speakerDetection",
             tab: .capture,
             title: "Speaker detection",

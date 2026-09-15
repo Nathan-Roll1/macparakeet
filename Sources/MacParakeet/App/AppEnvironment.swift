@@ -232,7 +232,8 @@ final class AppEnvironment {
             finalSpeechEngineSelection: { SpeechEngineSelection.finalTranscription() },
             // Wire the real feature flag here (the service defaults to fixed
             // chunking so tests stay deterministic regardless of the flag).
-            isVadLiveChunkingEnabled: { AppFeatures.meetingVadLiveChunkingEnabled }
+            isVadLiveChunkingEnabled: { AppFeatures.meetingVadLiveChunkingEnabled },
+            isLiveTranscriptionEnabled: { [runtimePreferences] in runtimePreferences.meetingLiveTranscriptionEnabled }
         )
         meetingRecordingSettlement = MeetingRecordingSettlement(
             lockFileStore: meetingRecordingLockFileStore,

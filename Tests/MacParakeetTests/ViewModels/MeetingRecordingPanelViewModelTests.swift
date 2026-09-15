@@ -358,20 +358,20 @@ final class MeetingRecordingPanelViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.transcriptEmptyStateDetail)
     }
 
-    func testUnsupportedLiveTranscriptStatusUsesEngineSpecificCopy() {
+    func testPreviewOffStatusReassuresThatAudioIsRecording() {
         let viewModel = MeetingRecordingPanelViewModel()
         viewModel.state = .recording
 
-        viewModel.updateLiveTranscriptStatus(.previewUnsupported(engine: .cohere))
+        viewModel.updateLiveTranscriptStatus(.previewOff)
 
-        XCTAssertEqual(viewModel.transcriptEmptyStateTitle, "Live preview off for Cohere")
+        XCTAssertEqual(viewModel.transcriptEmptyStateTitle, "Live transcription is off")
         XCTAssertEqual(
             viewModel.transcriptEmptyStateDetail,
             "Audio will be transcribed after you stop recording."
         )
         XCTAssertEqual(
             viewModel.statusMessage,
-            "Live preview is off for Cohere. Audio is still recording for final transcription."
+            "Audio is recording. Your transcript will be ready after you stop."
         )
     }
 
@@ -403,7 +403,7 @@ final class MeetingRecordingPanelViewModelTests: XCTestCase {
 
         XCTAssertEqual(
             viewModel.speechRouteAttribution,
-            "Live preview: Off (Cohere (fr)) · Final transcript: Whisper (ko) after recording ends"
+            "Final transcript: Whisper (ko) after recording ends"
         )
     }
 

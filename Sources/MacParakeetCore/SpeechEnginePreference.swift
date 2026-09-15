@@ -682,12 +682,14 @@ public struct MeetingSpeechPlan: Codable, Equatable, Sendable {
     public static func resolve(
         live: SpeechEngineSelection,
         final: SpeechEngineSelection,
-        liveCapabilities: SpeechEngineCapabilities?
+        liveCapabilities: SpeechEngineCapabilities?,
+        liveTranscriptionEnabled: Bool = true
     ) -> MeetingSpeechPlan {
         let canPreview =
-            liveCapabilities.map {
+            liveTranscriptionEnabled
+            && (liveCapabilities.map {
                 $0.key.engine == live.engine && $0.supportsMeetingLivePreview
-            } ?? false
+            } ?? false)
         return MeetingSpeechPlan(preview: canPreview ? live : nil, final: final)
     }
 }

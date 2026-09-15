@@ -43,6 +43,15 @@ recipient-link, bundle, anonymous owner, lifecycle, and deletion boundaries.
 
 ## Design References
 
+### Planned speaker timeline
+
+[Audio Speaker Timeline v1](contracts/audio-speaker-timeline-v1.md) and its
+[implementation plan](../docs/plans/2026-09-14-2147-feat-audio-speaker-timeline-plan.md)
+define the accepted direction for #836: detected audio turns and playback navigation independent of word timings.
+This is planned work, including for Cohere; it does not change current text-alignment capabilities or release status.
+
+### Current design references
+
 - [UI Patterns](04-ui-patterns.md) is the active product UI contract.
 - [`docs/brand-identity.md`](../docs/brand-identity.md) is the active runtime
   brand identity reference: canonical parakeet mark, app accent color, sizing,
@@ -73,7 +82,7 @@ These decisions are final. Do not second-guess them.
 | Channel | Status | Notes |
 |---------|--------|-------|
 | Stable DMG `0.7.3` | User-facing release, recommended for normal use | Dictation, file/media URL transcription, System Default microphone routing, separate live/final speech-engine routes, meeting recording with cleaned-mic finalization and bounded capture lifecycle, calendar auto-start and activity-based auto-stop (both opt-in, default off), Transforms, VAD-guided meeting live-preview chunking, optional Nemotron Beta, Cohere, and WhisperKit, bundled CLI 3.0, exports, vocabulary, AI features |
-| Development source (this revision) | Unreleased; `main` and feature branches are not the stable download | CLI 4.0.0, a major bump because `export --stdout --format txt` now matches TXT file export (see [Sources/CLI/CHANGELOG.md](../Sources/CLI/CHANGELOG.md)); split and transcribe for saved meetings in the native app and public CLI; per-prompt inference settings and effective-request receipts; segment search/context and knowledge cards; saved meeting-note editing and opt-in notes context; transcript-scoped text, line-boundary, and speaker corrections with Undo/Redo across display, playback, retrieval, exports and AI; rich Markdown results/chat; DAPT export; confirmed bulk vocabulary deletion; Library grid/list layouts; menu-bar and Discover visibility preferences; quiet meeting completion; AI-setup preservation; capture/recovery and transcript-context hardening. Check branch/commit identity; do not attribute these changes to the stable DMG. |
+| Development source (this revision) | Unreleased; `main` and feature branches are not the stable download | CLI 4.1.0 (see [Sources/CLI/CHANGELOG.md](../Sources/CLI/CHANGELOG.md) for the version history, including the 4.0.0 major bump because `export --stdout --format txt` now matches TXT file export); split and transcribe for saved meetings in the native app and public CLI; per-prompt inference settings and effective-request receipts; segment search/context and knowledge cards; saved meeting-note editing and opt-in notes context; transcript-scoped text, line-boundary, and speaker corrections with Undo/Redo across display, playback, retrieval, exports and AI; rich Markdown results/chat; DAPT export; confirmed bulk vocabulary deletion; Library grid/list layouts; menu-bar and Discover visibility preferences; quiet meeting completion; AI-setup preservation; capture/recovery and transcript-context hardening. Check branch/commit identity; do not attribute these changes to the stable DMG. |
 
 Feature gates in the current source (`Sources/MacParakeetCore/AppFeatures.swift`); an implemented gated surface is not a shipped feature:
 
@@ -127,7 +136,7 @@ accepted direction is not proof that every phase is implemented or released.
 | [ADR-014](adr/014-meeting-recording.md) | Meeting recording via ScreenCaptureKit system audio |
 | [ADR-015](adr/015-concurrent-dictation-meeting.md) | Concurrent dictation and meeting recording |
 | [ADR-016](adr/016-centralized-stt-runtime-scheduler.md) | Centralized STT runtime and two-slot scheduler |
-| [ADR-017](adr/017-calendar-meeting-auto-start.md) | Calendar-driven meeting auto-start (Phases 1 + 2 implemented and enabled; Phase 3 proposed) |
+| [ADR-017](adr/017-calendar-meeting-auto-start.md) | Calendar-driven meeting auto-start (Phases 1 + 2 implemented and enabled; Phase 2b per-event skip implemented; Phase 3 proposed) |
 | [ADR-018](adr/018-live-meeting-insights-and-ask.md) | Live meeting Ask tab (Insights dropped per amendment; Ask shipped 2026-04-24) |
 | [ADR-019](adr/019-crash-resilient-meeting-recording.md) | Crash-resilient meeting recording via fragmented MP4 + session lock files (implemented 2026-04-25) |
 | [ADR-020](adr/020-live-meeting-notepad-and-memo-summaries.md) | Live meeting notepad + memo-steered summaries (implemented 2026-04-25) |
@@ -142,6 +151,7 @@ accepted direction is not proof that every phase is implemented or released.
 | [ADR-029](adr/029-encrypted-shareable-transcript-snapshots.md) | Explicit encrypted, expiring transcript-derived snapshots as a hosted export rather than Library sync |
 | [ADR-030](adr/030-external-meeting-import.md) | Import external recordings as managed meetings with historical chronology, fresh audio retention, and ordinary recovery |
 | [ADR-031](adr/031-timed-transcript-corrections.md) | One effective transcript from immutable automatic evidence plus reversible segment-timed text and speaker corrections |
+| [ADR-032](adr/032-llm-task-group-routing.md) | Per-task LLM selection — define cleanup/analysis(/transform) tasks, then inherit default, pick a general route, or pick a specialist recipe; not a per-feature picker (accepted direction; current runtime remains one saved config) |
 
 The [meeting import v1 contract](contracts/meeting-import-v1.md) defines the shared app/CLI input, ownership, and durable-result boundary.
 
@@ -303,6 +313,7 @@ Calendar-related code is implemented and **enabled** (`AppFeatures.calendarEnabl
 - [x] Activity-based auto-stop replacement (ADR-023 Phases A+B): enabled in the v0.7 release train, with a separate per-user setting defaulting off; scheduled end times remain removed, and app-quit or sustained dual-channel silence must persist through grace and a veto countdown
 - [x] Calendar event title applied to auto-started recordings instead of date-based default
 - [x] Rich pre-meeting countdown toast for calendar starts (ADR-020): attendees + service icon row + steering hint pointing the user at the Notes tab. Manual-trigger toasts unchanged
+- [x] Per-event skip (ADR-017 Phase 2b / #609 / F48): persist occurrence (`dedupeKey`) or meeting/series (`eventKey`) mute; series skip only when `isRecurring`; Upcoming + coordinator share `candidates`; CLI annotates without changing membership; owning countdown re-evaluated under the full new policy; skip/unskip rearms without a fetch; no optional-invite auto-exclude. Plan: [`plans/active/2026-09-14-issue-609-calendar-event-skip.md`](../plans/active/2026-09-14-issue-609-calendar-event-skip.md)
 
 ### Optional Local STT Engines
 
