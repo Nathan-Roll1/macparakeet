@@ -5,8 +5,7 @@ import MacParakeetViewModels
 /// Shown when the user asks to remember speakers, before anything is stored.
 ///
 /// A sheet rather than an alert: this needs several lines and a refusable
-/// affirmation, and the acceptance button carries the affirmation itself, so
-/// there is no way to accept without reading what is being affirmed.
+/// affirmation. Acceptance requires an explicit button click.
 struct VoiceProfileConsentSheet: View {
     @Bindable var viewModel: SettingsViewModel
 
@@ -53,15 +52,15 @@ struct VoiceProfileConsentSheet: View {
             )
             point(
                 "hand.raised",
-                "A voice sample is biometric data, and laws such as BIPA, CUBI and the GDPR regulate keeping one. What they require differs, and the responsibility is yours as the person recording."
+                "Voice profiles contain sensitive biometric information. Only enable this feature when you have permission from the people being recorded."
             )
             point(
                 "lock.laptopcomputer",
-                "Samples stay on this Mac. They are never uploaded, never written to exports or support bundles, and you can delete any of them at any time."
+                "Voice samples stay in your local library and are excluded from transcript exports and support bundles. Manage or delete stored voices in Settings."
             )
             point(
                 "clock.arrow.circlepath",
-                "Voices you never name are held for at most seven days, then deleted."
+                "Temporary voice samples expire after seven days. Expired samples cannot be used; cleanup runs while MacParakeet is open and resumes at the next launch."
             )
         }
     }

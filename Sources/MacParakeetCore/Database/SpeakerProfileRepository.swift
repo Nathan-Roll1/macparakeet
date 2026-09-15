@@ -55,6 +55,8 @@ public protocol SpeakerProfileRepositoryProtocol: Sendable {
     ) throws -> SpeakerExemplarInsertion
     /// Updates an existing profile; a stale write cannot recreate a deleted one.
     func save(_ profile: SpeakerProfile) throws
+    /// Reads and changes only the intended fields under one write, preserving concurrent edits.
+    func updateProfile(id: UUID, update: (inout SpeakerProfile) -> Void) throws -> SpeakerProfile?
     func exemplars(profileId: UUID) throws -> [SpeakerProfileExemplar]
     /// One read for a whole matching pass.
     func exemplarsByProfile() throws -> [UUID: [SpeakerProfileExemplar]]
@@ -84,7 +86,7 @@ public protocol SpeakerProfileRepositoryProtocol: Sendable {
     /// profile instead when there is one — nothing is written in that case.
     /// A holder check made outside the write lets two concurrent assignments
     /// both find the voice free and confirm it for different speakers.
-    func claimProfile(_ link: SpeakerProfileLink) throws -> String?
+    func claimProfile(_ link: SpeakerProfileLink, replacingUserDecision: Bool) throws -> String?
     /// Replaces pending offers for one run atomically, preserving terminal choices.
     /// Returns the offers still allowed after checking current terminal decisions.
     func replaceSuggestions(
@@ -203,6 +205,31 @@ public final class SpeakerProfileRepository: SpeakerProfileRepositoryProtocol {
                 throw SpeakerProfileStoreError.embeddingModelChangeWithExemplars(profile.id)
             }
             try profile.update(db)
+        }
+    }
+
+    public func updateProfile(
+        id: UUID, update: (inout SpeakerProfile) -> Void
+    ) throws -> SpeakerProfile? {
+        try dbQueue.write { db in
+            guard var profile = try SpeakerProfile.fetchOne(db, key: id) else { return nil }
+            let previousModel = profile.embeddingModelId
+            update(&profile)
+            profile = try normalized(profile)
+            if previousModel != profile.embeddingModelId,
+                try SpeakerProfileExemplar.filter(Column("profileId") == id).fetchCount(db) > 0
+            {
+                throw SpeakerProfileStoreError.embeddingModelChangeWithExemplars(id)
+            }
+            if try SpeakerProfile
+                .filter(Column("normalizedName") == profile.normalizedName)
+                .filter(Column("id") != profile.id)
+                .fetchCount(db) > 0
+            {
+                throw SpeakerProfileStoreError.nameAlreadyTaken(normalizedName: profile.normalizedName)
+            }
+            try profile.update(db)
+            return profile
         }
     }
 
@@ -340,7 +367,8 @@ public final class SpeakerProfileRepository: SpeakerProfileRepositoryProtocol {
     /// mismatched id take another profile's final sample.
     public func deleteExemplar(id: UUID, profileId: UUID, keepingAtLeastOne: Bool) throws -> Bool {
         try dbQueue.write { db in
-            let owned = try SpeakerProfileExemplar
+            let owned =
+                try SpeakerProfileExemplar
                 .filter(Column("profileId") == profileId)
                 .fetchAll(db)
             guard owned.contains(where: { $0.id == id }) else { return false }
@@ -429,7 +457,9 @@ public final class SpeakerProfileRepository: SpeakerProfileRepositoryProtocol {
     /// under a single write. The scope is this fingerprint, like every other
     /// link query: rows from an earlier diarization describe speakers that no
     /// longer exist.
-    public func claimProfile(_ link: SpeakerProfileLink) throws -> String? {
+    public func claimProfile(
+        _ link: SpeakerProfileLink, replacingUserDecision: Bool = false
+    ) throws -> String? {
         try dbQueue.write { db in
             var link = link
             let key = try SpeakerTranscriptionPersistence.key(link.transcriptionId, in: db)
@@ -449,6 +479,11 @@ public final class SpeakerProfileRepository: SpeakerProfileRepositoryProtocol {
             // Kept as in `replaceUserDecision`: the row dates this speaker's
             // first decision, not the latest answer about them.
             if let existing = try scope.filter(Column("speakerId") == link.speakerId).fetchOne(db) {
+                if !replacingUserDecision, existing.status != .suggested,
+                    existing.status != link.status || existing.profileId != link.profileId
+                {
+                    throw SpeakerProfileStoreError.terminalDecisionAlreadyRecorded(status: existing.status)
+                }
                 link.createdAt = existing.createdAt
             }
             try SpeakerTranscriptionRecord(

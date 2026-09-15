@@ -50,6 +50,16 @@ private final class StubAdminService: SpeakerVoiceprintServicing, @unchecked Sen
         transcriptionId _: UUID, fingerprint _: TranscriptFingerprint
     ) async throws -> [UUID: String] { [:] }
 
+    func recognitionVoices() async throws -> [EnrolledVoice] { [] }
+    func validateAssignment(
+        profileId _: UUID, toSpeakerId _: String, transcriptionId _: UUID,
+        fingerprint _: TranscriptFingerprint
+    ) async throws -> SpeakerManualAssignment { .unknownProfile }
+    func enrollCandidate(
+        displayName _: String, speakerId _: String, transcriptionId _: UUID,
+        fingerprint _: TranscriptFingerprint, allowMergeIntoExistingName _: Bool
+    ) async throws -> SpeakerProfileEnrollment { .candidateUnavailable }
+
     func enrolledVoices() async throws -> [EnrolledVoice] {
         if let listError { throw listError }
         lock.lock(); defer { lock.unlock() }

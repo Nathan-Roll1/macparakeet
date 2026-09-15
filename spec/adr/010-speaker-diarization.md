@@ -412,7 +412,7 @@ Users can correct misattributions by renaming speakers. Missed speech is visible
 
 ### Future possibilities (not committed)
 
-- ~~Cross-file speaker recognition via SpeakerManager enrollment~~ — delivered by a different route, see the 2026-09 amendment below
+- ~~Cross-file speaker recognition via SpeakerManager enrollment~~ — experimental meeting implementation follows a different route; see the amendment below
 - Speaker-aware search ("show me everything Sarah said")
 - Diarization-informed audio player (skip to next speaker)
 - Parallel ASR + diarization for faster processing
@@ -453,7 +453,7 @@ Rejected. Speaker attribution is a core expectation for file transcription. Ever
 - [ADR-007: FluidAudio CoreML Migration](./007-fluidaudio-coreml-migration.md)
 - [F13: Speaker Diarization spec](../02-features.md)
 
-## Amendment (2026-09-12): cross-recording recognition ships by another route
+## Amendment (2026-09-12): experimental cross-recording recognition uses another route
 
 Two claims above are now wrong, and this records why.
 
@@ -464,8 +464,8 @@ The comparison table's "possible via SpeakerManager" was never actionable for us
 **The route that works is post-hoc matching on `speakerDatabase`.** The offline
 result already carries one 256-d vector per detected speaker, which the adapter
 used to discard. Enrolled voices are stored as exemplars and scored against it
-after the transcript is saved. No new model, no added latency on the meeting
-path, and diarization itself is untouched — a cluster that cannot be matched is
+after the transcript is saved. No additional embedding model is introduced. Matching and persistence add work
+after transcription; their latency still needs measurement. Diarization itself is untouched — a cluster that cannot be matched is
 simply left as `Others N`.
 
 Two facts made this harder than the old line suggests:

@@ -3,8 +3,7 @@ import MacParakeetCore
 import MacParakeetViewModels
 
 /// Everything MacParakeet has stored about people's voices, and every way to
-/// remove it. Reachable only from the revealed "Remember speakers" block, so a
-/// voice store is never advertised to someone who has not asked for one.
+/// remove it. Stored voices remain manageable after recognition is disabled.
 struct VoiceProfilesSheet: View {
     @Bindable var viewModel: VoiceProfilesViewModel
 

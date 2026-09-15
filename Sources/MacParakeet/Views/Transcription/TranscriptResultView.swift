@@ -4795,7 +4795,9 @@ struct TranscriptResultView: View {
                             // Sits beside the other whole-speaker actions because
                             // that is its scope: the name applies everywhere this
                             // speaker talks, not to one turn.
-                            if !viewModel.assignableVoices.isEmpty {
+                            if !viewModel.assignableVoices.isEmpty,
+                                AudioSource(rawValue: speaker.id) == nil
+                            {
                                 Menu("This speaker is…") {
                                     ForEach(viewModel.assignableVoices, id: \.id) { voice in
                                         Button(voice.profile.displayName) {
@@ -4803,6 +4805,7 @@ struct TranscriptResultView: View {
                                         }
                                     }
                                 }
+                                .disabled(viewModel.isApplyingVoiceIdentity)
                             }
 
                             Menu("Merge into…") {

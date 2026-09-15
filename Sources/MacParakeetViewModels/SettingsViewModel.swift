@@ -590,8 +590,7 @@ public final class SettingsViewModel {
         }
     }
 
-    /// When the user acknowledged the biometric-consent notice. A date because
-    /// compliance asks *when*, not whether.
+    /// When the user acknowledged the voice-profile notice.
     public private(set) var voiceprintConsentAcknowledgedAt: Date?
 
     /// True while the consent sheet should be shown. Set by asking to turn the
@@ -624,8 +623,7 @@ public final class SettingsViewModel {
         rememberSpeakers = true
     }
 
-    /// Withdrawing consent also turns the preference off: consent is what makes
-    /// it legal to keep a voice, so the two cannot diverge. Stored voices are
+    /// Withdrawing consent also turns the preference off. Stored voices are
     /// removed separately, from the profile administration surface.
     public func withdrawVoiceprintConsent() {
         rememberSpeakers = false

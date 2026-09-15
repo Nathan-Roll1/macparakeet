@@ -6,6 +6,8 @@ public enum SpeakerProfileEnrollment: Sendable, Equatable {
     /// The name was blank once trimmed. It would have no lookup key, so the
     /// profile could never be found again nor collide with a second blank one.
     case rejectedEmptyName
+    /// The retained voice expired or was deleted before enrollment.
+    case candidateUnavailable
     case addedExemplar(SpeakerProfile)
     /// The name is taken by a profile whose voice does not match. Merging would
     /// fuse two people, so the caller must ask.
@@ -27,6 +29,9 @@ public enum SpeakerManualAssignment: Sendable, Equatable {
     case profileAlreadyUsed(bySpeakerId: String)
     /// Deleted between the menu being built and the choice being made.
     case unknownProfile
+    /// The speaker id is a meeting capture channel (`microphone` / `system`),
+    /// not a diarized cluster. Identity belongs to people, not tracks.
+    case unsupportedSpeaker
 }
 
 /// One enrolled voice, as the administration surface needs to show it.
@@ -110,6 +115,27 @@ public protocol SpeakerVoiceprintServicing: Sendable {
         allowMergeIntoExistingName: Bool
     ) async throws -> SpeakerProfileEnrollment
 
+    /// Enrollment from a UI offer resolves the retained voice again, so a stale
+    /// offer cannot recreate a deleted or expired candidate.
+    func enrollCandidate(
+        displayName: String,
+        speakerId: String,
+        transcriptionId: UUID,
+        fingerprint: TranscriptFingerprint,
+        allowMergeIntoExistingName: Bool
+    ) async throws -> SpeakerProfileEnrollment
+
+    /// Consent-gated voices for transcript actions. Administration has a separate read.
+    func recognitionVoices() async throws -> [EnrolledVoice]
+
+    /// Checks availability and reservation before a caller changes a transcript label.
+    func validateAssignment(
+        profileId: UUID,
+        toSpeakerId speakerId: String,
+        transcriptionId: UUID,
+        fingerprint: TranscriptFingerprint
+    ) async throws -> SpeakerManualAssignment
+
     /// Records acceptance and, once two manual enrollments anchor the profile,
     /// lets it learn. The label is written by the correction layer, not here.
     func confirm(
@@ -170,13 +196,17 @@ public enum SpeakerVoiceprintServiceError: Error, Equatable, Sendable {
     /// must not look like they succeeded. Pruning expired candidates stays
     /// available so turning the feature off can still drop retained voice candidates.
     case disabled
+    case profileAlreadyUsed(bySpeakerId: String)
+    case unknownProfile
+    case unsupportedSpeaker
 }
 
 /// Owns enrolled voices: scoring, enrolling, and recording what the user chose.
 ///
-/// A `final class` like its neighbour `SpeakerCorrectionService`, not an actor:
-/// GRDB already serializes through the database queue.
-public final class SpeakerVoiceprintService: SpeakerVoiceprintServicing, @unchecked Sendable {
+/// Serializes complete voice operations, including candidate lookup followed by
+/// enrollment. Repository transactions protect individual writes; this actor also
+/// prevents Forget All from interleaving between those writes in the app.
+public actor SpeakerVoiceprintService: SpeakerVoiceprintServicing {
     private let profiles: SpeakerProfileRepositoryProtocol
     private let candidates: SpeakerEmbeddingCandidateRepositoryProtocol
     private let journal: SpeakerMatchJournalRepositoryProtocol
@@ -312,6 +342,7 @@ public final class SpeakerVoiceprintService: SpeakerVoiceprintServicing, @unchec
         fingerprint: TranscriptFingerprint
     ) async throws -> SpeakerClusterObservation? {
         guard isEnabled() else { return nil }
+        guard !AudioSource.isMeetingCaptureTrack(speakerId) else { return nil }
         return try candidates.candidate(
             transcriptionId: transcriptionId,
             speakerId: speakerId,
@@ -322,6 +353,52 @@ public final class SpeakerVoiceprintService: SpeakerVoiceprintServicing, @unchec
 
     public func pruneExpiredCandidates() async throws {
         try candidates.pruneExpired(now: now())
+    }
+
+    public func enrollCandidate(
+        displayName: String,
+        speakerId: String,
+        transcriptionId: UUID,
+        fingerprint: TranscriptFingerprint,
+        allowMergeIntoExistingName: Bool
+    ) async throws -> SpeakerProfileEnrollment {
+        guard isEnabled() else { throw SpeakerVoiceprintServiceError.disabled }
+        guard !AudioSource.isMeetingCaptureTrack(speakerId) else { return .candidateUnavailable }
+        guard
+            let observation = try candidates.candidate(
+                transcriptionId: transcriptionId, speakerId: speakerId,
+                fingerprint: fingerprint.rawValue, now: now()
+            )?.observation
+        else { return .candidateUnavailable }
+        return try enrollObservation(
+            displayName: displayName, observation: observation,
+            transcriptionId: transcriptionId, fingerprint: fingerprint,
+            allowMergeIntoExistingName: allowMergeIntoExistingName
+        )
+    }
+
+    public func recognitionVoices() async throws -> [EnrolledVoice] {
+        guard isEnabled() else { return [] }
+        return try storedVoices()
+    }
+
+    public func validateAssignment(
+        profileId: UUID,
+        toSpeakerId speakerId: String,
+        transcriptionId: UUID,
+        fingerprint: TranscriptFingerprint
+    ) async throws -> SpeakerManualAssignment {
+        guard isEnabled() else { throw SpeakerVoiceprintServiceError.disabled }
+        guard !AudioSource.isMeetingCaptureTrack(speakerId) else { return .unsupportedSpeaker }
+        guard let profile = try profiles.profile(id: profileId) else { return .unknownProfile }
+        if let holder = try profiles.links(
+            transcriptionId: transcriptionId, fingerprint: fingerprint.rawValue
+        ).first(where: {
+            $0.profileId == profileId && $0.status == .confirmed && $0.speakerId != speakerId
+        }) {
+            return .profileAlreadyUsed(bySpeakerId: holder.speakerId)
+        }
+        return .assigned(profile)
     }
 
     /// The pollution guard lives here, not in the matcher: naming a speaker is
@@ -336,7 +413,24 @@ public final class SpeakerVoiceprintService: SpeakerVoiceprintServicing, @unchec
         fingerprint: TranscriptFingerprint,
         allowMergeIntoExistingName: Bool
     ) async throws -> SpeakerProfileEnrollment {
+        try enrollObservation(
+            displayName: displayName, observation: observation,
+            transcriptionId: transcriptionId, fingerprint: fingerprint,
+            allowMergeIntoExistingName: allowMergeIntoExistingName
+        )
+    }
+
+    private func enrollObservation(
+        displayName: String,
+        observation: SpeakerClusterObservation,
+        transcriptionId: UUID,
+        fingerprint: TranscriptFingerprint,
+        allowMergeIntoExistingName: Bool
+    ) throws -> SpeakerProfileEnrollment {
         guard isEnabled() else { throw SpeakerVoiceprintServiceError.disabled }
+        guard !AudioSource.isMeetingCaptureTrack(observation.speakerId) else {
+            return .candidateUnavailable
+        }
         let name = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !SpeakerProfile.normalizedName(for: name).isEmpty else {
             return .rejectedEmptyName
@@ -415,7 +509,6 @@ public final class SpeakerVoiceprintService: SpeakerVoiceprintServicing, @unchec
         fingerprint: TranscriptFingerprint,
         allowMergeIntoExistingName: Bool
     ) throws -> SpeakerProfileEnrollment {
-        var profile = profile
         // Checked before the pollution guard and regardless of the override:
         // the store refuses samples from another embedding model, and a forced
         // merge is the caller overriding a judgement about *which person* this
@@ -457,9 +550,8 @@ public final class SpeakerVoiceprintService: SpeakerVoiceprintServicing, @unchec
                 speakerId: observation.speakerId,
                 fingerprint: fingerprint
             )
-            profile.updatedAt = now()
-            try profiles.save(profile)
-            return .addedExemplar(profile)
+            let updated = try profiles.updateProfile(id: profile.id) { $0.updatedAt = now() }
+            return .addedExemplar(updated ?? profile)
         }
     }
 
@@ -475,7 +567,12 @@ public final class SpeakerVoiceprintService: SpeakerVoiceprintServicing, @unchec
         fingerprint: TranscriptFingerprint
     ) async throws {
         guard isEnabled() else { throw SpeakerVoiceprintServiceError.disabled }
-        guard var profile = try profiles.profile(id: suggestion.profileId) else { return }
+        guard !AudioSource.isMeetingCaptureTrack(suggestion.speakerId) else {
+            throw SpeakerVoiceprintServiceError.unsupportedSpeaker
+        }
+        guard let profile = try profiles.profile(id: suggestion.profileId) else {
+            throw SpeakerVoiceprintServiceError.unknownProfile
+        }
 
         // Resolved here rather than taken from the caller: the vector belongs
         // to this speaker in this version of the transcript, and a UI holding
@@ -489,7 +586,7 @@ public final class SpeakerVoiceprintService: SpeakerVoiceprintServicing, @unchec
             now: now()
         )?.observation
 
-        try profiles.save(
+        if let holder = try profiles.claimProfile(
             SpeakerProfileLink(
                 transcriptionId: transcriptionId,
                 speakerId: suggestion.speakerId,
@@ -500,8 +597,10 @@ public final class SpeakerVoiceprintService: SpeakerVoiceprintServicing, @unchec
                 runnerUpDistance: suggestion.runnerUpDistance,
                 createdAt: now(),
                 updatedAt: now()
-            )
-        )
+            ), replacingUserDecision: false
+        ) {
+            throw SpeakerVoiceprintServiceError.profileAlreadyUsed(bySpeakerId: holder)
+        }
 
         // A profile born of one enrollment cannot amplify itself on its own
         // suggestion: two manual enrollments must anchor the voice first. The
@@ -510,6 +609,7 @@ public final class SpeakerVoiceprintService: SpeakerVoiceprintServicing, @unchec
         let exemplars = try profiles.exemplars(profileId: profile.id)
         if let observation,
             observation.speechSeconds >= policy.minSpeechSecondsToEnroll,
+            observation.embedding.identity.embeddingModelId == profile.embeddingModelId,
             exemplars.filter({ $0.origin == .manualEnrollment }).count >= 2
         {
             switch try addExemplar(
@@ -529,9 +629,10 @@ public final class SpeakerVoiceprintService: SpeakerVoiceprintServicing, @unchec
             }
         }
 
-        profile.lastMatchedAt = now()
-        profile.updatedAt = now()
-        try profiles.save(profile)
+        _ = try profiles.updateProfile(id: profile.id) {
+            $0.lastMatchedAt = now()
+            $0.updatedAt = now()
+        }
     }
 
     /// Same ordering as `confirm`, with two differences the store can see: there
@@ -547,7 +648,8 @@ public final class SpeakerVoiceprintService: SpeakerVoiceprintServicing, @unchec
         fingerprint: TranscriptFingerprint
     ) async throws -> SpeakerManualAssignment {
         guard isEnabled() else { throw SpeakerVoiceprintServiceError.disabled }
-        guard var profile = try profiles.profile(id: profileId) else { return .unknownProfile }
+        guard !AudioSource.isMeetingCaptureTrack(speakerId) else { return .unsupportedSpeaker }
+        guard let profile = try profiles.profile(id: profileId) else { return .unknownProfile }
 
         // The same reservation `evaluate` applies to its own suggestions. The
         // manual path must not be the way around it: two speakers wearing one
@@ -558,6 +660,9 @@ public final class SpeakerVoiceprintService: SpeakerVoiceprintServicing, @unchec
         // The write replaces whatever this speaker carried, a dismissal
         // included: the contract stops a re-evaluation from overruling an
         // answer, not the person who gave it from changing their mind.
+        let previousConfirmed = try profiles.links(
+            transcriptionId: transcriptionId, fingerprint: fingerprint.rawValue
+        ).first { $0.speakerId == speakerId && $0.status == .confirmed && $0.profileId != profileId }
         if let holder = try profiles.claimProfile(
             SpeakerProfileLink(
                 transcriptionId: transcriptionId,
@@ -569,18 +674,37 @@ public final class SpeakerVoiceprintService: SpeakerVoiceprintServicing, @unchec
                 runnerUpDistance: nil,
                 createdAt: now(),
                 updatedAt: now()
-            )
+            ), replacingUserDecision: true
         ) {
             return .profileAlreadyUsed(bySpeakerId: holder)
         }
 
-        // Resolved here, never taken from the caller — see `confirm`.
-        let observation = try candidates.candidate(
+        // A correction must not leave the first profile taught by a name the
+        // transcript no longer shows. Read the stolen sample before deleting
+        // it, so the new profile can still learn after the candidate was spent.
+        let stolen: SpeakerProfileExemplar?
+        if let previous = previousConfirmed {
+            stolen = try profiles.exemplars(profileId: previous.profileId).first {
+                $0.sourceTranscriptionId == transcriptionId
+                    && ($0.sourceSpeakerId == nil || $0.sourceSpeakerId == speakerId)
+            }
+        } else {
+            stolen = nil
+        }
+        var observation = try candidates.candidate(
             transcriptionId: transcriptionId,
             speakerId: speakerId,
             fingerprint: fingerprint.rawValue,
             now: now()
         )?.observation
+        if observation == nil, let stolen, let embedding = stolen.embedding {
+            observation = SpeakerClusterObservation(
+                speakerId: stolen.sourceSpeakerId ?? speakerId,
+                embedding: embedding,
+                speechSeconds: stolen.speechSeconds,
+                captureDomain: stolen.captureDomain
+            )
+        }
 
         // Kept even when this voice sits far from everything the profile holds:
         // that distance is why the matcher stayed quiet, and it is what a changed
@@ -588,7 +712,10 @@ public final class SpeakerVoiceprintService: SpeakerVoiceprintServicing, @unchec
         // demands do not apply here — the person naming the speaker is the
         // anchor. Only the duration guard survives, because it judges signal
         // rather than identity.
-        if let observation, observation.speechSeconds >= policy.minSpeechSecondsToEnroll {
+        if let observation,
+            observation.speechSeconds >= policy.minSpeechSecondsToEnroll,
+            observation.embedding.identity.embeddingModelId == profile.embeddingModelId
+        {
             switch try addExemplar(
                 to: profile,
                 observation: observation,
@@ -606,10 +733,15 @@ public final class SpeakerVoiceprintService: SpeakerVoiceprintServicing, @unchec
             }
         }
 
-        profile.lastMatchedAt = now()
-        profile.updatedAt = now()
-        try profiles.save(profile)
-        return .assigned(profile)
+        if let stolen {
+            _ = try profiles.deleteExemplar(id: stolen.id)
+        }
+
+        let updated = try profiles.updateProfile(id: profile.id) {
+            $0.lastMatchedAt = now()
+            $0.updatedAt = now()
+        }
+        return .assigned(updated ?? profile)
     }
 
     public func confirmedVoiceHolders(
@@ -656,6 +788,10 @@ public final class SpeakerVoiceprintService: SpeakerVoiceprintServicing, @unchec
     /// there is exactly what they need once they change their mind.
 
     public func enrolledVoices() async throws -> [EnrolledVoice] {
+        try storedVoices()
+    }
+
+    private func storedVoices() throws -> [EnrolledVoice] {
         let stored = try profiles.profiles()
         guard !stored.isEmpty else { return [] }
         let samples = try profiles.exemplarsByProfile()
@@ -694,16 +830,10 @@ public final class SpeakerVoiceprintService: SpeakerVoiceprintServicing, @unchec
     }
 
     public func renameProfile(id: UUID, to displayName: String) async throws {
-        guard var profile = try profiles.profile(id: id) else { return }
-        let name = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let owner = try profiles.profile(named: name), owner.id != id {
-            throw SpeakerProfileStoreError.nameAlreadyTaken(
-                normalizedName: SpeakerProfile.normalizedName(for: name)
-            )
+        _ = try profiles.updateProfile(id: id) {
+            $0.displayName = displayName
+            $0.updatedAt = now()
         }
-        profile.displayName = name
-        profile.updatedAt = now()
-        try profiles.save(profile)
     }
 
     /// Refuses the last sample: a profile with none is listed and named but can
@@ -892,10 +1022,10 @@ public final class SpeakerVoiceprintService: SpeakerVoiceprintServicing, @unchec
             evaluated[profileId] = (now(), distance)
         }
         for (profileId, evaluation) in evaluated {
-            guard var profile = try profiles.profile(id: profileId) else { continue }
-            profile.lastEvaluatedAt = evaluation.date
-            profile.lastEvaluatedDistance = evaluation.distance
-            try profiles.save(profile)
+            _ = try profiles.updateProfile(id: profileId) {
+                $0.lastEvaluatedAt = evaluation.date
+                $0.lastEvaluatedDistance = evaluation.distance
+            }
         }
 
         try journal.append(

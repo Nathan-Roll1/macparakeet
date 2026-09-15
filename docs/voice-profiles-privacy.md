@@ -1,91 +1,93 @@
-# Voice Profiles — what is stored, and what that means
+# Experimental voice profiles
 
-> Source material for user-facing help and the privacy page. The feature ships
-> disabled (`AppFeatures.voiceProfilesEnabled == false`); nothing below is live
-> for users yet. Behaviour is specified in
-> [F13a](../spec/02-features.md) and
-> [ADR-010's 2026-09 amendment](../spec/adr/010-speaker-diarization.md).
+Voice profiles are disabled by default. A DEBUG build can expose them with
+`--enable-voice-profiles`; release builds ignore that argument. This implementation
+is available for controlled evaluation, not an accuracy-qualified public release.
+The [contract](../spec/contracts/speaker-voiceprints.md) governs behavior.
 
-## The problem it solves
+## How it works
 
-MacParakeet can tell speakers apart inside one recording. It cannot carry that
-across recordings: the person who was "Others 1" on Monday may be "Others 2" on
-Tuesday, because those labels describe positions in a file, not people. So a
-name has to be typed again for every meeting.
+Speaker detection separates voices within one recording. Voice profiles add an
+optional name that can be suggested in later meetings. Suggestions always require
+confirmation. You can also explicitly choose a saved voice for a meeting speaker.
 
-Voice profiles let you name someone once. Later meetings then *suggest* that
-name. They never apply it.
+Enable meeting speaker detection, turn on **Remember speakers**, and acknowledge
+the permission notice. After a meeting, rename a speaker and choose **Remember**
+if a suitable temporary sample remains. Simply typing a label does not enroll a
+voice. Ordinary transcript editing continues to work without voice profiles.
 
-## What is stored
+This version covers meeting recordings. It does not group recurring unnamed voices
+across historical recordings or offer a configurable recurrence threshold. Those
+parts of [issue #662](https://github.com/moona3k/macparakeet/issues/662) remain outside
+this implementation's scope. Temporary samples and identity writes apply to
+diarized system-audio clusters, not the microphone (`Me`) capture track.
 
-Two different things, with different lifetimes.
+## What is stored locally
 
-**Voice samples** belong to a person you named. Each is 1024 bytes of numbers
-describing voice characteristics — not audio, and not reversible into audio.
-A profile keeps at most ten, one per recording. They last until you delete them.
+| Data | Purpose | Retention |
+|---|---|---|
+| Named profile and samples | Compare future meeting speakers to a person explicitly enrolled | Until deleted; at most ten samples, one per source recording |
+| Temporary candidate | Let the user enroll a speaker after the meeting finishes | Seven-day expiry per stored row |
+| Profile links | Record suggestions, confirmations and refusals for a transcript version | Until associated profile or transcript deletion |
+| Match journal | Inspect local scoring decisions for calibration | 90 days |
 
-**Waiting voices** belong to nobody. When a meeting ends, MacParakeet keeps the
-numbers for each detected speaker so you can still name them afterwards —
-naming usually happens later, and by then the calculation is long gone. These
-are deleted after **seven days** if you never name anyone, and immediately once
-you do.
+Each sample is a 256-component vector, not an audio recording. Voice profiles
+contain sensitive biometric information. Enable the feature only with permission
+from the people being recorded. Audio retention remains a separate setting.
 
-Waiting voices are never compared with each other. MacParakeet cannot tell you
-"this unknown person appeared in five meetings", and is not built to.
+Candidates are never compared with each other. Expired candidates are unavailable
+for enrollment. Cleanup runs on reads/writes, at launch and hourly while the app
+runs; it resumes at the next launch after shutdown. Expiry does not promise
+immediate physical erasure from disk pages or user-managed backups.
 
-## Why you are asked for permission
+Accepting enrollment resolves the current stored candidate. An old prompt cannot
+recreate a candidate that expired or was deleted. Successful sample insertion
+consumes its candidate; failed or rejected insertion preserves it until expiry.
 
-A voice sample is biometric data, and several laws regulate keeping one —
-Illinois's BIPA, Texas's CUBI, and the GDPR where it applies. What each of them
-requires differs: BIPA centres on written notice and a signed release before
-collection, while the GDPR treats biometric data used to identify someone as a
-special category needing an explicit lawful basis. The duties fall on whoever
-records the meeting, which is you rather than MacParakeet — it stores nothing on
-its own and nothing leaves your Mac.
+## Turning off and deleting
 
-We are not able to tell you which rules apply to your situation, and this is not
-legal advice. What MacParakeet does is make the choice explicit and reversible:
-turning "Remember speakers" on asks you to confirm you have the participants'
-permission, before anything is stored. Declining stores nothing.
-You can withdraw it at any time, which switches the feature off; your existing
-saved voices stay until you delete them, and the screen that deletes them
-remains available.
+Turning **Remember speakers** off stops recognition and further enrollment.
+Withdrawing permission also clears the acknowledgement. Existing saved voices
+remain until you delete them; management stays available.
 
-## What never happens
+Open **Settings → Capture → Meetings → Voice profiles → Manage…**, or the voice
+profile cleanup control in **Settings → System → Reset & Cleanup**. Delete a
+profile, selected profiles, individual samples while another remains, or all
+voices. To remove a profile's last sample, forget that profile.
 
-- **Nothing leaves your Mac.** No voice data appears in any export (JSON, text,
-  Markdown, SRT, VTT, DAPT), in the command-line tool, or in a diagnostic bundle
-  you send us. Automated tests assert this per table, on every one of those
-  surfaces.
-- **No audio is kept for this.** Only the numbers. Audio retention is a separate
-  setting and is unaffected.
-- **No name is applied automatically.** A suggestion is an offer with two
-  buttons. A wrong name applied silently is worse than an unnamed speaker.
-- **Nothing is measured about who you meet.** The app reports whether the
-  setting is on or off, and nothing else — no names, no counts, no match scores.
+**Forget all** clears profiles, samples, links, temporary candidates and the
+journal in one database transaction. It leaves source audio, transcripts and
+already-applied names intact. Profile deletion also leaves transcript labels intact.
 
-## Deleting
+## Data boundaries
 
-Settings → Capture → Meetings → **Voice profiles → Manage…**, or Settings →
-System → Reset & Cleanup → **Voice profiles**.
+Voice vectors, profile IDs and match metadata are excluded from transcript
+exports, CLI transcript projections, telemetry, support bundles and external AI
+context. Names you explicitly apply become ordinary transcript labels and can
+appear wherever that transcript is exported or shared.
 
-You can delete one sample, one person, the selected people, or everything. The
-"forget everything" path also removes voices still waiting to be named — they
-belong to no profile, so nothing else would ever reach them.
+Populated-table tests cover app export projections and CLI exports. Support and
+diagnostic builders are inspected and covered by their existing tests; this is
+not a claim of populated-table testing on every outward surface. Telemetry records
+only the on/off preference, subject to the app's telemetry setting.
 
-**Deleting a voice never changes names already written to your transcripts.**
-Those are ordinary text edits and stay exactly as they are.
+## Limits and feedback
 
-## When it will not work, and why
+Recognition can abstain when speech is brief, voices are ambiguous, or recording
+conditions change. A mixed-speaker diarization cluster cannot be repaired by a
+voice profile. The current experimental duration gates are three seconds for
+matching and fifteen seconds for retaining or learning a sample.
 
-The Voice Profiles screen says which of these applies to each saved voice.
+Management shows the latest evaluation distance, recognition history and whether
+samples use an older model. Distance alone does not guarantee a suggestion: the
+matcher also requires separation from competing voices. Older-model samples cannot
+be matched or learned from a new model; an explicit name assignment can still be
+recorded without adding an incompatible sample.
 
-| What you see | What it means |
-|---|---|
-| Never compared against a recording yet | No meeting has been scored against it |
-| Never recognized. Closest match was 0.34, and 0.25 or lower is needed | It is being compared, but this voice sounds too different — often a different microphone or a noisier room |
-| Saved with an older voice model | A MacParakeet update changed how voices are measured. Old samples cannot be compared. Delete it and name the speaker again in a recent meeting |
+A profile-write failure after a successful label correction leaves the requested
+label intact and reports the failure. A corrected label alone does not prove the
+profile learned a sample.
 
-Two other reasons a speaker is never offered: they spoke for less than 15
-seconds in the meeting, or the recording finished more than seven days ago and
-the waiting voice has expired.
+Held-out real-meeting accuracy, changed microphones, unknown speakers, overlapping
+speech and native permission/deletion flows remain release gates. See the
+[plan](../plans/active/2026-07-03-speaker-voiceprints.md#integration-and-release-gates-2026-09-10).

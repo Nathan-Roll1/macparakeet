@@ -60,6 +60,8 @@ private final class StubVoiceprintService: SpeakerVoiceprintServicing, @unchecke
     /// Parks only this voice's answer, so a second one can overtake it and the
     /// two outcomes land in the reverse of the order they were asked for.
     private let holdsAssignFor: UUID?
+    var isEnabled = true
+    var holdCandidate = false
 
     init(
         candidate: SpeakerClusterObservation?,
@@ -102,7 +104,9 @@ private final class StubVoiceprintService: SpeakerVoiceprintServicing, @unchecke
     ) async throws -> SpeakerClusterObservation? {
         lock.lock()
         storedCandidateRequests.append((transcriptionId, speakerId, fingerprint.rawValue))
+        let held = holdCandidate
         lock.unlock()
+        if held { await waitForRelease() }
         return candidate
     }
 
@@ -121,6 +125,41 @@ private final class StubVoiceprintService: SpeakerVoiceprintServicing, @unchecke
         if let enrollError { throw enrollError }
         if allowMergeIntoExistingName, let mergeEnrollment { return mergeEnrollment }
         return enrollment
+    }
+
+    func enrollCandidate(
+        displayName: String, speakerId _: String, transcriptionId: UUID,
+        fingerprint: TranscriptFingerprint, allowMergeIntoExistingName: Bool
+    ) async throws -> SpeakerProfileEnrollment {
+        guard let candidate else { return .candidateUnavailable }
+        return try await enroll(
+            displayName: displayName, observation: candidate,
+            transcriptionId: transcriptionId, fingerprint: fingerprint,
+            allowMergeIntoExistingName: allowMergeIntoExistingName
+        )
+    }
+
+    func recognitionVoices() async throws -> [EnrolledVoice] { isEnabled ? voices : [] }
+
+    func validateAssignment(
+        profileId: UUID, toSpeakerId speakerId: String,
+        transcriptionId _: UUID, fingerprint _: TranscriptFingerprint
+    ) async throws -> SpeakerManualAssignment {
+        guard isEnabled else { throw SpeakerVoiceprintServiceError.disabled }
+        if AudioSource.isMeetingCaptureTrack(speakerId) { return .unsupportedSpeaker }
+        if let holder = holders[profileId], holder != speakerId {
+            return .profileAlreadyUsed(bySpeakerId: holder)
+        }
+        if let voice = voices.first(where: { $0.id == profileId }) { return .assigned(voice.profile) }
+        if let suggestion = suggestions.first(where: { $0.profileId == profileId }) {
+            return .assigned(
+                SpeakerProfile(
+                    id: profileId, displayName: suggestion.displayName,
+                    identity: SpeakerModelIdentity(
+                        embeddingModelId: "test-model", aggregationProfileId: "test-aggregation")
+                ))
+        }
+        return .unknownProfile
     }
 
     func confirm(
@@ -261,12 +300,14 @@ private final class StubCorrectionService: SpeakerCorrectionServicing, @unchecke
 
     let result: SpeakerCorrectionResult
     let failsApply: Bool
-    private let base: Transcription?
+    private var snapshot: Transcription
+    private var revision: Int
 
     init(result: SpeakerCorrectionResult, failsApply: Bool = false, base: Transcription? = nil) {
         self.result = result
         self.failsApply = failsApply
-        self.base = base
+        self.snapshot = base ?? Transcription(fileName: "stub.wav", status: .completed)
+        self.revision = result.revision
     }
 
     func apply(
@@ -276,15 +317,26 @@ private final class StubCorrectionService: SpeakerCorrectionServicing, @unchecke
         expectedRevision _: Int
     ) async throws -> SpeakerCorrectionResult {
         if failsApply { throw Rejected() }
-        guard case .rename(let speakerID, let label) = command, var renamed = base,
-              var speakers = renamed.speakers,
-              let index = speakers.firstIndex(where: { $0.id == speakerID })
+        guard case .rename(let speakerID, let label) = command,
+            var speakers = snapshot.speakers,
+            let index = speakers.firstIndex(where: { $0.id == speakerID })
         else { return result }
         speakers[index].label = label
-        renamed.speakers = speakers
+        snapshot.speakers = speakers
+        revision += 1
+        let fingerprint = SpeakerAttributionResolver.fingerprint(for: snapshot)
+        let attribution = SpeakerAttributionResolver.resolve(
+            transcription: snapshot,
+            state: SpeakerCorrectionState(
+                transcriptionId: snapshot.id,
+                transcriptFingerprint: fingerprint.rawValue,
+                headId: nil,
+                revision: revision
+            )
+        )
         return SpeakerCorrectionResult(
-            attribution: SpeakerAttributionResolver.resolve(transcription: renamed),
-            revision: result.revision + 1,
+            attribution: attribution,
+            revision: revision,
             canUndo: true,
             canRedo: false
         )
@@ -327,8 +379,9 @@ final class TranscriptionVoiceEnrollmentTests: XCTestCase {
 
         viewModel.confirmVoiceSuggestion(try XCTUnwrap(viewModel.voiceSuggestions.first))
 
-        // The offer comes back, since the user's answer never took effect.
-        try await waitUntil { !viewModel.voiceSuggestions.isEmpty }
+        // A failed label write leaves the unanswered offer available.
+        try await waitUntil { !viewModel.isApplyingVoiceIdentity }
+        XCTAssertFalse(viewModel.voiceSuggestions.isEmpty)
         XCTAssertTrue(service.confirmed.isEmpty)
     }
 
@@ -911,32 +964,171 @@ final class TranscriptionVoiceEnrollmentTests: XCTestCase {
         XCTAssertNil(viewModel.voiceEnrollmentMessage)
     }
 
-    /// Two voices named at once, answered in the reverse order: each outcome
-    /// says whose answer it is, so the banner renders under the speaker that
-    /// produced it rather than under whoever was asked about last.
-    func testOutOfOrderAnswersEachNameTheirOwnSpeaker() async throws {
+    func testASecondVoiceActionWaitsForTheFirstToFinish() async throws {
         let transcription = twoSpeakerTranscription()
         let sarah = knownVoice(named: "Sarah")
         let nadia = knownVoice(named: "Nadia")
         let service = StubVoiceprintService(
-            candidate: observation(),
-            voices: [sarah, nadia],
-            assignment: .assigned(sarah.profile),
-            holdsAssignFor: sarah.profile.id
+            candidate: observation(), voices: [sarah, nadia],
+            assignment: .assigned(sarah.profile), holdsAssignFor: sarah.profile.id
         )
         let viewModel = try await configured(transcription, voiceprints: service)
         try await waitUntil { viewModel.enrolledVoices.count == 2 }
-
-        viewModel.assignKnownVoice(profileId: sarah.profile.id, toSpeakerId: "S1")
-        try await waitUntil { !service.assignments.isEmpty }
-        viewModel.assignKnownVoice(profileId: nadia.profile.id, toSpeakerId: "S2")
-
-        try await waitUntil { viewModel.voiceEnrollmentMessage?.speakerId == "S2" }
+        viewModel.assignKnownVoice(profileId: sarah.id, toSpeakerId: "S1")
+        try await waitUntil { service.assignments.count == 1 }
+        viewModel.assignKnownVoice(profileId: nadia.id, toSpeakerId: "S2")
+        XCTAssertEqual(service.assignments.count, 1)
+        XCTAssertEqual(viewModel.effectiveCurrentTranscription?.speakers?.last?.label, "Others 2")
         service.releaseHeldSuggestions()
-        try await waitUntil { viewModel.voiceEnrollmentMessage?.speakerId == "S1" }
-        XCTAssertEqual(
-            viewModel.voiceEnrollmentMessage?.text, "This speaker is recorded as Sarah."
+        try await waitUntil { !viewModel.isApplyingVoiceIdentity }
+    }
+
+    func testDisabledConsentDoesNotRenameFromAStaleVoiceMenu() async throws {
+        let voice = knownVoice(named: "Sarah")
+        let service = StubVoiceprintService(candidate: observation(), voices: [voice])
+        let viewModel = try await configured(makeTranscription(), voiceprints: service)
+        try await waitUntil { !viewModel.enrolledVoices.isEmpty }
+        service.isEnabled = false
+        viewModel.assignKnownVoice(profileId: voice.id, toSpeakerId: "S1")
+        try await waitUntil { !viewModel.isApplyingVoiceIdentity }
+        XCTAssertEqual(viewModel.effectiveCurrentTranscription?.speakers?.first?.label, "Others 1")
+        XCTAssertTrue(service.assignments.isEmpty)
+    }
+
+    func testDisabledConsentHidesKnownVoices() async throws {
+        let service = StubVoiceprintService(candidate: observation(), voices: [knownVoice(named: "Sarah")])
+        service.isEnabled = false
+        let viewModel = try await configured(makeTranscription(), voiceprints: service)
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertTrue(viewModel.enrolledVoices.isEmpty)
+    }
+
+    func testKnownVoiceAlreadyHeldDoesNotRenameAnotherSpeaker() async throws {
+        let voice = knownVoice(named: "Sarah")
+        let service = StubVoiceprintService(candidate: observation(), voices: [voice])
+        service.holders = [voice.id: "S2"]
+        let viewModel = try await configured(makeTranscription(), voiceprints: service)
+        try await waitUntil { !viewModel.enrolledVoices.isEmpty }
+        viewModel.assignKnownVoice(profileId: voice.id, toSpeakerId: "S1")
+        try await waitUntil { !viewModel.isApplyingVoiceIdentity }
+        XCTAssertEqual(viewModel.effectiveCurrentTranscription?.speakers?.first?.label, "Others 1")
+        XCTAssertTrue(service.assignments.isEmpty)
+    }
+
+    func testConfirmedSuggestionImmediatelyReservesItsVoice() async throws {
+        let offer = suggestion()
+        let service = StubVoiceprintService(candidate: observation(), suggestions: [offer])
+        let viewModel = try await configured(makeTranscription(), voiceprints: service)
+        try await waitUntil { !viewModel.voiceSuggestions.isEmpty }
+        viewModel.confirmVoiceSuggestion(offer)
+        try await waitUntil { !viewModel.isApplyingVoiceIdentity }
+        XCTAssertEqual(viewModel.voiceHolders[offer.profileId], "S1")
+    }
+
+    func testFileTranscriptsDoNotExposeVoiceIdentityActions() async throws {
+        var transcription = makeTranscription()
+        transcription.sourceType = .file
+        let offer = suggestion()
+        let voice = knownVoice(named: "Sarah")
+        let service = StubVoiceprintService(candidate: observation(), suggestions: [offer], voices: [voice])
+        let viewModel = try await configured(transcription, voiceprints: service)
+        viewModel.voiceSuggestions = [offer]
+        viewModel.enrolledVoices = [voice]
+        viewModel.confirmVoiceSuggestion(offer)
+        viewModel.assignKnownVoice(profileId: voice.id, toSpeakerId: "S1")
+        viewModel.renameSpeaker(id: "S1", to: "Jane")
+        try await waitUntil { !viewModel.isApplyingSpeakerCorrection }
+        XCTAssertTrue(service.confirmed.isEmpty)
+        XCTAssertTrue(service.assignments.isEmpty)
+        XCTAssertTrue(service.candidateRequests.isEmpty)
+    }
+
+    func testAnOfferCannotEnrollAfterItsSpeakerIsRenamedAgain() async throws {
+        let service = StubVoiceprintService(candidate: observation())
+        let viewModel = try await configured(makeTranscription(), voiceprints: service)
+        viewModel.renameSpeaker(id: "S1", to: "Sarah")
+        try await waitUntil { viewModel.pendingVoiceEnrollment != nil }
+        try await waitUntil { !viewModel.isApplyingSpeakerCorrection }
+        let stale = try XCTUnwrap(viewModel.pendingVoiceEnrollment)
+        XCTAssertEqual(stale.displayName, "Sarah")
+        viewModel.renameSpeaker(id: "S1", to: "Jane")
+        try await waitUntil { viewModel.effectiveCurrentTranscription?.speakers?.first?.label == "Jane" }
+        viewModel.pendingVoiceEnrollment = stale
+        viewModel.confirmVoiceEnrollment()
+        XCTAssertNil(viewModel.pendingVoiceEnrollment)
+        XCTAssertTrue(service.enrollments.isEmpty)
+    }
+
+    func testUndoIsRefusedWhileAVoiceIdentityWriteIsInFlight() async throws {
+        let voice = knownVoice(named: "Sarah")
+        let service = StubVoiceprintService(
+            candidate: observation(),
+            voices: [voice],
+            assignment: .assigned(voice.profile),
+            holdsAssign: true
         )
+        let viewModel = try await configured(makeTranscription(), voiceprints: service)
+        try await waitUntil { !viewModel.enrolledVoices.isEmpty }
+        viewModel.assignKnownVoice(profileId: voice.id, toSpeakerId: "S1")
+        try await waitUntil { service.assignments.count == 1 }
+        XCTAssertEqual(viewModel.effectiveCurrentTranscription?.speakers?.first?.label, "Sarah")
+        viewModel.undoSpeakerCorrection()
+        XCTAssertEqual(viewModel.effectiveCurrentTranscription?.speakers?.first?.label, "Sarah")
+        service.releaseHeldSuggestions()
+        try await waitUntil { !viewModel.isApplyingVoiceIdentity }
+        XCTAssertEqual(viewModel.effectiveCurrentTranscription?.speakers?.first?.label, "Sarah")
+    }
+
+    func testAFailedVoiceWriteLeavesTheTranscriptName() async throws {
+        struct PersistFailed: Error {}
+        let voice = knownVoice(named: "Sarah")
+        let service = StubVoiceprintService(
+            candidate: observation(),
+            voices: [voice],
+            assignment: .assigned(voice.profile),
+            assignError: PersistFailed()
+        )
+        let viewModel = try await configured(makeTranscription(), voiceprints: service)
+        try await waitUntil { !viewModel.enrolledVoices.isEmpty }
+        viewModel.assignKnownVoice(profileId: voice.id, toSpeakerId: "S1")
+        try await waitUntil { !viewModel.isApplyingVoiceIdentity }
+        XCTAssertEqual(viewModel.effectiveCurrentTranscription?.speakers?.first?.label, "Sarah")
+        XCTAssertEqual(
+            viewModel.voiceEnrollmentMessage?.text,
+            "Sarah is on the transcript, but the voice was not recorded. Choose the name again to retry."
+        )
+        XCTAssertEqual(viewModel.voiceEnrollmentMessage?.kind, .failure)
+    }
+
+    func testAssigningAKnownVoiceToTheMicrophoneTrackRecordsNothing() async throws {
+        let voice = knownVoice(named: "Sarah")
+        let service = StubVoiceprintService(
+            candidate: observation(), voices: [voice], assignment: .assigned(voice.profile)
+        )
+        let viewModel = try await configured(makeTranscription(), voiceprints: service)
+        try await waitUntil { !viewModel.enrolledVoices.isEmpty }
+
+        viewModel.assignKnownVoice(profileId: voice.profile.id, toSpeakerId: AudioSource.microphone.rawValue)
+        viewModel.assignKnownVoice(profileId: voice.profile.id, toSpeakerId: AudioSource.system.rawValue)
+        try await waitUntil { !viewModel.isApplyingVoiceIdentity }
+
+        XCTAssertTrue(service.assignments.isEmpty)
+        XCTAssertEqual(viewModel.effectiveCurrentTranscription?.speakers?.first?.label, "Others 1")
+        XCTAssertNil(viewModel.voiceEnrollmentMessage)
+        XCTAssertTrue(viewModel.voiceHolders.isEmpty)
+    }
+
+    func testDelayedEnrollmentOfferCannotSurviveUndo() async throws {
+        let service = StubVoiceprintService(candidate: observation())
+        service.holdCandidate = true
+        let viewModel = try await configured(makeTranscription(), voiceprints: service)
+        viewModel.renameSpeaker(id: "S1", to: "Sarah")
+        try await waitUntil { service.candidateRequests.count == 1 }
+        viewModel.undoSpeakerCorrection()
+        try await waitUntil { !viewModel.isApplyingSpeakerCorrection }
+        service.releaseHeldSuggestions()
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertNil(viewModel.pendingVoiceEnrollment)
     }
 
     // MARK: Helpers
@@ -1038,7 +1230,8 @@ final class TranscriptionVoiceEnrollmentTests: XCTestCase {
                     wordRange: .init(startIndex: 0, endIndexExclusive: 2)
                 )
             ],
-            status: .completed
+            status: .completed,
+            sourceType: .meeting
         )
     }
 

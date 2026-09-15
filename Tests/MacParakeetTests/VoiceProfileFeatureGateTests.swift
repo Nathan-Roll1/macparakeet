@@ -46,6 +46,16 @@ private final class FakeVoiceStore: SpeakerVoiceprintServicing, @unchecked Senda
     func confirmedVoiceHolders(
         transcriptionId _: UUID, fingerprint _: TranscriptFingerprint
     ) async throws -> [UUID: String] { [:] }
+    func recognitionVoices() async throws -> [EnrolledVoice] { [] }
+    func validateAssignment(
+        profileId _: UUID, toSpeakerId _: String, transcriptionId _: UUID,
+        fingerprint _: TranscriptFingerprint
+    ) async throws -> SpeakerManualAssignment { .unknownProfile }
+    func enrollCandidate(
+        displayName _: String, speakerId _: String, transcriptionId _: UUID,
+        fingerprint _: TranscriptFingerprint, allowMergeIntoExistingName _: Bool
+    ) async throws -> SpeakerProfileEnrollment { .candidateUnavailable }
+
     func enrolledVoices() async throws -> [EnrolledVoice] { storedVoices }
     func samples(profileId _: UUID) async throws -> [SpeakerProfileExemplar] { [] }
     func renameProfile(id _: UUID, to _: String) async throws {}

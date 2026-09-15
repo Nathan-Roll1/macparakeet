@@ -130,7 +130,8 @@ public final class TranscriptionViewModel {
             speakerAttributionLoadToken = nil
             // Notes and title updates do not change speaker evidence. Keep
             // the displayed projection stable while refreshing its DB state.
-            let sameSpeakerSource = currentTranscription != nil
+            let sameSpeakerSource =
+                currentTranscription != nil
                 && oldValue?.id == currentTranscription?.id
                 && oldValue?.status == currentTranscription?.status
                 && oldValue?.sourceType == currentTranscription?.sourceType
@@ -151,6 +152,9 @@ public final class TranscriptionViewModel {
                 dismissVoiceEnrollment()
                 voiceEnrollmentMessage = nil
                 voiceSuggestions = []
+                voiceSuggestionsLoadToken &+= 1
+                voiceHoldersLoadToken &+= 1
+                enrolledVoicesLoadToken &+= 1
                 enrolledVoices = []
                 voiceHolders = [:]
             }
@@ -277,10 +281,11 @@ public final class TranscriptionViewModel {
     }
 
     @ObservationIgnored
-    private var effectiveTranscriptionCache: (
-        key: EffectiveTranscriptionCacheKey,
-        value: Transcription?
-    )?
+    private var effectiveTranscriptionCache:
+        (
+            key: EffectiveTranscriptionCacheKey,
+            value: Transcription?
+        )?
 
     public var effectiveCurrentTranscription: Transcription? {
         let key = EffectiveTranscriptionCacheKey(
@@ -296,14 +301,15 @@ public final class TranscriptionViewModel {
 
         let value: Transcription?
         if let currentTranscription,
-           speakerAttributionTranscriptionID == currentTranscription.id,
-           let speakerAttribution
+            speakerAttributionTranscriptionID == currentTranscription.id,
+            let speakerAttribution
         {
-            value = SpeakerAttributionProjection(
-                automaticTranscription: currentTranscription,
-                attribution: speakerAttribution,
-                correctionsApplied: speakerCorrectionsApplied
-            ).effectiveTranscription
+            value =
+                SpeakerAttributionProjection(
+                    automaticTranscription: currentTranscription,
+                    attribution: speakerAttribution,
+                    correctionsApplied: speakerCorrectionsApplied
+                ).effectiveTranscription
         } else {
             value = currentTranscription
         }
@@ -1094,11 +1100,12 @@ public final class TranscriptionViewModel {
     public nonisolated func canConfigureSpeakersForRetranscription(_ original: Transcription) -> Bool {
         guard original.sourceType == .meeting else { return true }
         guard let filePath = original.filePath else { return false }
-        return (try? MeetingRecordingOutput.loadArchived(
-            displayName: original.fileName,
-            mixedAudioURL: URL(fileURLWithPath: filePath),
-            durationSeconds: Double(original.durationMs ?? 0) / 1000.0
-        ))?.sourceAlignment.system != nil
+        return
+            (try? MeetingRecordingOutput.loadArchived(
+                displayName: original.fileName,
+                mixedAudioURL: URL(fileURLWithPath: filePath),
+                durationSeconds: Double(original.durationMs ?? 0) / 1000.0
+            ))?.sourceAlignment.system != nil
     }
 
     private func archivedMeetingRecording(
@@ -1725,7 +1732,7 @@ public final class TranscriptionViewModel {
     @discardableResult
     public func updateCurrentMeetingNotes(to newText: String) async -> Bool {
         guard let transcription = currentTranscription,
-              transcription.sourceType == .meeting
+            transcription.sourceType == .meeting
         else { return false }
         return await updateMeetingNotes(for: transcription, to: newText)
     }
@@ -1807,7 +1814,8 @@ public final class TranscriptionViewModel {
 
                 if refreshArtifacts {
                     let refreshed = await self.refreshMeetingArtifacts(transcription: committed)
-                    self.meetingNotesArtifactWarnings[committed.id] = refreshed
+                    self.meetingNotesArtifactWarnings[committed.id] =
+                        refreshed
                         ? nil
                         : "Notes were saved, but the meeting files could not be refreshed."
                 }
@@ -1872,18 +1880,21 @@ public final class TranscriptionViewModel {
                     try repo.fetch(id: meetingID)
                 }.value
                 guard let persisted = fetched,
-                      persisted.sourceType == .meeting
+                    persisted.sourceType == .meeting
                 else {
                     self.meetingNotesArtifactWarnings[meetingID] = nil
                     return false
                 }
                 let refreshed = await self.refreshMeetingArtifacts(transcription: persisted)
-                self.meetingNotesArtifactWarnings[persisted.id] = refreshed
+                self.meetingNotesArtifactWarnings[persisted.id] =
+                    refreshed
                     ? nil
                     : "Notes were saved, but the meeting files could not be refreshed."
                 return refreshed
             } catch {
-                self.logger.warning("Failed to retry meeting artifact refresh error_type=\(TelemetryErrorClassifier.classify(error), privacy: .public)")
+                self.logger.warning(
+                    "Failed to retry meeting artifact refresh error_type=\(TelemetryErrorClassifier.classify(error), privacy: .public)"
+                )
                 self.meetingNotesArtifactWarnings[meetingID] =
                     "Notes were saved, but the meeting files could not be refreshed."
                 return false
@@ -1980,8 +1991,8 @@ public final class TranscriptionViewModel {
     /// selected snapshot's persisted corrections are still loading.
     public func currentTranscriptionForSpeakerOutput() async -> Transcription? {
         guard !isApplyingSpeakerCorrection,
-              await waitForCurrentSpeakerAttribution(),
-              !isApplyingSpeakerCorrection
+            await waitForCurrentSpeakerAttribution(),
+            !isApplyingSpeakerCorrection
         else { return nil }
         return effectiveCurrentTranscription
     }
@@ -2005,9 +2016,9 @@ public final class TranscriptionViewModel {
                     )
                 }.value
                 guard let self,
-                      self.speakerAttributionLoadToken == token,
-                      self.currentTranscriptionRevision == selectedRevision,
-                      self.currentTranscription?.id == transcriptionID
+                    self.speakerAttributionLoadToken == token,
+                    self.currentTranscriptionRevision == selectedRevision,
+                    self.currentTranscription?.id == transcriptionID
                 else { return false }
                 self.speakerAttribution = projection.attribution
                 self.speakerAttributionTranscriptionID = transcriptionID
@@ -2032,8 +2043,8 @@ public final class TranscriptionViewModel {
                 return true
             } catch {
                 guard let self,
-                      self.speakerAttributionLoadToken == token,
-                      self.currentTranscriptionRevision == selectedRevision
+                    self.speakerAttributionLoadToken == token,
+                    self.currentTranscriptionRevision == selectedRevision
                 else { return false }
                 self.setError(message: "Couldn't load speaker corrections.")
                 self.logger.error(
@@ -2084,7 +2095,7 @@ public final class TranscriptionViewModel {
 
     private func beginSpeakerCorrectionSubmission() -> SpeakerCorrectionSubmission? {
         guard let transcriptionID = currentTranscription?.id,
-              let speakerCorrectionService
+            let speakerCorrectionService
         else {
             return nil
         }
@@ -2134,9 +2145,11 @@ public final class TranscriptionViewModel {
 
     private func performSpeakerHistoryAction(isUndo: Bool) {
         guard let transcriptionID = currentTranscription?.id,
-              let speakerCorrectionService
+            let speakerCorrectionService
         else { return }
-        guard let attribution = speakerAttribution, !isApplyingSpeakerCorrection else {
+        guard let attribution = speakerAttribution, !isApplyingSpeakerCorrection,
+            !isApplyingVoiceIdentity
+        else {
             setError(message: "Speaker changes are still loading or saving. Please try again.")
             return
         }
@@ -2174,6 +2187,7 @@ public final class TranscriptionViewModel {
     ) {
         isApplyingSpeakerCorrection = false
         if currentTranscription?.id == transcriptionID {
+            dismissVoiceEnrollment()
             if currentTranscriptionRevision == selectedRevision {
                 // A committed correction is newer than the read that initiated it.
                 speakerAttributionLoadToken = UUID()
@@ -2203,8 +2217,9 @@ public final class TranscriptionViewModel {
         isApplyingSpeakerCorrection = false
         guard currentTranscription?.id == transcriptionID else { return }
         if error as? SpeakerCorrectionServiceError == .conflict,
-           let transcription = currentTranscription,
-           transcription.id == transcriptionID {
+            let transcription = currentTranscription,
+            transcription.id == transcriptionID
+        {
             loadSpeakerAttribution(for: transcription)
             setError(message: "Speaker changes were updated elsewhere. Review and try again.")
         } else {
@@ -2224,7 +2239,7 @@ public final class TranscriptionViewModel {
         public let displayName: String
         public let transcriptionId: UUID
         public let fingerprint: TranscriptFingerprint
-        let observation: SpeakerClusterObservation
+        let correctionRevision: Int
     }
 
     /// The outcome of an answered offer. Typed because the same surface reports
@@ -2278,7 +2293,11 @@ public final class TranscriptionViewModel {
         enrolledVoices.filter { voiceHolders[$0.profile.id] == nil }
     }
 
+    private var voiceEnrollmentLoadToken = 0
+    public private(set) var isApplyingVoiceIdentity = false
+
     public func dismissVoiceEnrollment() {
+        voiceEnrollmentLoadToken &+= 1
         pendingVoiceEnrollment = nil
         voiceEnrollmentConflict = nil
     }
@@ -2289,7 +2308,9 @@ public final class TranscriptionViewModel {
     private var voiceSuggestionsLoadToken = 0
 
     private func loadVoiceSuggestions(transcriptionID: UUID, fingerprint: TranscriptFingerprint) {
-        guard let speakerVoiceprints else { return }
+        guard currentTranscription?.sourceType == .meeting, !isApplyingVoiceIdentity,
+            let speakerVoiceprints
+        else { return }
         voiceSuggestionsLoadToken &+= 1
         let token = voiceSuggestionsLoadToken
         Task { [weak self] in
@@ -2302,8 +2323,8 @@ public final class TranscriptionViewModel {
                 // recordings whose words happen to hash alike — the fingerprint
                 // has no transcription in it.
                 guard self?.voiceSuggestionsLoadToken == token,
-                      self?.currentTranscription?.id == transcriptionID,
-                      self?.speakerAttribution?.fingerprint == fingerprint
+                    self?.currentTranscription?.id == transcriptionID,
+                    self?.speakerAttribution?.fingerprint == fingerprint
                 else { return }
                 self?.voiceSuggestions = offers ?? []
             }
@@ -2323,7 +2344,7 @@ public final class TranscriptionViewModel {
     private func loadVoiceHolders(
         transcriptionID: UUID, fingerprint: TranscriptFingerprint
     ) {
-        guard let speakerVoiceprints else { return }
+        guard currentTranscription?.sourceType == .meeting, let speakerVoiceprints else { return }
         voiceHoldersLoadToken &+= 1
         let token = voiceHoldersLoadToken
         Task { [weak self] in
@@ -2332,8 +2353,8 @@ public final class TranscriptionViewModel {
             )
             await MainActor.run {
                 guard self?.voiceHoldersLoadToken == token,
-                      self?.currentTranscription?.id == transcriptionID,
-                      self?.speakerAttribution?.fingerprint == fingerprint
+                    self?.currentTranscription?.id == transcriptionID,
+                    self?.speakerAttribution?.fingerprint == fingerprint
                 else { return }
                 self?.voiceHolders = holders ?? [:]
             }
@@ -2341,11 +2362,11 @@ public final class TranscriptionViewModel {
     }
 
     private func loadEnrolledVoices() {
-        guard let speakerVoiceprints else { return }
+        guard currentTranscription?.sourceType == .meeting, let speakerVoiceprints else { return }
         enrolledVoicesLoadToken &+= 1
         let token = enrolledVoicesLoadToken
         Task { [weak self] in
-            let voices = try? await speakerVoiceprints.enrolledVoices()
+            let voices = try? await speakerVoiceprints.recognitionVoices()
             await MainActor.run {
                 guard self?.enrolledVoicesLoadToken == token else { return }
                 self?.enrolledVoices = voices ?? []
@@ -2358,63 +2379,128 @@ public final class TranscriptionViewModel {
     /// same reason: the label goes through the correction layer first, and the
     /// link is written only once that label is committed.
     public func assignKnownVoice(profileId: UUID, toSpeakerId speakerId: String) {
-        guard let speakerVoiceprints,
-              let transcriptionId = currentTranscription?.id,
-              let fingerprint = speakerAttribution?.fingerprint,
-              let voice = enrolledVoices.first(where: { $0.profile.id == profileId })
+        guard currentTranscription?.sourceType == .meeting,
+            !isApplyingVoiceIdentity,
+            let speakerVoiceprints,
+            let transcriptionId = currentTranscription?.id,
+            let attribution = speakerAttribution,
+            enrolledVoices.contains(where: { $0.profile.id == profileId }),
+            !AudioSource.isMeetingCaptureTrack(speakerId)
         else { return }
-        let displayName = voice.profile.displayName
-        renameSpeaker(
-            id: speakerId,
-            to: displayName,
-            offersEnrollment: false
-        ) { [weak self] committed in
-            // Nothing to record: the transcript never took the name, so a link
-            // would point at a speaker the user does not see under it.
-            guard committed else { return }
-            Task { [weak self] in
-                do {
-                    let outcome = try await speakerVoiceprints.assign(
-                        profileId: profileId,
-                        toSpeakerId: speakerId,
-                        transcriptionId: transcriptionId,
-                        fingerprint: fingerprint
-                    )
-                    await MainActor.run {
-                        guard self?.currentTranscription?.id == transcriptionId,
-                              self?.speakerAttribution?.fingerprint == fingerprint
-                        else { return }
-                        self?.publish(outcome, named: displayName, for: speakerId)
-                    }
-                } catch {
-                    await MainActor.run {
-                        guard self?.currentTranscription?.id == transcriptionId,
-                              self?.speakerAttribution?.fingerprint == fingerprint
-                        else { return }
-                        self?.voiceEnrollmentMessage = .init(
-                            text: "Could not record that name.", kind: .failure,
-                            speakerId: speakerId
-                        )
-                    }
+        let selectedRevision = currentTranscriptionRevision
+        let fingerprint = attribution.fingerprint
+        isApplyingVoiceIdentity = true
+        Task { [weak self] in
+            guard let self else { return }
+            defer { self.isApplyingVoiceIdentity = false }
+            var renamed = false
+            do {
+                let validation = try await speakerVoiceprints.validateAssignment(
+                    profileId: profileId, toSpeakerId: speakerId,
+                    transcriptionId: transcriptionId, fingerprint: fingerprint
+                )
+                guard self.currentTranscriptionRevision == selectedRevision,
+                    self.speakerAttribution == attribution
+                else { return }
+                guard case .assigned(let profile) = validation else {
+                    self.publish(
+                        validation,
+                        named: self.enrolledVoices.first { $0.id == profileId }?.profile.displayName ?? "This voice",
+                        for: speakerId)
+                    return
                 }
+                guard await self.renameForVoiceIdentity(speakerId: speakerId, name: profile.displayName) else { return }
+                renamed = true
+                guard
+                    self.voiceIdentityLabelStillMatches(
+                        speakerId: speakerId, name: profile.displayName,
+                        transcriptionId: transcriptionId, fingerprint: fingerprint
+                    )
+                else {
+                    self.reportVoiceIdentityAbandoned(named: profile.displayName, speakerId: speakerId)
+                    return
+                }
+                let outcome = try await speakerVoiceprints.assign(
+                    profileId: profileId, toSpeakerId: speakerId,
+                    transcriptionId: transcriptionId, fingerprint: fingerprint
+                )
+                guard self.currentTranscription?.id == transcriptionId,
+                    self.speakerAttribution?.fingerprint == fingerprint
+                else { return }
+                self.publish(outcome, named: profile.displayName, for: speakerId, renamed: true)
+            } catch {
+                guard self.currentTranscription?.id == transcriptionId,
+                    self.speakerAttribution?.fingerprint == fingerprint
+                else { return }
+                let displayName =
+                    self.enrolledVoices.first { $0.id == profileId }?.profile.displayName ?? "This speaker"
+                self.voiceEnrollmentMessage = .init(
+                    text: renamed
+                        ? "\(displayName) is on the transcript, but the voice was not recorded. Choose the name again to retry."
+                        : "Could not record that voice.",
+                    kind: .failure, speakerId: speakerId
+                )
             }
         }
     }
 
-    /// The rename has already happened in every branch, so these say what
-    /// became of the voice, not of the label.
+    /// The legacy rename path and the correction journal both report when the
+    /// label is durable. Voice learning must wait for that result.
+    private func renameForVoiceIdentity(speakerId: String, name: String) async -> Bool {
+        await withCheckedContinuation { continuation in
+            let accepted = renameSpeaker(id: speakerId, to: name, offersEnrollment: false) {
+                continuation.resume(returning: $0)
+            }
+            if !accepted { continuation.resume(returning: false) }
+        }
+    }
+
+    /// Preflight and rename are not a reservation. Undo or another rename can
+    /// land in the gap before the profile write; learning then would attach a
+    /// trusted name to a speaker the transcript no longer shows.
+    private func voiceIdentityLabelStillMatches(
+        speakerId: String, name: String,
+        transcriptionId: UUID, fingerprint: TranscriptFingerprint
+    ) -> Bool {
+        guard currentTranscription?.id == transcriptionId else { return false }
+        let stored = currentTranscription?.speakers?.first(where: { $0.id == speakerId })?.label
+        // Legacy rename mutates the row and clears attribution while it reloads.
+        // The stored label is the claim we just committed.
+        if stored == name { return true }
+        return speakerAttribution?.fingerprint == fingerprint
+            && speakerAttribution?.speakers.first(where: { $0.id == speakerId })?.label == name
+    }
+
+    private func reportVoiceIdentityAbandoned(named displayName: String, speakerId: String) {
+        voiceEnrollmentMessage = .init(
+            text: "The speaker name changed before \(displayName)'s voice could be recorded.",
+            kind: .failure,
+            speakerId: speakerId
+        )
+    }
+
+    private func recordVoiceHolder(profileId: UUID, speakerId: String) {
+        voiceHoldersLoadToken &+= 1
+        voiceSuggestionsLoadToken &+= 1
+        voiceHolders = voiceHolders.filter { $0.value != speakerId }
+        voiceHolders[profileId] = speakerId
+        voiceSuggestions.removeAll { $0.speakerId == speakerId || $0.profileId == profileId }
+    }
+
+    /// Reports profile validation or persistence without promising that a
+    /// rejected identity changed the transcript.
     private func publish(
-        _ outcome: SpeakerManualAssignment, named displayName: String, for speakerId: String
+        _ outcome: SpeakerManualAssignment, named displayName: String, for speakerId: String,
+        renamed: Bool = false
     ) {
         switch outcome {
         case .assigned(let profile):
             // An offer for this speaker is now answered by a stronger signal
             // than the one it was asking about.
-            voiceSuggestions.removeAll { $0.speakerId == speakerId }
+            recordVoiceHolder(profileId: profile.id, speakerId: speakerId)
             loadEnrolledVoices()
             // Recorded here rather than re-read: the menu must stop offering
             // this voice on the next open, not one round trip later.
-            voiceHolders[profile.id] = speakerId
             // Said even though the label may not have moved: naming a speaker
             // who already carried that name still records the decision, and
             // without this the menu would look like it did nothing.
@@ -2425,7 +2511,9 @@ public final class TranscriptionViewModel {
         case .profileAlreadyUsed(let holderId):
             let holder = speakerAttribution?.speakers.first { $0.id == holderId }?.label ?? holderId
             voiceEnrollmentMessage = .init(
-                text: "\(holder) is already \(displayName) in this transcript, so the voice was not recorded.",
+                text: renamed
+                    ? "\(displayName) is on the transcript, but \(holder) already holds that voice. Undo the rename if this is wrong."
+                    : "\(holder) is already \(displayName) in this transcript, so the voice was not recorded.",
                 kind: .failure,
                 speakerId: speakerId
             )
@@ -2434,6 +2522,8 @@ public final class TranscriptionViewModel {
                 text: "\(displayName)'s voice is no longer stored.", kind: .failure,
                 speakerId: speakerId
             )
+        case .unsupportedSpeaker:
+            break
         }
     }
 
@@ -2442,68 +2532,83 @@ public final class TranscriptionViewModel {
     /// label and a profile that did not learn, rather than a profile taught by
     /// an answer the transcript never shows.
     public func confirmVoiceSuggestion(_ suggestion: SpeakerVoiceprintSuggestion) {
-        guard let speakerVoiceprints,
-              let transcriptionId = currentTranscription?.id,
-              let fingerprint = speakerAttribution?.fingerprint
+        guard currentTranscription?.sourceType == .meeting,
+            !isApplyingVoiceIdentity,
+            let speakerVoiceprints,
+            let transcriptionId = currentTranscription?.id,
+            let attribution = speakerAttribution,
+            voiceSuggestions.contains(suggestion),
+            !AudioSource.isMeetingCaptureTrack(suggestion.speakerId)
         else { return }
-        // Without `offersEnrollment: false` the rename would immediately ask
-        // "Remember Sarah's voice?" for the voice just matched — and if the
-        // match sits beyond the pollution guard, the conflict banner would
-        // claim another Sarah exists, contradicting what was just confirmed.
-        //
-        // The answer is recorded only once the label is actually committed:
-        // `renameSpeaker` returns as soon as the write is scheduled, and that
-        // write can still be refused for a stale revision. Recording first
-        // would teach the profile from an answer the transcript never shows.
-        let committed = renameSpeaker(
-            id: suggestion.speakerId,
-            to: suggestion.displayName,
-            offersEnrollment: false
-        ) { [weak self] committed in
-            guard committed else {
-                // The callback lands after the write, by which time the
-                // selection can have moved. `currentTranscription.didSet`
-                // clears the list at the moment of the change but cannot clear
-                // a later append, and these offers name positional speakers.
-                guard self?.currentTranscription?.id == transcriptionId,
-                      self?.speakerAttribution?.fingerprint == fingerprint
+        let selectedRevision = currentTranscriptionRevision
+        let fingerprint = attribution.fingerprint
+        isApplyingVoiceIdentity = true
+        Task { [weak self] in
+            guard let self else { return }
+            defer { self.isApplyingVoiceIdentity = false }
+            var renamed = false
+            do {
+                let validation = try await speakerVoiceprints.validateAssignment(
+                    profileId: suggestion.profileId, toSpeakerId: suggestion.speakerId,
+                    transcriptionId: transcriptionId, fingerprint: fingerprint
+                )
+                guard self.currentTranscriptionRevision == selectedRevision,
+                    self.speakerAttribution == attribution,
+                    self.voiceSuggestions.contains(suggestion)
                 else { return }
-                self?.voiceSuggestions.append(suggestion)
-                return
-            }
-            Task { [weak self] in
-                do {
-                    try await speakerVoiceprints.confirm(
-                        suggestion, transcriptionId: transcriptionId, fingerprint: fingerprint
-                    )
-                } catch {
-                    // The label is applied and that is what the user asked for,
-                    // so this is reported, not rolled back — but only on the
-                    // transcript it belongs to: this lands after an await.
-                    await MainActor.run {
-                        guard self?.currentTranscription?.id == transcriptionId,
-                              self?.speakerAttribution?.fingerprint == fingerprint
-                        else { return }
-                        self?.voiceEnrollmentMessage = .init(
-                            text: "Could not record that confirmation.", kind: .failure,
-                            speakerId: suggestion.speakerId
-                        )
-                    }
+                guard case .assigned(let profile) = validation else {
+                    self.publish(validation, named: suggestion.displayName, for: suggestion.speakerId)
+                    return
                 }
+                guard await self.renameForVoiceIdentity(speakerId: suggestion.speakerId, name: profile.displayName)
+                else { return }
+                renamed = true
+                guard
+                    self.voiceIdentityLabelStillMatches(
+                        speakerId: suggestion.speakerId, name: profile.displayName,
+                        transcriptionId: transcriptionId, fingerprint: fingerprint
+                    )
+                else {
+                    self.reportVoiceIdentityAbandoned(named: profile.displayName, speakerId: suggestion.speakerId)
+                    return
+                }
+                self.voiceSuggestionsLoadToken &+= 1
+                self.voiceSuggestions.removeAll { $0.speakerId == suggestion.speakerId }
+                try await speakerVoiceprints.confirm(
+                    suggestion, transcriptionId: transcriptionId, fingerprint: fingerprint
+                )
+                guard self.currentTranscription?.id == transcriptionId,
+                    self.speakerAttribution?.fingerprint == fingerprint
+                else { return }
+                self.recordVoiceHolder(profileId: suggestion.profileId, speakerId: suggestion.speakerId)
+            } catch {
+                guard self.currentTranscription?.id == transcriptionId,
+                    self.speakerAttribution?.fingerprint == fingerprint
+                else { return }
+                self.voiceEnrollmentMessage = .init(
+                    text: renamed
+                        ? "\(suggestion.displayName) is on the transcript, but the voice was not recorded. Choose the name again to retry."
+                        : "Could not record that confirmation.",
+                    kind: .failure,
+                    speakerId: suggestion.speakerId
+                )
             }
         }
-        guard committed else { return }
-        voiceSuggestions.removeAll { $0.speakerId == suggestion.speakerId }
     }
 
     public func dismissVoiceSuggestion(_ suggestion: SpeakerVoiceprintSuggestion) {
-        guard let speakerVoiceprints,
-              let transcriptionId = currentTranscription?.id,
-              let fingerprint = speakerAttribution?.fingerprint
+        guard currentTranscription?.sourceType == .meeting,
+            !isApplyingVoiceIdentity, voiceSuggestions.contains(suggestion),
+            let speakerVoiceprints,
+            let transcriptionId = currentTranscription?.id,
+            let fingerprint = speakerAttribution?.fingerprint
         else { return }
+        voiceSuggestionsLoadToken &+= 1
         voiceSuggestions.removeAll { $0.speakerId == suggestion.speakerId }
+        isApplyingVoiceIdentity = true
 
         Task { [weak self] in
+            defer { self?.isApplyingVoiceIdentity = false }
             do {
                 try await speakerVoiceprints.dismiss(
                     suggestion, transcriptionId: transcriptionId, fingerprint: fingerprint
@@ -2514,9 +2619,11 @@ public final class TranscriptionViewModel {
                 // explanation. Put it back, and say so.
                 await MainActor.run {
                     guard self?.currentTranscription?.id == transcriptionId,
-                          self?.speakerAttribution?.fingerprint == fingerprint
+                        self?.speakerAttribution?.fingerprint == fingerprint
                     else { return }
-                    self?.voiceSuggestions.append(suggestion)
+                    if self?.voiceSuggestions.contains(suggestion) == false {
+                        self?.voiceSuggestions.append(suggestion)
+                    }
                     self?.voiceEnrollmentMessage = .init(
                         text: "Could not record that answer.", kind: .failure,
                         speakerId: suggestion.speakerId
@@ -2539,18 +2646,22 @@ public final class TranscriptionViewModel {
     /// only while a candidate is still available — the same conditions the
     /// rename path applies.
     func reofferVoiceEnrollment(for transcription: Transcription) {
-        guard let speakerVoiceprints,
-              pendingVoiceEnrollment == nil,
-              voiceEnrollmentConflict == nil,
-              let fingerprint = speakerAttribution?.fingerprint,
-              let speakers = effectiveCurrentTranscription?.speakers ?? transcription.speakers
+        guard transcription.sourceType == .meeting, !isApplyingVoiceIdentity, let speakerVoiceprints,
+            pendingVoiceEnrollment == nil,
+            voiceEnrollmentConflict == nil,
+            let fingerprint = speakerAttribution?.fingerprint,
+            let speakers = effectiveCurrentTranscription?.speakers ?? transcription.speakers
         else { return }
 
         // A speaker still carrying its positional label was never named, so
         // there is nothing to remember it as.
-        let named = speakers.filter { !$0.carriesAutomaticLabel }
+        let named = speakers.filter {
+            !$0.carriesAutomaticLabel && !AudioSource.isMeetingCaptureTrack($0.id)
+        }
         guard !named.isEmpty else { return }
         let transcriptionId = transcription.id
+        let token = voiceEnrollmentLoadToken
+        let revision = speakerAttribution?.correctionRevision ?? 0
 
         Task { [weak self] in
             for speaker in named {
@@ -2559,19 +2670,23 @@ public final class TranscriptionViewModel {
                     speakerId: speaker.id,
                     fingerprint: fingerprint
                 )
-                guard let observation else { continue }
+                guard observation != nil else { continue }
                 let published = await MainActor.run { [weak self] () -> Bool in
                     guard let self,
-                          self.currentTranscription?.id == transcriptionId,
-                          self.speakerAttribution?.fingerprint == fingerprint,
-                          self.pendingVoiceEnrollment == nil
+                        self.currentTranscription?.id == transcriptionId,
+                        self.speakerAttribution?.fingerprint == fingerprint,
+                        self.pendingVoiceEnrollment == nil,
+                        self.voiceEnrollmentConflict == nil,
+                        self.voiceEnrollmentLoadToken == token,
+                        self.speakerAttribution?.correctionRevision == revision,
+                        self.speakerAttribution?.speakers.first(where: { $0.id == speaker.id })?.label == speaker.label
                     else { return false }
                     self.pendingVoiceEnrollment = PendingVoiceEnrollment(
                         speakerId: speaker.id,
                         displayName: speaker.label,
                         transcriptionId: transcriptionId,
                         fingerprint: fingerprint,
-                        observation: observation
+                        correctionRevision: revision
                     )
                     return true
                 }
@@ -2596,10 +2711,13 @@ public final class TranscriptionViewModel {
         transcriptionId: UUID,
         fingerprint: TranscriptFingerprint
     ) {
-        guard let speakerVoiceprints,
-              currentTranscription?.id == transcriptionId,
-              speakerAttribution?.fingerprint == fingerprint
+        guard currentTranscription?.sourceType == .meeting, let speakerVoiceprints,
+            currentTranscription?.id == transcriptionId,
+            speakerAttribution?.fingerprint == fingerprint,
+            let revision = speakerAttribution?.correctionRevision,
+            !AudioSource.isMeetingCaptureTrack(speakerId)
         else { return }
+        let token = voiceEnrollmentLoadToken
 
         Task { [weak self] in
             let observation = try? await speakerVoiceprints.enrollmentCandidate(
@@ -2607,19 +2725,22 @@ public final class TranscriptionViewModel {
                 speakerId: speakerId,
                 fingerprint: fingerprint
             )
-            guard let observation else { return }
+            guard observation != nil else { return }
             await MainActor.run {
                 // Both: a same-row re-diarization keeps the id and changes the
                 // fingerprint, and this offer names a positional speaker.
                 guard self?.currentTranscription?.id == transcriptionId,
-                      self?.speakerAttribution?.fingerprint == fingerprint
+                    self?.speakerAttribution?.fingerprint == fingerprint,
+                    self?.voiceEnrollmentLoadToken == token,
+                    self?.speakerAttribution?.correctionRevision == revision,
+                    self?.speakerAttribution?.speakers.first(where: { $0.id == speakerId })?.label == displayName
                 else { return }
                 self?.pendingVoiceEnrollment = PendingVoiceEnrollment(
                     speakerId: speakerId,
                     displayName: displayName,
                     transcriptionId: transcriptionId,
                     fingerprint: fingerprint,
-                    observation: observation
+                    correctionRevision: revision
                 )
             }
         }
@@ -2629,27 +2750,32 @@ public final class TranscriptionViewModel {
     /// is false on the first attempt and true only when the user has said the
     /// two voices are the same person.
     public func confirmVoiceEnrollment(allowMerge: Bool = false) {
-        guard let offer = allowMerge ? voiceEnrollmentConflict : pendingVoiceEnrollment,
-              let speakerVoiceprints
+        guard currentTranscription?.sourceType == .meeting, !isApplyingVoiceIdentity,
+            let offer = allowMerge ? voiceEnrollmentConflict : pendingVoiceEnrollment,
+            let speakerVoiceprints,
+            !AudioSource.isMeetingCaptureTrack(offer.speakerId)
         else { return }
         // Re-checked here rather than trusted from the offer: this is a public
         // value an unrelated caller could resubmit, and enrollment is a write
         // the user cannot take back. The fingerprint, not the transcription id
         // — the same row re-transcribed keeps its id and changes its speakers.
         guard currentTranscription?.id == offer.transcriptionId,
-              speakerAttribution?.fingerprint == offer.fingerprint
+            speakerAttribution?.fingerprint == offer.fingerprint,
+            speakerAttribution?.correctionRevision == offer.correctionRevision,
+            speakerAttribution?.speakers.first(where: { $0.id == offer.speakerId })?.label == offer.displayName
         else {
             dismissVoiceEnrollment()
             return
         }
-        pendingVoiceEnrollment = nil
-        voiceEnrollmentConflict = nil
+        dismissVoiceEnrollment()
+        isApplyingVoiceIdentity = true
 
         Task { [weak self] in
+            defer { self?.isApplyingVoiceIdentity = false }
             do {
-                let outcome = try await speakerVoiceprints.enroll(
+                let outcome = try await speakerVoiceprints.enrollCandidate(
                     displayName: offer.displayName,
-                    observation: offer.observation,
+                    speakerId: offer.speakerId,
                     transcriptionId: offer.transcriptionId,
                     fingerprint: offer.fingerprint,
                     allowMergeIntoExistingName: allowMerge
@@ -2660,7 +2786,7 @@ public final class TranscriptionViewModel {
                     // Scoped to the offer, not the current selection: this
                     // message answers an action taken on that transcript.
                     guard self?.currentTranscription?.id == offer.transcriptionId,
-                          self?.speakerAttribution?.fingerprint == offer.fingerprint
+                        self?.speakerAttribution?.fingerprint == offer.fingerprint
                     else { return }
                     self?.voiceEnrollmentMessage = .init(
                         text: "Could not remember this voice.", kind: .failure,
@@ -2677,7 +2803,9 @@ public final class TranscriptionViewModel {
     /// would name a speaker that no longer exists.
     private func publish(_ outcome: SpeakerProfileEnrollment, for offer: PendingVoiceEnrollment) {
         guard currentTranscription?.id == offer.transcriptionId,
-              speakerAttribution?.fingerprint == offer.fingerprint
+            speakerAttribution?.fingerprint == offer.fingerprint,
+            speakerAttribution?.correctionRevision == offer.correctionRevision,
+            speakerAttribution?.speakers.first(where: { $0.id == offer.speakerId })?.label == offer.displayName
         else { return }
         switch outcome {
         case .created, .addedExemplar:
@@ -2704,6 +2832,10 @@ public final class TranscriptionViewModel {
                 text: "\(offer.displayName) already has the maximum number of voice samples.",
                 kind: .failure, speakerId: offer.speakerId
             )
+        case .candidateUnavailable:
+            voiceEnrollmentMessage = .init(
+                text: "This voice sample is no longer available.", kind: .failure, speakerId: offer.speakerId
+            )
         case .rejectedEmptyName:
             voiceEnrollmentMessage = nil
         }
@@ -2722,17 +2854,21 @@ public final class TranscriptionViewModel {
         onCommitted: (@MainActor @Sendable (Bool) -> Void)? = nil
     ) -> Bool {
         let trimmed = newLabel.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return true }
+        guard !trimmed.isEmpty else {
+            onCommitted?(true)
+            return true
+        }
         if speakerCorrectionService != nil,
-           currentTranscription?.status == .completed,
-           !(currentTranscription?.wordTimestamps ?? []).isEmpty,
-           !(currentTranscription?.transcriptSegments ?? []).isEmpty {
+            currentTranscription?.status == .completed,
+            !(currentTranscription?.wordTimestamps ?? []).isEmpty,
+            !(currentTranscription?.transcriptSegments ?? []).isEmpty
+        {
             // An unchanged label is not a rename. The correction service would
             // still insert a row and advance the revision, and the success
             // callback would then offer to remember a voice for a name the
             // user did not actually type.
             if let current = speakerAttribution?.speakers.first(where: { $0.id == speakerId }),
-               current.label == trimmed
+                current.label == trimmed
             {
                 onCommitted?(true)
                 return true
@@ -2762,9 +2898,9 @@ public final class TranscriptionViewModel {
                     // path: that voice is already matched, and the answer is
                     // recorded by the caller.
                     guard committed,
-                          offersEnrollment,
-                          let renamedTranscriptionId,
-                          let renamedFingerprint
+                        offersEnrollment,
+                        let renamedTranscriptionId,
+                        let renamedFingerprint
                     else { return }
                     self?.offerVoiceEnrollment(
                         speakerId: speakerId,
@@ -2928,7 +3064,9 @@ public final class TranscriptionViewModel {
 
             var materializedGeneration = generation
             while true {
-                let refreshed = await self?.refreshMeetingArtifacts(transcriptionID: transcriptionID, requiresSessionFolder: true) ?? false
+                let refreshed =
+                    await self?.refreshMeetingArtifacts(transcriptionID: transcriptionID, requiresSessionFolder: true)
+                    ?? false
                 if !refreshed { break }
 
                 let completedTargetGeneration = materializedGeneration
@@ -3072,7 +3210,9 @@ public final class TranscriptionViewModel {
                 }
                 return true
             } catch {
-                logger.warning("Failed to refresh meeting artifact for transcription \(transcriptionID.uuidString, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                logger.warning(
+                    "Failed to refresh meeting artifact for transcription \(transcriptionID.uuidString, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                )
                 return false
             }
         }

@@ -66,6 +66,27 @@ final class SpeakerProfileRepositoryTests: XCTestCase {
         XCTAssertEqual(stored.identity, identity)
     }
 
+    func testFieldUpdatesPreserveRenameAndMatchingMetadata() throws {
+        let profile = try enrolledProfile(named: "Sarah")
+        let evaluatedAt = Date(timeIntervalSince1970: 1_757_000_000)
+        _ = try repo.updateProfile(id: profile.id) { $0.displayName = "Marie" }
+        _ = try repo.updateProfile(id: profile.id) {
+            $0.lastEvaluatedAt = evaluatedAt
+            $0.lastEvaluatedDistance = 0.12
+        }
+        _ = try repo.updateProfile(id: profile.id) { $0.lastMatchedAt = evaluatedAt }
+        let stored = try XCTUnwrap(try repo.profile(id: profile.id))
+        XCTAssertEqual(stored.displayName, "Marie")
+        XCTAssertEqual(stored.lastEvaluatedDistance, 0.12)
+        XCTAssertEqual(stored.lastMatchedAt, evaluatedAt)
+        XCTAssertEqual(try repo.profile(named: "Marie")?.id, profile.id)
+        XCTAssertNil(try repo.profile(named: "Sarah"))
+        _ = try repo.deleteProfile(id: profile.id)
+        let deleted = try repo.updateProfile(id: profile.id) { $0.displayName = "Resurrected" }
+        XCTAssertNil(deleted)
+        XCTAssertTrue(try repo.profiles().isEmpty)
+    }
+
     // MARK: Constraints
 
     func testRejectsVectorOfTheWrongLength() throws {

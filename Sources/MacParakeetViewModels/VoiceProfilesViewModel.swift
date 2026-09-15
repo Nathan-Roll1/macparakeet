@@ -192,7 +192,7 @@ public final class VoiceProfilesViewModel {
         if let distance = voice.lastEvaluatedDistance {
             return String(
                 format:
-                    "Never recognized. Closest match so far was %.2f, and %.2f or lower is needed.",
+                    "Never recognized. Latest comparison was %.2f; the distance limit is %.2f. Ambiguous matches are also withheld.",
                 distance,
                 voice.acceptanceThreshold
             )
