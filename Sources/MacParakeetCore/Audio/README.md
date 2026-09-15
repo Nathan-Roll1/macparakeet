@@ -18,6 +18,9 @@ owned by `AppEnvironment`.
 **Shared mic engine (the core of this folder)**
 - `SharedMicrophoneStream.swift` — fan-out, VPIO state machine,
   subscriber tokens, `Diagnostics` snapshot. ADR-015 + ADR-016.
+  Active subscriptions also observe time waiting to enter the engine queue,
+  before native lifecycle diagnostics begin. Slow upstream waits carry
+  `scope=shared_subscription_queue`; their success means queue entry only.
 - `MicrophoneEnginePlatform.swift` — `AVAudioEngine` wrapper. Device
   fallback chain, VPIO toggle, tap install, engine recreation on
   every teardown (so coreaudiod releases the VPAU aggregate
@@ -59,7 +62,8 @@ owned by `AppEnvironment`.
   when `.vpioPreferred` cannot engage. Has its own silent-buffer watchdog
   with a stall observer wired up to the meeting flow. Stop is an ordered async
   boundary: it retires callbacks and awaits shared-stream unsubscription before
-  a replacement meeting may start.
+  the same microphone capture object may be reused. The meeting service can
+  settle independently while retaining ownership of that pending cleanup.
 
 **Meeting-side audio (independent of the mic stream)**
 - `SystemAudioStream.swift` — meeting system audio via
@@ -70,8 +74,14 @@ owned by `AppEnvironment`.
   watchdog. Unexpected `SCStreamDelegate` termination is a typed recoverable
   source loss; ScreenCaptureKit's explicit `userStopped` code remains terminal.
 - `MeetingAudioCaptureService.swift` — composes mic + system audio
-  for meeting recording. It owns partial startup explicitly, so Stop tears
-  down whichever sources have started even before startup reports success.
+  for meeting recording. Selected sources start independently; the first usable
+  buffer (including valid silence) establishes capture. A 12-second initial
+  source-readiness window exposes missing sources without cancelling native
+  microphone calls. Stop retires the meeting's callbacks and start waiter,
+  finalizes available system capture, and retains a microphone lease until
+  both its start and stop settle. New system-only meetings bypass an occupied
+  mic lease; combined meetings report that mic unavailable. Never create a
+  second microphone object to bypass a stuck shared-engine operation.
   Each settled Stop creates a new event-stream session, and system-audio
   callback generations retire before teardown is awaited or a terminal event
   is published. A source failure racing the initial async start is retained
