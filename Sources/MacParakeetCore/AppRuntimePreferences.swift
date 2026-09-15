@@ -14,6 +14,7 @@ public protocol AppRuntimePreferencesProtocol: Sendable {
     var youtubeAudioQuality: YouTubeAudioQuality { get }
     var shouldDiarize: Bool { get }
     var shouldDiarizeMeetings: Bool { get }
+    var meetingLiveTranscriptionEnabled: Bool { get }
     var aiFormatterEnabled: Bool { get }
     var aiFormatterEnabledForDictation: Bool { get }
     var aiFormatterEnabledForTranscriptions: Bool { get }
@@ -515,6 +516,12 @@ public final class UserDefaultsAppRuntimePreferences: AppRuntimePreferencesProto
     public static let defaultSpeakerDiarizationEnabled = true
     public static let meetingSpeakerDiarizationKey = "meetingSpeakerDiarization"
     public static let defaultMeetingSpeakerDiarizationEnabled = true
+    /// Runs the live STT pass during meeting recording (default on). Off
+    /// means only audio is captured while recording; the final transcript
+    /// still runs a full post-stop STT pass over the saved audio regardless
+    /// of this setting.
+    public static let meetingLiveTranscriptionEnabledKey = "meetingLiveTranscriptionEnabled"
+    public static let defaultMeetingLiveTranscriptionEnabled = true
     /// Off unless the user asks: a voiceprint is biometric data.
     public static let rememberSpeakersKey = "rememberSpeakers"
     public static let defaultRememberSpeakersEnabled = false
@@ -586,6 +593,11 @@ public final class UserDefaultsAppRuntimePreferences: AppRuntimePreferencesProto
 
     public static func meetingSpeakerDiarizationEnabled(defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: meetingSpeakerDiarizationKey) as? Bool ?? defaultMeetingSpeakerDiarizationEnabled
+    }
+
+    public static func meetingLiveTranscriptionEnabled(defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: meetingLiveTranscriptionEnabledKey) as? Bool
+            ?? defaultMeetingLiveTranscriptionEnabled
     }
 
     /// Requires speaker detection, since without clusters there is nothing to
@@ -675,6 +687,10 @@ public final class UserDefaultsAppRuntimePreferences: AppRuntimePreferencesProto
 
     public var shouldDiarizeMeetings: Bool {
         Self.meetingSpeakerDiarizationEnabled(defaults: defaults)
+    }
+
+    public var meetingLiveTranscriptionEnabled: Bool {
+        Self.meetingLiveTranscriptionEnabled(defaults: defaults)
     }
 
     public var aiFormatterEnabled: Bool {

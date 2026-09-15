@@ -23,7 +23,10 @@ serves dictation and meeting preview. **Final Transcription** serves durable
 post-meeting STT and file/media work; it inherits Live Speech unless the user
 enables an Advanced override. A meeting captures an immutable
 `MeetingSpeechPlan` at start: preview is the leased live selection when the
-current renderer supports it, while final is the captured authoritative route.
+current renderer supports it and the user has enabled live meeting
+transcription, while final is the captured authoritative route. The live
+transcription preference applies to the next recording; disabling it skips
+meeting preview warm-up and inference without changing capture or final STT.
 
 ## What's here
 

@@ -1926,7 +1926,7 @@ final class TranscriptionServiceTests: XCTestCase {
         XCTAssertEqual(fetched.titleOverride, "Partnership discussion")
     }
 
-    func testFinalizeMeetingTranscriptionUpdatesExistingStubWithoutDuplicatingLibraryRow() async throws {
+    func testFinalizeMeetingWithoutLivePreviewUpdatesExistingStubWithFreshTranscript() async throws {
         let recording = try makeOneSourceMeetingRecording(displayName: "Queued Meeting")
         defer { try? FileManager.default.removeItem(at: recording.folderURL) }
         await mockSTT.configure(result: STTResult(
@@ -1938,7 +1938,9 @@ final class TranscriptionServiceTests: XCTestCase {
             ]
         ))
 
+        XCTAssertNil(recording.previewSpeechEngine)
         let stub = try await service.prepareMeetingTranscription(recording: recording)
+        XCTAssertNil(stub.rawTranscript)
         let result = try await service.finalizeMeetingTranscription(
             recording: recording,
             updating: stub.id,

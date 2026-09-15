@@ -549,6 +549,7 @@ public enum TelemetrySettingName: String, Sendable, Equatable {
     case youtubeAudioQuality = "youtube_audio_quality"
     case speakerDiarization = "speaker_diarization"
     case meetingSpeakerDiarization = "meeting_speaker_diarization"
+    case meetingLiveTranscriptionEnabled = "meeting_live_transcription_enabled"
     /// Whether the preference is on. Never a profile, a name, or a distance.
     case rememberSpeakers = "remember_speakers"
     case parakeetModelVariant = "parakeet_model_variant"
@@ -585,6 +586,7 @@ public enum TelemetrySettingName: String, Sendable, Equatable {
     case calendarReminderMinutes = "calendar_reminder_minutes"
     case calendarTriggerFilter = "calendar_trigger_filter"
     case calendarIncludedCalendars = "calendar_included_calendars"
+    case calendarEventSkip = "calendar_event_skip"
 }
 
 /// Free-form error details, descriptions and crash reasons are accepted for

@@ -15,6 +15,7 @@
 > Amended: 2026-06-27 (Cohere Transcribe can be selected for final meeting transcription through the captured engine lease; it is batch-only, so meeting live-preview chunks stay disabled and finalized Cohere transcripts are plain text without word timestamps/speaker labels)
 > Amended: 2026-07-15 (meeting speech routing is captured as an immutable live-preview/final plan: preview follows the leased Live Speech engine when supported, while authoritative finalization and recovery use the separately captured Final Transcription route)
 > Amended: 2026-07-15 (bound ScreenCaptureKit startup/teardown waits and make Stop during partial meeting startup immediately own durable settlement)
+> Amended: 2026-09-11 ("Live transcription during recording" setting: a user-facing preference gate on top of the captured `MeetingSpeechPlan`, letting the user turn off the live STT pass to save CPU/GPU while recording; the post-stop final pass is unaffected)
 
 ## Context
 
@@ -166,10 +167,21 @@ The meeting service first acquires the current Live Speech scheduler lease,
 unconditionally, and then captures an immutable `MeetingSpeechPlan`:
 
 - `preview` is the lease selection when its capabilities provide the word
-  timings required by the current live renderer; otherwise it is absent. No
-  unrelated fallback engine is selected.
+  timings required by the current live renderer *and* the user has not
+  turned off the "Live transcription during recording" setting
+  (`meetingLiveTranscriptionEnabled`, default on); otherwise it is absent. No
+  unrelated fallback engine is selected. This setting is a preference gate
+  layered on top of engine capability, not a capability itself — an engine
+  that can preview is simply not asked to when the user has opted out, to
+  save CPU/GPU during the meeting.
 - `final` is the resolved Final Transcription selection, which follows Live
   Speech unless the user enabled the Advanced override.
+
+The preference is read once at recording start. Changing it during a meeting
+affects the next recording; Settings states this explicitly. When preview is
+absent, the recording panel says "Live transcription is off" and confirms
+that audio will be transcribed after stop, regardless of whether the user
+disabled preview or the selected engine does not support it.
 
 Live chunks and warm-up use only `preview`. The authoritative post-stop pass
 re-reads durable source audio and uses only `final`; preview text is never

@@ -91,6 +91,14 @@ by checking exit code first: `2` = misuse, `1` = runtime, `0` = success.
 
 ### Added
 
+- `calendar upcoming --json` annotates each event with additive `skipped` and
+  `skipScope` (`occurrence` | `event` | `null`). Recurrence stays internal.
+  Membership, `--filter`, and the rest of the event object are unchanged.
+
+## [4.1.0] — 2026-09-14
+
+### Added
+
 - `meetings show --json` and `meetings transcript --format json` expose
   additive `textCorrectionsApplied` and `transcriptTextAlignment` fields.
   Effective transcript segments may include `isTextEdited: true`; automatic
