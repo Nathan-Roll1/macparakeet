@@ -17,6 +17,11 @@
 
 ## How to read a status
 
+**New planning record (2026-09-14):** [Audio Speaker Timeline](../docs/plans/2026-09-14-2147-feat-audio-speaker-timeline-plan.md)
+scopes #836's timeline-first milestone for files/URLs and finalized meetings.
+The independent audio-evidence contract and ADR-010 direction are documented; app/CLI implementation and real-audio qualification remain pending.
+
+
 | Status | Meaning |
 |--------|---------|
 | **TODO** | Not started. Drift-check before executing. |
@@ -34,6 +39,7 @@
 
 | Plan | Title | Status | Priority | What's left |
 |------|-------|--------|----------|-------------|
+| [2026-09-14-issue-609-calendar-event-skip](active/2026-09-14-issue-609-calendar-event-skip.md) | Per-event calendar skip (#609) | **IMPLEMENTED** | P2 | Built on `feat/issue-609-calendar-event-skip`: occurrence/event mute, Upcoming + toast, CLI annotations, owning-countdown re-eval. Independent review complete. |
 | [2026-09-13-timed-transcript-editing](active/2026-09-13-timed-transcript-editing.md) | Timed transcript text editing and line merge (#893) | **IMPLEMENTED ON FEATURE BRANCH** | P1 | App, core, consumers, contracts, CLI, focused suites, independent review, and the full test gate are complete. Merge review and hands-on testing with real saved transcripts remain. |
 | [2026-09-11-shareable-transcripts](../docs/plans/2026-09-11-1942-feat-shareable-transcripts-plan.md) | Encrypted shareable transcript snapshots | **TODO — IMPLEMENTATION PLAN READY** | P1 | Coordinated app and website work is fully specified: encrypted text-only snapshots, anonymous ownership, recipient viewer, lifecycle/deletion, privacy gates, and shared fixtures. Implement behind the default-off release flag; deployment and public enablement remain separate evidence-based gates. |
 | [2026-09-11-issue-895-meeting-split](../docs/plans/2026-09-11-issue-895-meeting-split-plan.md) | Split accidentally combined saved meetings (#895) | **TODO — IMPLEMENTATION PLAN READY** | P2 | Research, synthetic audio evidence and a five-unit handoff are documented; no app implementation. Explore and choose native UI/UX first or alongside the kernel: the HTML is reference only. Data-integrity, multi-track, recovery and CLI gates remain implementation work. |

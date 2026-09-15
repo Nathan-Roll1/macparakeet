@@ -243,6 +243,13 @@ public actor MeetingRecordingService: MeetingRecordingServiceProtocol {
     /// default gives tests deterministic fixed chunking. See
     /// `plans/completed/2026-05-meeting-vad-guided-live-chunking.md`.
     private let isVadLiveChunkingEnabled: @Sendable () -> Bool
+    /// User preference gate on top of engine capability: even when the live
+    /// engine can render meeting preview, the user can turn off the live STT
+    /// pass to save CPU/GPU and just record. Read once per session (see
+    /// `startRecording`), not polled continuously, matching
+    /// `isVadLiveChunkingEnabled`. Final transcription is unaffected — it
+    /// always re-reads the saved audio after the meeting ends.
+    private let isLiveTranscriptionEnabled: @Sendable () -> Bool
     private let requestedMicProcessingMode: MeetingMicProcessingMode
     private let liveChunkTranscriber: LiveChunkTranscriber
     private let lockFileStore: MeetingRecordingLockFileStoring
@@ -354,6 +361,7 @@ public actor MeetingRecordingService: MeetingRecordingServiceProtocol {
         fileManager: FileManager = .default,
         finalSpeechEngineSelection: @escaping @Sendable () -> SpeechEngineSelection? = { nil },
         isVadLiveChunkingEnabled: @escaping @Sendable () -> Bool = { false },
+        isLiveTranscriptionEnabled: @escaping @Sendable () -> Bool = { true },
         echoSuppressionConfiguration: MeetingEchoSuppressionConfiguration = .fromEnvironment()
     ) {
         self.init(
@@ -365,6 +373,7 @@ public actor MeetingRecordingService: MeetingRecordingServiceProtocol {
             fileManager: fileManager,
             finalSpeechEngineSelection: finalSpeechEngineSelection,
             isVadLiveChunkingEnabled: isVadLiveChunkingEnabled,
+            isLiveTranscriptionEnabled: isLiveTranscriptionEnabled,
             micConditionerFactory: {
                 MeetingEchoSuppressionFactory.makeConditioner(
                     configuration: echoSuppressionConfiguration
@@ -382,6 +391,7 @@ public actor MeetingRecordingService: MeetingRecordingServiceProtocol {
         fileManager: FileManager = .default,
         finalSpeechEngineSelection: @escaping @Sendable () -> SpeechEngineSelection? = { nil },
         isVadLiveChunkingEnabled: @escaping @Sendable () -> Bool = { false },
+        isLiveTranscriptionEnabled: @escaping @Sendable () -> Bool = { true },
         micConditionerFactory: @escaping @Sendable () -> any MicConditioning,
         cleanedMicConditionerFactory: (@Sendable () -> any MicConditioning)? = nil,
         wallClockNow: @escaping @Sendable () -> Date = { Date() },
@@ -414,6 +424,7 @@ public actor MeetingRecordingService: MeetingRecordingServiceProtocol {
         self.fileManager = fileManager
         self.finalSpeechEngineSelection = finalSpeechEngineSelection
         self.isVadLiveChunkingEnabled = isVadLiveChunkingEnabled
+        self.isLiveTranscriptionEnabled = isLiveTranscriptionEnabled
         self.micConditionerFactory = micConditionerFactory
         self.cleanedMicConditionerFactory = cleanedMicConditionerFactory ?? micConditionerFactory
         self.wallClockNow = wallClockNow
@@ -643,7 +654,8 @@ public actor MeetingRecordingService: MeetingRecordingServiceProtocol {
         let speechPlan = MeetingSpeechPlan.resolve(
             live: liveSpeechEngine,
             final: finalSpeechEngine,
-            liveCapabilities: liveSpeechEngineCapabilities
+            liveCapabilities: liveSpeechEngineCapabilities,
+            liveTranscriptionEnabled: isLiveTranscriptionEnabled()
         )
         let session = Session(
             id: sessionID,

@@ -77,8 +77,9 @@ The v1 folder can contain these stable filenames:
 - `meeting-recording-metadata.json`: optional source-alignment and speech-route
   sidecar. `speechEngine` is the authoritative final-transcription selection;
   optional additive `previewSpeechEngine` records the live-preview route when
-  one was supported. Missing preview provenance remains valid for legacy
-  folders. It may also include additive `echoSuppression` provenance with
+  live preview was enabled and supported. Missing preview provenance is valid
+  when preview was disabled or unsupported, and for legacy folders. It may
+  also include additive `echoSuppression` provenance with
   `reasonCode` plus optional `modelVersion`, `renderDurationMs`,
   `delayEstimateMs`, and `probeBestCorrelation` fields so shared artifact
   folders can explain cleaned-vs-raw microphone routing without app logs. It

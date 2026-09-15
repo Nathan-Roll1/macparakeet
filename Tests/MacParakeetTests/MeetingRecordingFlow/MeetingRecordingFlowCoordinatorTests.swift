@@ -961,7 +961,7 @@ final class MeetingRecordingFlowCoordinatorTests: XCTestCase {
         XCTAssertEqual(start.startContext?.sourceMode, .systemOnly)
     }
 
-    func testCohereRecordingShowsLivePreviewUnsupportedCopy() async throws {
+    func testCohereRecordingShowsLivePreviewOffCopy() async throws {
         let liveSelection = SpeechEngineSelection(engine: .cohere, language: "ja")
         let coordinator = MeetingRecordingFlowCoordinator(
             meetingRecordingService: MeetingRecordingServiceSpy(
@@ -990,15 +990,15 @@ final class MeetingRecordingFlowCoordinatorTests: XCTestCase {
         await coordinator.testHook_waitForActionTask()
         let startedAt = ContinuousClock.now
         while startedAt.duration(to: .now) <= .seconds(1) {
-            if coordinator.testHook_panelViewModel?.liveTranscriptStatus == .previewUnsupported(engine: .cohere) {
+            if coordinator.testHook_panelViewModel?.liveTranscriptStatus == .previewOff {
                 break
             }
             try await Task.sleep(for: .milliseconds(20))
         }
 
         let panelViewModel = try XCTUnwrap(coordinator.testHook_panelViewModel)
-        XCTAssertEqual(panelViewModel.liveTranscriptStatus, .previewUnsupported(engine: .cohere))
-        XCTAssertEqual(panelViewModel.transcriptEmptyStateTitle, "Live preview off for Cohere")
+        XCTAssertEqual(panelViewModel.liveTranscriptStatus, .previewOff)
+        XCTAssertEqual(panelViewModel.transcriptEmptyStateTitle, "Live transcription is off")
         XCTAssertEqual(
             panelViewModel.transcriptEmptyStateDetail,
             "Audio will be transcribed after you stop recording."
@@ -1051,54 +1051,56 @@ final class MeetingRecordingFlowCoordinatorTests: XCTestCase {
         XCTAssertEqual(backgroundWarmUps, 0)
     }
 
-    func testMeetingStartupDoesNotWarmUnsupportedLiveEngineAndAttributesFinalRoute() async throws {
-        let stt = MockSTTClient()
-        await stt.setReady(false)
-        let pinnedSelection = SpeechEngineSelection(engine: .cohere, language: "fr")
-        let finalSelection = SpeechEngineSelection(engine: .parakeet)
-        let recordingService = MeetingRecordingServiceSpy(
-            output: makeRecordingOutput(),
-            activeSpeechEngineSelection: pinnedSelection,
-            activeMeetingSpeechPlan: MeetingSpeechPlan(preview: nil, final: finalSelection)
-        )
-        let coordinator = MeetingRecordingFlowCoordinator(
-            meetingRecordingService: recordingService,
-            transcriptionService: MockTranscriptionService(),
-            permissionService: MockPermissionService(),
-            transcriptionRepo: MockTranscriptionRepository(),
-            conversationRepo: MockChatConversationRepository(),
-            quickPromptRepo: NoOpQuickPromptRepository(),
-            configStore: NoOpLLMConfigStore(),
-            sttManager: stt,
-            speechEngineSelectionProvider: { finalSelection },
-            llmService: nil,
-            pillViewModel: MeetingRecordingPillViewModel(),
-            meetingRecordingSettlement: makeSettlement(),
-            onMenuBarIconUpdate: { _ in },
-            onTranscriptionReady: { _ in }
-        )
+    func testMeetingStartupDoesNotWarmAnyLiveEngineWhenPreviewIsOff() async throws {
+        for engine in [SpeechEnginePreference.cohere, .parakeet] {
+            let stt = MockSTTClient()
+            await stt.setReady(false)
+            let pinnedSelection = SpeechEngineSelection(engine: engine)
+            let finalSelection = SpeechEngineSelection(engine: .whisper, language: "ko")
+            let recordingService = MeetingRecordingServiceSpy(
+                output: makeRecordingOutput(),
+                activeSpeechEngineSelection: pinnedSelection,
+                activeMeetingSpeechPlan: MeetingSpeechPlan(preview: nil, final: finalSelection)
+            )
+            let coordinator = MeetingRecordingFlowCoordinator(
+                meetingRecordingService: recordingService,
+                transcriptionService: MockTranscriptionService(),
+                permissionService: MockPermissionService(),
+                transcriptionRepo: MockTranscriptionRepository(),
+                conversationRepo: MockChatConversationRepository(),
+                quickPromptRepo: NoOpQuickPromptRepository(),
+                configStore: NoOpLLMConfigStore(),
+                sttManager: stt,
+                speechEngineSelectionProvider: { finalSelection },
+                llmService: nil,
+                pillViewModel: MeetingRecordingPillViewModel(),
+                meetingRecordingSettlement: makeSettlement(),
+                onMenuBarIconUpdate: { _ in },
+                onTranscriptionReady: { _ in }
+            )
 
-        XCTAssertNotNil(coordinator.startRecording(trigger: .manual))
-        await coordinator.testHook_waitForActionTask()
+            XCTAssertNotNil(coordinator.startRecording(trigger: .manual))
+            await coordinator.testHook_waitForActionTask()
 
-        let startedAt = ContinuousClock.now
-        while startedAt.duration(to: .now) <= .seconds(1) {
-            if coordinator.testHook_panelViewModel?.liveTranscriptStatus == .previewUnsupported(engine: .cohere) {
-                break
+            let startedAt = ContinuousClock.now
+            while startedAt.duration(to: .now) <= .seconds(1) {
+                if coordinator.testHook_panelViewModel?.liveTranscriptStatus == .previewOff {
+                    break
+                }
+                try await Task.sleep(for: .milliseconds(20))
             }
-            try await Task.sleep(for: .milliseconds(20))
-        }
 
-        let routedWarmUps = await stt.routedWarmUpSelectionsSnapshot()
-        XCTAssertEqual(routedWarmUps, [])
-        XCTAssertEqual(
-            coordinator.testHook_panelViewModel?.liveTranscriptStatus,
-            .previewUnsupported(engine: .cohere)
-        )
-        XCTAssertEqual(
-            coordinator.testHook_panelViewModel?.speechRouteAttribution,
-            "Live preview: Off (Cohere (fr)) · Final transcript: Parakeet after recording ends"
-        )
+            let routedWarmUps = await stt.routedWarmUpSelectionsSnapshot()
+            XCTAssertEqual(routedWarmUps, [])
+            XCTAssertEqual(
+                coordinator.testHook_panelViewModel?.liveTranscriptStatus,
+                .previewOff
+            )
+            XCTAssertEqual(
+                coordinator.testHook_panelViewModel?.speechRouteAttribution,
+                "Final transcript: Whisper (ko) after recording ends"
+            )
+        }
     }
 
     func testMeetingReadinessUsesEnginePinnedByStartedSession() async throws {
