@@ -253,13 +253,18 @@ final class AppHotkeyCoordinator {
 
         let activeRecordingMode = dictationRecordingModeProvider()
         let managers = plan.specs.compactMap { spec in
-            startDictationHotkey(
+            let isPolish = spec.aiFormatterEnabled == true
+            let suppressPolishWhileRecording = isPolish && activeRecordingMode != nil
+            return startDictationHotkey(
                 trigger: spec.trigger,
                 gestureMode: spec.gestureMode,
                 startupDebounceMs: spec.startupDebounceMs,
                 holdToTalkStopTailMs: spec.holdToTalkStopTailMs,
-                resumeMode: Self.resumeMode(activeRecordingMode, for: spec.gestureMode),
-                suppressUntilReset: Self.shouldSuppressPeer(activeRecordingMode, for: spec.gestureMode),
+                resumeMode: suppressPolishWhileRecording
+                    ? nil
+                    : Self.resumeMode(activeRecordingMode, for: spec.gestureMode),
+                suppressUntilReset: suppressPolishWhileRecording
+                    || Self.shouldSuppressPeer(activeRecordingMode, for: spec.gestureMode),
                 aiFormatterEnabled: spec.aiFormatterEnabled
             )
         }

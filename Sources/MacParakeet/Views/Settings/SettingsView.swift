@@ -1094,7 +1094,7 @@ struct SettingsView: View {
 
                 transcriptionHotkeyRow(
                     title: "AI polish this dictation",
-                    detail: "Optional extra shortcut. Starts dictation and always runs AI cleanup for that utterance, even when Use for dictation is off.",
+                    detail: "Optional extra shortcut. Tap to start or stop like hands-free (no hold-to-talk). Requires AI Formatter to be enabled, then always runs cleanup for that utterance even when Use for dictation is off.",
                     surface: .dictationAIPolish,
                     trigger: $viewModel.dictationAIPolishHotkeyTrigger
                 )

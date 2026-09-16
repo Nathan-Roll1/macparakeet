@@ -282,6 +282,27 @@ final class HotkeyConflictPolicyTests: XCTestCase {
         XCTAssertEqual(result, .blocked("Conflicts with hands-free mode (⌃ Control)."))
     }
 
+    func testSettingsPolicyBlocksAIPolishChordSharingBareModifierHandsFree() {
+        let commandP = HotkeyTrigger.chord(modifiers: ["command"], keyCode: 35)
+
+        XCTAssertEqual(
+            HotkeyConflictPolicy.settingsValidation(
+                candidate: commandP,
+                surface: .dictationAIPolish,
+                snapshot: snapshot(handsFree: .command)
+            ),
+            .blocked("Conflicts with hands-free mode (⌘ Command).")
+        )
+        XCTAssertEqual(
+            HotkeyConflictPolicy.settingsValidation(
+                candidate: .command,
+                surface: .handsFreeDictation,
+                snapshot: snapshot(dictationAIPolish: commandP)
+            ),
+            .blocked("Conflicts with AI polish this dictation (\(commandP.formattedLabel)).")
+        )
+    }
+
     func testSettingsPolicyExistingDictationPeerMessagePreservesBlockedVsDisabled() {
         let rightCommand = HotkeyTrigger(
             kind: .modifier,

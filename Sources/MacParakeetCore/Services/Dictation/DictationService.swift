@@ -477,6 +477,7 @@ public actor DictationService: DictationServiceProtocol {
 
         let currentSession = activeSessionID
         let formatterContext = currentAIFormatterFinishContext ?? currentAIFormatterStartContext
+        let sessionFormatterEnabled = currentSessionAIFormatterEnabled
         _state = .processing
         logger.debug("dictation_stop_processing_started session=\(currentSession, privacy: .public)")
 
@@ -499,7 +500,8 @@ public actor DictationService: DictationServiceProtocol {
                 try await processCapturedAudio(
                     audioURL: audioURL,
                     capturedDurationMs: capturedDurationMs,
-                    formatterContext: formatterContext
+                    formatterContext: formatterContext,
+                    aiFormatterEnabled: sessionFormatterEnabled
                 )
             }
             // Guard against reentrancy: a new session may have started during
@@ -727,6 +729,7 @@ public actor DictationService: DictationServiceProtocol {
 
         let currentSession = activeSessionID
         let formatterContext = currentAIFormatterFinishContext ?? currentAIFormatterStartContext
+        let sessionFormatterEnabled = currentSessionAIFormatterEnabled
         let captureHealth = await audioProcessor.lastCaptureHealth
         _state = .processing
         do {
@@ -735,7 +738,8 @@ public actor DictationService: DictationServiceProtocol {
                 try await processCapturedAudio(
                     audioURL: audioURL,
                     capturedDurationMs: capturedDurationMs,
-                    formatterContext: formatterContext
+                    formatterContext: formatterContext,
+                    aiFormatterEnabled: sessionFormatterEnabled
                 )
             }
             let device = await audioProcessor.recordingDeviceInfo
@@ -1289,7 +1293,8 @@ public actor DictationService: DictationServiceProtocol {
     private func processCapturedAudio(
         audioURL: URL,
         capturedDurationMs: Int?,
-        formatterContext: AppPromptContext?
+        formatterContext: AppPromptContext?,
+        aiFormatterEnabled: Bool
     ) async throws -> DictationResult {
         // Track whether the audio file is consumed (moved or explicitly deleted).
         // If an error occurs before that point, clean up the temp file.
@@ -1375,10 +1380,9 @@ public actor DictationService: DictationServiceProtocol {
         let baseText = cleanTranscript ?? result.text
         let saveHistory = shouldSaveDictationHistory?() ?? true
         let dictationID = UUID()
-        let sessionFormatterEnabled = currentSessionAIFormatterEnabled
         let transcriptFormatter = TranscriptFormatter(
             llmService: llmService,
-            shouldUseAIFormatter: { sessionFormatterEnabled },
+            shouldUseAIFormatter: { aiFormatterEnabled },
             logger: logger
         )
         let promptResolver = aiFormatterPromptResolver

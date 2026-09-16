@@ -954,6 +954,7 @@ final class DictationFlowCoordinator {
         sessionID: Int
     ) {
         let trigger = currentTrigger
+        let aiFormatterOverride = sessionAIFormatterEnabled
         recordingTask = Task { @MainActor in
             do {
                 try Task.checkCancellation()
@@ -984,7 +985,7 @@ final class DictationFlowCoordinator {
                         trigger: trigger,
                         mode: self.telemetryMode(for: mode)
                     ),
-                    aiFormatterEnabled: self.sessionAIFormatterEnabled
+                    aiFormatterEnabled: aiFormatterOverride
                 )
                 await self.serviceSession.updateAIFormatterAppContext(
                     startContext,
