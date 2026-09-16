@@ -1207,7 +1207,7 @@ struct SettingsView: View {
 
                 settingsToggleRow(
                     title: "Play sounds when dictation starts and stops",
-                    detail: "Short cues when capture is live and when it ends, so you know when to speak. Off by default.",
+                    detail: "Short cues when capture is live and when it ends, so you know when to speak. Off by default. On speakers, the start cue can reach the mic — use headphones if you don't want it in the transcript.",
                     isOn: $viewModel.playDictationCaptureSounds
                 )
 

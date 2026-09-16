@@ -329,8 +329,9 @@ final class DictationFlowCoordinator {
         SoundManager.shared.play(sound)
     }
 
-    // NOTE: no `deinit` cleanup for `formatterDidStartObserver` or
-    // `previewTextSizeObserver`. This coordinator is effectively a singleton
+    // NOTE: no `deinit` cleanup for `formatterDidStartObserver`,
+    // `previewTextSizeObserver`, or `dictationCaptureDidStopObserver`. This
+    // coordinator is effectively a singleton
     // for the app's lifetime, both observer blocks capture `[weak self]`, and
     // Swift 6 forbids touching `@MainActor`-isolated stored properties from a
     // nonisolated deinit. NotificationCenter cleans up automatically when the
@@ -1018,7 +1019,9 @@ final class DictationFlowCoordinator {
                 }
                 guard !Task.isCancelled else { return }
                 self.sendEvent(.recordingStarted(generation: generation))
-                if case .recording = self.stateMachine.state {
+                if case .recording = self.stateMachine.state,
+                    self.stateMachine.generation == generation
+                {
                     self.playDictationCaptureSoundIfEnabled(.recordStart)
                 }
                 await self.runRecordingLevelLoop()

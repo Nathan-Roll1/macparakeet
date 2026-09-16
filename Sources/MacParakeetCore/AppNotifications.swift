@@ -50,6 +50,8 @@ public extension Notification.Name {
     /// preview live, so a size change is visible mid-dictation.
     static let macParakeetDictationPreviewTextSizeDidChange = Notification.Name("macparakeet.dictationPreviewTextSizeDidChange")
     /// Posted from `DictationService.stopRecording` after the microphone has
-    /// closed and before STT runs. Not posted on cancel/discard.
+    /// closed and before STT runs, only if this session is still the active
+    /// one. Not posted on cancel/discard, an unusable capture, or a stop that
+    /// was superseded by a newer session.
     static let macParakeetDictationCaptureDidStop = Notification.Name("macparakeet.dictationCaptureDidStop")
 }

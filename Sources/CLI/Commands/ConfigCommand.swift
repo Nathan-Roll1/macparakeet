@@ -45,7 +45,8 @@ struct ConfigCommand: ParsableCommand {
           auto-meeting-titles       on|off                          default: on
           voice-return-enabled      on|off                          default: off
           voice-return-triggers     phrase[|phrase...]              default: press return
-          play-dictation-capture-sounds on|off                      default: off
+          play-dictation-capture-sounds
+                                    on|off                          default: off
           save-transcription-audio  on|off                          default: on
           meeting-audio-retention   keep-forever|                   default: keep-forever
                                     delete-after-<1-365>-days|
