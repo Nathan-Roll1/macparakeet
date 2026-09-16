@@ -483,6 +483,7 @@ public actor DictationService: DictationServiceProtocol {
             let audioURL = try await audioProcessor.stopCapture()
             let captureHealth = await audioProcessor.lastCaptureHealth
             try rejectUnavailableCaptureIfNeeded(captureHealth, audioURL: audioURL)
+            NotificationCenter.default.post(name: .macParakeetDictationCaptureDidStop, object: nil)
             let device = await audioProcessor.recordingDeviceInfo
             await cancelDisplayPreview(sessionID: currentSession, clearText: false)
             _ = await finishLiveDictationTranscription(sessionID: currentSession)

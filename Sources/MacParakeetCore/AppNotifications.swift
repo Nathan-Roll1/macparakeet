@@ -49,4 +49,7 @@ public extension Notification.Name {
     /// flow coordinator re-reads the preference and updates the on-screen
     /// preview live, so a size change is visible mid-dictation.
     static let macParakeetDictationPreviewTextSizeDidChange = Notification.Name("macparakeet.dictationPreviewTextSizeDidChange")
+    /// Posted from `DictationService.stopRecording` after the microphone has
+    /// closed and before STT runs. Not posted on cancel/discard.
+    static let macParakeetDictationCaptureDidStop = Notification.Name("macparakeet.dictationCaptureDidStop")
 }

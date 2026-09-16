@@ -89,6 +89,12 @@ by checking exit code first: `2` = misuse, `1` = runtime, `0` = success.
 
 ## [Unreleased]
 
+### Added
+
+- `config get|set|list` includes `play-dictation-capture-sounds` (`on`/`off`,
+  default off). When on, dictation plays short cues after capture is live and
+  after the microphone closes. Cancel and failed starts stay silent.
+
 ## [4.2.0] — 2026-09-15
 
 ### Added

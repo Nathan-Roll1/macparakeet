@@ -246,6 +246,7 @@ final class DictationFlowCoordinator {
         self.onPresentEntitlementsAlert = onPresentEntitlementsAlert
         observeFormatterNotifications()
         observePreviewTextSizeNotifications()
+        observeDictationCaptureSoundNotifications()
     }
 
     // MARK: - AI Formatter pill transitions
@@ -307,6 +308,25 @@ final class DictationFlowCoordinator {
                 self.overlayViewModel?.previewTextSize = self.runtimePreferences.dictationPreviewTextSize
             }
         }
+    }
+
+    private var dictationCaptureDidStopObserver: NSObjectProtocol?
+
+    private func observeDictationCaptureSoundNotifications() {
+        dictationCaptureDidStopObserver = NotificationCenter.default.addObserver(
+            forName: .macParakeetDictationCaptureDidStop,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.playDictationCaptureSoundIfEnabled(.recordStop)
+            }
+        }
+    }
+
+    private func playDictationCaptureSoundIfEnabled(_ sound: AppSound) {
+        guard runtimePreferences.playDictationCaptureSounds else { return }
+        SoundManager.shared.play(sound)
     }
 
     // NOTE: no `deinit` cleanup for `formatterDidStartObserver` or
@@ -998,6 +1018,9 @@ final class DictationFlowCoordinator {
                 }
                 guard !Task.isCancelled else { return }
                 self.sendEvent(.recordingStarted(generation: generation))
+                if case .recording = self.stateMachine.state {
+                    self.playDictationCaptureSoundIfEnabled(.recordStart)
+                }
                 await self.runRecordingLevelLoop()
             } catch is CancellationError {
                 await self.mediaPauseCoordinator.resumeAfterDictationCapture()

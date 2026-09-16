@@ -1206,6 +1206,14 @@ struct SettingsView: View {
                 Divider()
 
                 settingsToggleRow(
+                    title: "Play sounds when dictation starts and stops",
+                    detail: "Short cues when capture is live and when it ends, so you know when to speak. Off by default.",
+                    isOn: $viewModel.playDictationCaptureSounds
+                )
+
+                Divider()
+
+                settingsToggleRow(
                     title: "Keep dictation on clipboard",
                     detail: "Leaves the same text MacParakeet pastes on the clipboard, useful when remote desktops need a manual ⌘V.",
                     isOn: $viewModel.keepDictationOnClipboard
