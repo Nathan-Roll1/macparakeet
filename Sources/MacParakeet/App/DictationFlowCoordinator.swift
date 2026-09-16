@@ -624,6 +624,11 @@ final class DictationFlowCoordinator {
                     }
 
                     if clipboardOnly {
+                        if let action {
+                            self.dictationLog.notice(
+                                "dictation_copy_action_skipped gen=\(gen) action=\(action.rawValue, privacy: .public)"
+                            )
+                        }
                         guard transcriptHasText else {
                             self.dictationLog.notice("dictation_copy_skipped gen=\(gen) reason=empty_transcript")
                             guard self.stateMachine.generation == gen else { return }
