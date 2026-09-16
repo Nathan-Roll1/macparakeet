@@ -188,7 +188,10 @@ final class DictationFlowCoordinator {
 
     /// Telemetry trigger for the current dictation flow.
     private var currentTrigger: TelemetryDictationTrigger = .hotkey
-    /// Per-utterance destination: copy instead of paste. Snapshotted at start.
+    /// Per-utterance destination: copy instead of paste. Committed when
+    /// recording actually starts so a rejected start during processing
+    /// cannot flip an in-flight clipboard-only session to paste.
+    private var pendingSessionClipboardOnly = false
     private var sessionClipboardOnly = false
     /// The Dictation object from the most recent transcription, used for paste + DB save.
     private var currentDictation: Dictation?
@@ -352,7 +355,7 @@ final class DictationFlowCoordinator {
         // the hotkey step runs its own no-STT rehearsal. Covers hotkey + pill.
         guard !isStartSuppressed() else { return }
         currentTrigger = trigger
-        sessionClipboardOnly = clipboardOnly
+        pendingSessionClipboardOnly = clipboardOnly
         sendEvent(.startRequested(mode: mode))
     }
 
@@ -986,6 +989,8 @@ final class DictationFlowCoordinator {
         sessionID: Int
     ) {
         let trigger = currentTrigger
+        let clipboardOnly = pendingSessionClipboardOnly
+        sessionClipboardOnly = clipboardOnly
         recordingTask = Task { @MainActor in
             do {
                 try Task.checkCancellation()

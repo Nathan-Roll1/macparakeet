@@ -253,18 +253,13 @@ final class AppHotkeyCoordinator {
 
         let activeRecordingMode = dictationRecordingModeProvider()
         let managers = plan.specs.compactMap { spec in
-            let isClipboard = spec.clipboardOnly
-            let suppressClipboardWhileRecording = isClipboard && activeRecordingMode != nil
-            return startDictationHotkey(
+            startDictationHotkey(
                 trigger: spec.trigger,
                 gestureMode: spec.gestureMode,
                 startupDebounceMs: spec.startupDebounceMs,
                 holdToTalkStopTailMs: spec.holdToTalkStopTailMs,
-                resumeMode: suppressClipboardWhileRecording
-                    ? nil
-                    : Self.resumeMode(activeRecordingMode, for: spec.gestureMode),
-                suppressUntilReset: suppressClipboardWhileRecording
-                    || Self.shouldSuppressPeer(activeRecordingMode, for: spec.gestureMode),
+                resumeMode: Self.resumeMode(activeRecordingMode, for: spec.gestureMode),
+                suppressUntilReset: Self.shouldSuppressPeer(activeRecordingMode, for: spec.gestureMode),
                 clipboardOnly: spec.clipboardOnly
             )
         }

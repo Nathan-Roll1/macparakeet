@@ -304,6 +304,17 @@ final class HotkeyConflictPolicyTests: XCTestCase {
         )
     }
 
+    func testSettingsPolicyBlocksClipboardOnlyConflictWithPushToTalk() {
+        XCTAssertEqual(
+            HotkeyConflictPolicy.settingsValidation(
+                candidate: .option,
+                surface: .dictationClipboard,
+                snapshot: snapshot(pushToTalk: .option)
+            ),
+            .blocked("Conflicts with push to talk (⌥ Option).")
+        )
+    }
+
     func testSettingsPolicyExistingDictationPeerMessagePreservesBlockedVsDisabled() {
         let rightCommand = HotkeyTrigger(
             kind: .modifier,
