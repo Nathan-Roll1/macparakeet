@@ -3146,7 +3146,7 @@ struct TranscriptResultView: View {
                             }
                             .parakeetAction(.primary)
                             .controlSize(.small)
-                            .disabled(!promptResultsViewModel.hasUnsavedPromptResultEdits)
+                            .disabled(!promptResultsViewModel.canSaveEditingPromptResult)
                         } else {
                             Button {
                             startPromptContextAction { context in
