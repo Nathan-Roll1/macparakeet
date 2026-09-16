@@ -160,6 +160,10 @@ struct VocabularyView: View {
 
                 dividerLine
 
+                spokenPunctuationRow
+
+                dividerLine
+
                 pipelineStep(
                     number: 4,
                     title: "Shape text",
@@ -222,6 +226,37 @@ struct VocabularyView: View {
         }
         .padding(.horizontal, DesignSystem.Spacing.lg)
         .padding(.vertical, DesignSystem.Spacing.md)
+    }
+
+    private var spokenPunctuationRow: some View {
+        HStack(spacing: DesignSystem.Spacing.md) {
+            Image(systemName: "questionmark.circle")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(DesignSystem.Colors.accent)
+                .frame(width: 24, height: 24)
+                .background(
+                    Circle()
+                        .fill(DesignSystem.Colors.accent.opacity(0.12))
+                )
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Spoken punctuation")
+                    .font(DesignSystem.Typography.body)
+                Text("“question mark” → ? · say “literal question mark” to keep the words")
+                    .font(DesignSystem.Typography.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Toggle("Spoken punctuation", isOn: $settingsViewModel.spokenPunctuationEnabled)
+                .toggleStyle(.switch)
+                .labelsHidden()
+                .disabled(selectedMode != .clean)
+        }
+        .padding(.horizontal, DesignSystem.Spacing.lg)
+        .padding(.vertical, DesignSystem.Spacing.md)
+        .opacity(selectedMode == .clean ? 1 : 0.55)
     }
 
     // MARK: - Voice Return
