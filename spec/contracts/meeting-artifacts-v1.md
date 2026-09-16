@@ -147,7 +147,9 @@ Each `prompt-results.json` record preserves `userNotesSnapshot` and the
 additive Boolean `includeMeetingNotesSnapshot` (false for legacy/imported rows).
 The per-result Markdown view states whether automatic notes context was enabled.
 It also preserves the remaining prompt-result snapshots,
-including additive optional `inferenceSettingsSnapshot`. When present, this is
+including additive optional `inferenceSettingsSnapshot` and additive nullable
+`outputLanguagePolicySnapshot` (`follow-transcript` or a language code).
+When present, `inferenceSettingsSnapshot` is
 the normalized effective provider/model-filtered inference receipt stored on
 the canonical database row. Its optional `reasoningEffort` is one of `low`,
 `medium`, `high`, or `xhigh` and appears only with enabled thinking; legacy and
