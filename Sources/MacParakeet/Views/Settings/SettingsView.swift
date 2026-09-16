@@ -1160,7 +1160,7 @@ struct SettingsView: View {
 
                 settingsToggleRow(
                     title: "Escape cancels dictation",
-                    detail: "Press Escape to cancel a live dictation. Turn off if other apps need Escape while you dictate or caption. On by default.",
+                    detail: "Press Escape to cancel a live dictation. Turn off if other apps need Escape while you dictate. On by default.",
                     isOn: $viewModel.escapeCancelsDictation
                 )
 

@@ -824,8 +824,10 @@ public final class HotkeyManager {
     }
 
     private func escapeOutputs() -> [HotkeyGestureController.Output] {
-        guard shouldCancelOnEscape() else { return [] }
-        return gestureController.escapePressed()
+        if shouldCancelOnEscape() || gestureController.isIdle {
+            return gestureController.escapePressed()
+        }
+        return []
     }
 
     /// Notify state machine that cancel was triggered via UI (not Esc).
