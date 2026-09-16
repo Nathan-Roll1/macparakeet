@@ -145,7 +145,9 @@ The v1 folder can contain these stable filenames:
 
 Each `prompt-results.json` record preserves `userNotesSnapshot` and the
 additive Boolean `includeMeetingNotesSnapshot` (false for legacy/imported rows).
-The per-result Markdown view states whether automatic notes context was enabled.
+The per-result Markdown view states whether automatic notes context was enabled
+and records additive nullable `outputLanguagePolicySnapshot` (`follow-transcript`
+or a language code; `not recorded` when absent).
 It also preserves the remaining prompt-result snapshots,
 including additive optional `inferenceSettingsSnapshot` and additive nullable
 `outputLanguagePolicySnapshot` (`follow-transcript` or a language code).

@@ -697,6 +697,43 @@ final class PromptResultsViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.errorMessage)
     }
 
+    func testRetryReplaysQueuedLanguagePolicyInsteadOfCurrentSetting() async throws {
+        let transcriptionID = UUID()
+        let prompt = Prompt(name: "Summary", content: "Summarize.", isBuiltIn: false, sortOrder: 0)
+        promptRepo.prompts = [prompt]
+        viewModel.outputLanguagePolicyProvider = { .followTranscript }
+        viewModel.configure(
+            llmService: llm,
+            promptRepo: promptRepo,
+            promptResultRepo: promptResultRepo,
+            transcriptionRepo: transcriptionRepo
+        )
+        viewModel.selectedPrompt = prompt
+        llm.streamTokenBatches = [[], ["Recovered"]]
+
+        let failedID = try XCTUnwrap(
+            viewModel.generatePromptResult(transcript: "transcript", transcriptionId: transcriptionID)
+        )
+        try await waitUntil {
+            if case .failed = self.viewModel.pendingGeneration(id: failedID)?.state { return true }
+            return false
+        }
+
+        viewModel.outputLanguagePolicyProvider = { .english }
+        let retriedID = try XCTUnwrap(viewModel.retryGeneration(id: failedID))
+        XCTAssertNotEqual(retriedID, failedID)
+        try await waitUntil { self.promptResultRepo.saveCalls.count == 1 }
+
+        XCTAssertEqual(
+            llm.lastSummarySystemPrompt,
+            assembledPrompt("Summarize.", policy: .followTranscript)
+        )
+        XCTAssertEqual(
+            promptResultRepo.saveCalls.first?.outputLanguagePolicySnapshot,
+            "follow-transcript"
+        )
+    }
+
     func testRetryGenerationKeepsFailedEntryWhenLLMServiceIsGone() async throws {
         viewModel.configure(
             llmService: llm,

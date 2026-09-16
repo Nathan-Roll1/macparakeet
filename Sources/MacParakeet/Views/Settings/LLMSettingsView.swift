@@ -715,7 +715,7 @@ struct LLMSettingsView: View {
         VStack(alignment: .leading, spacing: DesignSystem.Spacing.sm) {
             HStack(alignment: .top, spacing: DesignSystem.Spacing.md) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Meeting AI language")
+                    Text("AI result language")
                         .font(DesignSystem.Typography.body.weight(.semibold))
                     Text(
                         """
@@ -730,7 +730,7 @@ struct LLMSettingsView: View {
 
                 Spacer(minLength: DesignSystem.Spacing.md)
 
-                Picker("Meeting AI language", selection: $viewModel.meetingAIOutputLanguagePolicy) {
+                Picker("AI result language", selection: $viewModel.meetingAIOutputLanguagePolicy) {
                     ForEach(MeetingAIOutputLanguagePolicy.pickerCases) { policy in
                         Text(policy.displayTitle).tag(policy)
                     }

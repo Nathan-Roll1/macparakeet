@@ -462,10 +462,10 @@ public enum SettingsSearchIndex {
         SettingsSearchEntry(
             id: "ai.meetingLanguage",
             tab: .ai,
-            title: "Meeting AI Language",
+            title: "AI Result Language",
             subtitle: "Language for generated summaries, chapters, and action items.",
             keywords: [
-                "meeting ai language", "summary language", "output language",
+                "ai result language", "meeting ai language", "summary language", "output language",
                 "follow transcript", "english", "polish", "german", "spanish",
                 "french", "portuguese", "japanese", "chinese", "translation",
                 "summaries in", "chapters language", "action items language",

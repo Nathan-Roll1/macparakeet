@@ -1051,7 +1051,7 @@ extension PromptsCommand {
 
                 let trimmedExtra = extra?.trimmingCharacters(in: .whitespacesAndNewlines)
                 let normalizedExtra = (trimmedExtra?.isEmpty == false) ? trimmedExtra : nil
-                let outputLanguagePolicy = MeetingAIOutputLanguagePolicy.current()
+                let outputLanguagePolicy = currentMeetingAIOutputLanguagePolicy()
                 let assembly = PromptSystemPromptAssembler.assembleDetailed(
                     promptContent: prompt.content,
                     extraInstructions: normalizedExtra,

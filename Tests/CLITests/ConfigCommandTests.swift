@@ -591,6 +591,21 @@ final class ConfigCommandTests: XCTestCase {
         }
     }
 
+    func testPromptsRunLanguagePolicyReadsInjectedAppDefaults() throws {
+        XCTAssertEqual(
+            try ConfigCommand.write(key: "meeting-ai-output-language", value: "pl", defaults: defaults),
+            "pl"
+        )
+        XCTAssertEqual(currentMeetingAIOutputLanguagePolicy(defaults: defaults), .language("pl"))
+        let assembled = PromptSystemPromptAssembler.assemble(
+            promptContent: "Summarize.",
+            extraInstructions: nil,
+            transcript: "Hello",
+            outputLanguagePolicy: currentMeetingAIOutputLanguagePolicy(defaults: defaults)
+        )
+        XCTAssertTrue(assembled.contains(MeetingAIOutputLanguagePolicy.language("pl").assemblyInstruction))
+    }
+
     func testWriteRejectsInvalidValueAsValidationError() {
         XCTAssertThrowsError(try ConfigCommand.write(key: "telemetry", value: "maybe", defaults: defaults)) { error in
             XCTAssertTrue(error is ValidationError, "Expected ValidationError, got \(type(of: error))")

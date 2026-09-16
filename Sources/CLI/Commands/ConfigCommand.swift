@@ -146,7 +146,7 @@ struct ConfigCommand: ParsableCommand {
             key: "meeting-ai-output-language",
             valueSyntax: MeetingAIOutputLanguagePolicy.configurationValues.joined(separator: "|"),
             allowedValues: MeetingAIOutputLanguagePolicy.configurationValues,
-            summary: "Language for generated meeting AI results."
+            summary: "Language for generated AI results."
         ),
         CLIConfigKeySpec(
             key: "voice-return-enabled",

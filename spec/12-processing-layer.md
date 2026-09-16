@@ -275,11 +275,11 @@ same effective value is supplied to assembly and stored in
 `PromptResult.userNotesSnapshot`. The queued request also captures
 `Prompt.includeMeetingNotes`; the completed result persists it as
 `includeMeetingNotesSnapshot`. The queued request also captures the current
-meeting AI output-language policy; the completed result persists it as
-`outputLanguagePolicySnapshot`. Extra instructions are appended after that
-policy so an explicit user request still wins. Language is inferred from
-transcript text when following the transcript; Parakeet detected-language
-metadata is not used.
+AI output-language policy; the completed result persists it as
+`outputLanguagePolicySnapshot`. Extra instructions are appended last so they
+can ask the model to override that language request. This is prompt text, not
+a guaranteed runtime filter. Language is inferred from transcript text when
+following the transcript; Parakeet detected-language metadata is not used.
 
 Automatic notes context is opt-in and result-prompt-only. Existing, built-in,
 and new prompts default false; Transforms cannot enable it. Assembly follows
