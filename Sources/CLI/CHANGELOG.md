@@ -91,8 +91,9 @@ by checking exit code first: `2` = misuse, `1` = runtime, `0` = success.
 
 ### Added
 
-- Saved prompt-result JSON includes additive nullable `contentEditedAt`, the
-  timestamp of the last in-place user edit of result content.
+- Saved prompt-result JSON includes additive `contentEditedAt` when the user
+  last edited result content in place. The key is omitted when content was
+  last written by generation.
 
 ## [4.2.0] — 2026-09-15
 
