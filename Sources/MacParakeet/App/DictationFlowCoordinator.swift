@@ -246,6 +246,7 @@ final class DictationFlowCoordinator {
         self.onPresentEntitlementsAlert = onPresentEntitlementsAlert
         observeFormatterNotifications()
         observePreviewTextSizeNotifications()
+        observeOverlayPlacementNotifications()
     }
 
     // MARK: - AI Formatter pill transitions
@@ -307,6 +308,37 @@ final class DictationFlowCoordinator {
                 self.overlayViewModel?.previewTextSize = self.runtimePreferences.dictationPreviewTextSize
             }
         }
+    }
+
+    /// Move idle + live overlays when Settings placement changes or the
+    /// screen layout changes (built-in display vs external, Dock side).
+    private var overlayPlacementObserver: NSObjectProtocol?
+    private var screenParametersObserver: NSObjectProtocol?
+
+    private func observeOverlayPlacementNotifications() {
+        overlayPlacementObserver = NotificationCenter.default.addObserver(
+            forName: .macParakeetDictationOverlayPlacementDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.repositionDictationOverlays()
+            }
+        }
+        screenParametersObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.repositionDictationOverlays()
+            }
+        }
+    }
+
+    private func repositionDictationOverlays() {
+        idlePillController?.reposition()
+        overlayController?.reposition()
     }
 
     // NOTE: no `deinit` cleanup for `formatterDidStartObserver` or
