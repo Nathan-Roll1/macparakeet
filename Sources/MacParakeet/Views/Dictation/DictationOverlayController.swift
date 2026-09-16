@@ -192,15 +192,6 @@ final class DictationOverlayController: DictationOverlayControlling {
             overlayViewModel.hoverTooltip = nil
         }
     }
-
-    func updateSize(width: CGFloat) {
-        guard let panel else { return }
-        var frame = panel.frame
-        let oldWidth = frame.width
-        frame.size.width = width
-        frame.origin.x += (oldWidth - width) / 2
-        panel.setFrame(frame, display: true, animate: true)
-    }
 }
 
 /// ViewModel for the dictation overlay

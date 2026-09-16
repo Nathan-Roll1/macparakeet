@@ -2,7 +2,7 @@ import Foundation
 
 /// Screen-edge placement for the idle dictation pill and the live overlay.
 /// Both surfaces share this so the recording UI appears where the idle nub sat.
-public enum DictationOverlayPlacement: String, CaseIterable, Hashable, Sendable, Equatable {
+public enum DictationOverlayPlacement: String, CaseIterable, Hashable, Sendable {
     case bottomCenter
     case bottomLeft
     case bottomRight

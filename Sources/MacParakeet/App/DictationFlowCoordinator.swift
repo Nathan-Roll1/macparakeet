@@ -341,8 +341,9 @@ final class DictationFlowCoordinator {
         overlayController?.reposition()
     }
 
-    // NOTE: no `deinit` cleanup for `formatterDidStartObserver` or
-    // `previewTextSizeObserver`. This coordinator is effectively a singleton
+    // NOTE: no `deinit` cleanup for `formatterDidStartObserver`,
+    // `previewTextSizeObserver`, `overlayPlacementObserver`, or
+    // `screenParametersObserver`. This coordinator is effectively a singleton
     // for the app's lifetime, both observer blocks capture `[weak self]`, and
     // Swift 6 forbids touching `@MainActor`-isolated stored properties from a
     // nonisolated deinit. NotificationCenter cleans up automatically when the

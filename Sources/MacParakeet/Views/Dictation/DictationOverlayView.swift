@@ -587,7 +587,11 @@ struct DictationOverlayView: View {
             // changes live in Settings) instead of snapping between heights.
             .animation(.easeInOut(duration: 0.18), value: viewportHeight)
             .animation(.easeInOut(duration: 0.2), value: viewModel.previewTextSize)
-            .transition(.move(edge: .bottom).combined(with: .opacity).animation(.easeInOut(duration: 0.16)))
+            .transition(
+                .move(edge: viewModel.anchorsToTop ? .top : .bottom)
+                    .combined(with: .opacity)
+                    .animation(.easeInOut(duration: 0.16))
+            )
         }
     }
 
