@@ -68,6 +68,27 @@ final class DictationFlowCoordinatorTests: XCTestCase {
         XCTAssertTrue(savedTranscripts.contains("second dictated message"))
     }
 
+    func testClipboardOnlyDictationCopiesWithoutPasting() async throws {
+        let harness = try await makeRecordingHarness()
+        await harness.stt.configure(result: STTResult(text: "notes for the other desktop"))
+
+        harness.coordinator.startDictation(mode: .persistent, trigger: .hotkey, clipboardOnly: true)
+        let started = await waitUntil { self.isFlowRecording(harness.coordinator.flowStateForTesting) }
+        XCTAssertTrue(started)
+
+        harness.coordinator.stopDictation()
+        let copied = await waitUntilAsync {
+            let snapshot = await harness.clipboard.snapshot()
+            return snapshot.lastCopiedText != nil && harness.coordinator.flowStateForTesting == .idle
+        }
+        XCTAssertTrue(copied)
+
+        let clipboardSnapshot = await harness.clipboard.snapshot()
+        XCTAssertEqual(clipboardSnapshot.lastCopiedText, "notes for the other desktop")
+        XCTAssertTrue(clipboardSnapshot.pastedTexts.isEmpty)
+        XCTAssertEqual(clipboardSnapshot.pasteCallCount, 0)
+    }
+
     func testSuccessDwellRestartDoesNotCancelCompletedPaste() async throws {
         let harness = try await makeRecordingHarness()
         await harness.stt.configureSequence(results: [
