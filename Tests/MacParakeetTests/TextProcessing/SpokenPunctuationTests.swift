@@ -6,7 +6,11 @@ final class SpokenPunctuationTests: XCTestCase {
 
     func testEnglishQuestionAndExclamationMarks() {
         XCTAssertEqual(
-            pipeline.process(text: "are you coming question mark", customWords: [], snippets: []).text,
+            pipeline.process(text: "are you coming question mark.", customWords: [], snippets: []).text,
+            "Are you coming?"
+        )
+        XCTAssertEqual(
+            pipeline.process(text: "Are you coming question mark?", customWords: [], snippets: []).text,
             "Are you coming?"
         )
         XCTAssertEqual(
@@ -25,8 +29,8 @@ final class SpokenPunctuationTests: XCTestCase {
             "Say question mark please"
         )
         XCTAssertEqual(
-            SpokenPunctuation.apply(to: "wörtlich fragezeichen"),
-            "fragezeichen"
+            SpokenPunctuation.apply(to: "wörtlich Fragezeichen"),
+            "Fragezeichen"
         )
     }
 
@@ -36,8 +40,9 @@ final class SpokenPunctuationTests: XCTestCase {
         XCTAssertEqual(SpokenPunctuation.apply(to: "c'est fait point d'exclamation"), "c'est fait!")
         XCTAssertEqual(SpokenPunctuation.apply(to: "pronto ponto de interrogação"), "pronto?")
         XCTAssertEqual(SpokenPunctuation.apply(to: "koniec znak zapytania"), "koniec?")
-        XCTAssertEqual(SpokenPunctuation.apply(to: "你好问号"), "你好?")
-        XCTAssertEqual(SpokenPunctuation.apply(to: "完成感叹号"), "完成!")
+        XCTAssertEqual(SpokenPunctuation.apply(to: "你好问号"), "你好？")
+        XCTAssertEqual(SpokenPunctuation.apply(to: "完成感叹号"), "完成！")
+        XCTAssertEqual(SpokenPunctuation.apply(to: "请问号码是多少"), "请问号码是多少")
     }
 
     func testUserSnippetOverridesBuiltInSpokenPunctuation() {
@@ -67,5 +72,10 @@ final class SpokenPunctuationTests: XCTestCase {
             SpokenPunctuation.apply(to: "hello, question mark"),
             "hello?"
         )
+    }
+
+    func testTrailingEnginePunctuationIsConsumed() {
+        XCTAssertEqual(SpokenPunctuation.apply(to: "hello question mark."), "hello?")
+        XCTAssertEqual(SpokenPunctuation.apply(to: "hello question mark!"), "hello?")
     }
 }

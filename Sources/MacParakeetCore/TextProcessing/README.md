@@ -72,9 +72,10 @@ mode.
 4. **Text snippet expansion.** Plain text snippets (where
    `action == nil`) replace their trigger phrases with their bodies.
    Built-in spoken punctuation (`question mark` → `?`) runs after user
-   snippets so a custom snippet of the same trigger still wins. Prefix
-   `literal` keeps the words. Default on in Clean mode; meetings never
-   run this step.
+   snippets so a custom snippet of the same trigger still wins. A snippet
+   expansion that itself contains a command phrase is also converted.
+   Prefix `literal` keeps the words. Default on in Clean mode; meetings
+   never run this step.
 5. **Whitespace cleanup and insertion styling.** Collapse repeated
    spaces, fix punctuation spacing, normalize, then apply the selected
    dictation insertion style. Sentence style preserves the historic

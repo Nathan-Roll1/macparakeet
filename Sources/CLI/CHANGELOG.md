@@ -92,8 +92,8 @@ by checking exit code first: `2` = misuse, `1` = runtime, `0` = success.
 ### Added
 
 - `config spoken-punctuation` (`on`/`off`, default on) controls whether Clean
-  mode converts spoken question/exclamation marks. `vocab process` honors the
-  same app-defaults key.
+  dictation and file transcription convert spoken question/exclamation marks.
+  Meetings never convert. `vocab process` honors the same app-defaults key.
 
 ## [4.2.0] — 2026-09-15
 

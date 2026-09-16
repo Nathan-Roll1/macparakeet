@@ -5,7 +5,8 @@ import Foundation
 /// "question mark" / "exclamation mark" become `?` / `!`, including common
 /// multilingual aliases. Prefixing a phrase with a literal marker
 /// (`literal question mark`) keeps the words. User text snippets of the same
-/// trigger still win because snippet expansion runs first.
+/// trigger still win because snippet expansion runs first. Snippet expansions
+/// that themselves contain a command phrase are also converted.
 public enum SpokenPunctuation: Sendable {
     public static let commands: [(phrase: String, mark: String)] = {
         let pairs: [(String, String)] = [
@@ -15,6 +16,7 @@ public enum SpokenPunctuation: Sendable {
             ("signo de interrogacion", "?"),
             ("ponto de interrogacao", "?"),
             ("point d'interrogation", "?"),
+            ("point d’interrogation", "?"),
             ("point d interrogation", "?"),
             ("exclamation point", "!"),
             ("exclamation mark", "!"),
@@ -24,18 +26,19 @@ public enum SpokenPunctuation: Sendable {
             ("signo de exclamacion", "!"),
             ("ponto de exclamacao", "!"),
             ("point d'exclamation", "!"),
+            ("point d’exclamation", "!"),
             ("point d exclamation", "!"),
             ("question mark", "?"),
             ("znak zapytania", "?"),
             ("ausrufezeichen", "!"),
             ("fragezeichen", "?"),
             ("wykrzyknik", "!"),
-            ("疑問符", "?"),
-            ("感嘆符", "!"),
-            ("感叹号", "!"),
-            ("问号", "?"),
-            ("問號", "?"),
-            ("感嘆號", "!"),
+            ("疑問符", "？"),
+            ("感嘆符", "！"),
+            ("感叹号", "！"),
+            ("问号", "？"),
+            ("問號", "？"),
+            ("感嘆號", "！"),
         ]
         return pairs.sorted { $0.0.count > $1.0.count }
     }()
@@ -46,16 +49,17 @@ public enum SpokenPunctuation: Sendable {
     ].sorted { $0.count > $1.count }
 
     /// Precompiled so Clean-mode dictation stays in the sub-millisecond budget.
-    private static let literalRules: [(regex: NSRegularExpression, phrase: String)] = {
-        var rules: [(NSRegularExpression, String)] = []
+    /// Group 1 is the spoken phrase so restore keeps the user's casing.
+    private static let literalRegexes: [NSRegularExpression] = {
+        var rules: [NSRegularExpression] = []
         for (phrase, _) in commands {
-            let boundedPhrase = boundedPhrasePattern(for: phrase)
+            let capturedPhrase = capturedPhrasePattern(for: phrase)
             for prefix in literalPrefixes {
                 let prefixPattern = NSRegularExpression.escapedPattern(for: prefix)
                     .replacingOccurrences(of: " ", with: "\\s+")
-                let pattern = "(?i)(?<![\\p{L}\\p{N}])\(prefixPattern)\\s+\(boundedPhrase)"
+                let pattern = "(?i)(?<![\\p{L}\\p{N}])\(prefixPattern)\\s+\(capturedPhrase)"
                 guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
-                rules.append((regex, phrase))
+                rules.append(regex)
             }
         }
         return rules
@@ -63,7 +67,8 @@ public enum SpokenPunctuation: Sendable {
 
     private static let replaceRules: [(regex: NSRegularExpression, mark: String)] = {
         commands.compactMap { phrase, mark in
-            let pattern = "(?i)(?:[ \\t]*,)?[ \\t]*\(boundedPhrasePattern(for: phrase))"
+            let pattern =
+                "(?i)(?:[ \\t]*,)?[ \\t]*\(boundedPhrasePattern(for: phrase))(?:[ \\t]*[.,!?。？！]+)?"
             guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
             return (regex, mark)
         }
@@ -75,12 +80,18 @@ public enum SpokenPunctuation: Sendable {
         var protected: [String: String] = [:]
 
         if containsLiteralPrefix(text) {
-            for (regex, phrase) in literalRules {
+            for regex in literalRegexes {
                 let matches = regex.matches(in: result, range: NSRange(result.startIndex..., in: result))
                 for match in matches.reversed() {
                     guard let range = Range(match.range, in: result) else { continue }
+                    let phraseText: String
+                    if match.numberOfRanges > 1, let phraseRange = Range(match.range(at: 1), in: result) {
+                        phraseText = String(result[phraseRange])
+                    } else {
+                        continue
+                    }
                     let token = "\u{E000}\(protected.count)\u{E001}"
-                    protected[token] = phrase
+                    protected[token] = phraseText
                     result.replaceSubrange(range, with: token)
                 }
             }
@@ -106,12 +117,20 @@ public enum SpokenPunctuation: Sendable {
         }
     }
 
-    private static func boundedPhrasePattern(for phrase: String) -> String {
-        let escaped = NSRegularExpression.escapedPattern(for: phrase)
+    private static func escapedPhrase(_ phrase: String) -> String {
+        NSRegularExpression.escapedPattern(for: phrase)
             .replacingOccurrences(of: " ", with: "\\s+")
-        // CJK commands are unspaced tokens in STT output ("你好问号"), so
-        // Latin word-boundaries would miss them.
-        guard phrase.contains(where: \.isASCII) else { return escaped }
+    }
+
+    private static func capturedPhrasePattern(for phrase: String) -> String {
+        "(\(escapedPhrase(phrase)))(?![\\p{L}\\p{N}])"
+    }
+
+    private static func boundedPhrasePattern(for phrase: String) -> String {
+        let escaped = escapedPhrase(phrase)
+        guard phrase.contains(where: \.isASCII) else {
+            return "\(escaped)(?![\\p{L}\\p{N}])"
+        }
         return "(?<![\\p{L}\\p{N}])\(escaped)(?![\\p{L}\\p{N}])"
     }
 }

@@ -31,6 +31,7 @@ struct ConfigCommand: ParsableCommand {
           telemetry                 on|off                         default: on
           processing-mode           raw|clean                       default: raw
           spoken-punctuation        on|off                          default: on
+                                    (Clean dictation/files; meetings never convert)
           speech-engine             parakeet|nemotron|whisper|cohere default: parakeet
           parakeet-model            v3|v2|unified                   default: v3
                                     (v3=supported languages, v2=English
@@ -91,7 +92,7 @@ struct ConfigCommand: ParsableCommand {
             key: "spoken-punctuation",
             valueSyntax: "on|off",
             allowedValues: ["on", "off"],
-            summary: "Convert spoken question/exclamation marks in Clean mode."
+            summary: "Convert spoken question/exclamation marks in Clean dictation and file transcription. Meetings never convert."
         ),
         CLIConfigKeySpec(
             key: "speech-engine",
