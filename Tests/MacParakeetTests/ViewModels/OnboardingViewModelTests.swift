@@ -222,6 +222,10 @@ final class OnboardingViewModelTests: XCTestCase {
         XCTAssertTrue(vm.canContinueFromCurrentStep())
         vm.goNext()
         XCTAssertEqual(vm.step, .accessibility)
+
+        perms.microphonePermission = .denied
+        vm.jump(to: .microphone)
+        XCTAssertTrue(vm.canContinueFromCurrentStep())
     }
 
     func testAccessibilityStepRequiresPermission() async throws {

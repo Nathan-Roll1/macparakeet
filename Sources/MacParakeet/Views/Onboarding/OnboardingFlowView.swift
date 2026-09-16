@@ -211,14 +211,12 @@ struct OnboardingFlowView: View {
 
     private func stepIsCompleted(_ step: OnboardingViewModel.Step) -> Bool {
         switch step {
-        case .welcome:
+        case .welcome, .hotkey:
             return viewModel.step.rawValue > step.rawValue
         case .microphone:
-            return viewModel.micStatus == .granted
+            return viewModel.micStatus == .granted || viewModel.step.rawValue > step.rawValue
         case .accessibility:
             return viewModel.accessibilityGranted
-        case .hotkey:
-            return viewModel.step.rawValue > step.rawValue
         case .engine:
             if case .ready = viewModel.engineState { return true }
             return false
@@ -343,7 +341,7 @@ struct OnboardingFlowView: View {
                 title: "Microphone access",
                 status: micStatusText(viewModel.micStatus),
                 statusStyle: micStatusStyle(viewModel.micStatus),
-                detail: "Needed for dictation. Skip if you only transcribe files."
+                detail: "Skip if you only transcribe files."
             ) {
                 accentButton(
                     viewModel.isBusy ? "Requesting..." : "Grant Microphone Access",
