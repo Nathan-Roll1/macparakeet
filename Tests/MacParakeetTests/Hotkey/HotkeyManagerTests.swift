@@ -206,6 +206,27 @@ final class HotkeyManagerTests: XCTestCase {
         )
     }
 
+    func testEscapeDoesNotCancelWhenSettingIsOff() {
+        let manager = HotkeyManager(trigger: .fn, gestureMode: .singleTapToggle)
+        manager.shouldCancelOnEscape = { false }
+        manager.setPhysicalKeyStateProviderForTesting { _ in false }
+
+        XCTAssertEqual(
+            manager.modifierKeyDownOutputsForTesting(keyCode: 53, timestampMs: 1_000),
+            []
+        )
+
+        let keyCodeManager = HotkeyManager(trigger: HotkeyTrigger.fromKeyCode(119), gestureMode: .singleTapToggle)
+        keyCodeManager.shouldCancelOnEscape = { false }
+        let decision = keyCodeManager.keyCodeEventDecisionForTesting(
+            type: .keyDown,
+            keyCode: 53,
+            timestampMs: 1_000
+        )
+        XCTAssertEqual(decision.outputs, [])
+        XCTAssertFalse(decision.shouldSwallow)
+    }
+
     func testPassiveFnTapRecoveryReconcilesPreHeldKeyAndFailsClosed() {
         var pressedKeyCodes: Set<UInt16> = []
         let manager = HotkeyManager(trigger: .fn, gestureMode: .holdOnly)
