@@ -133,7 +133,7 @@ final class TransformsCoordinator {
             NSWorkspace.shared.notificationCenter.removeObserver(observer)
             workspaceActivationObserver = nil
         }
-        menuBarCaptureTask = nil
+        discardMenuBarCapture()
     }
 
     func suspendHotkeys() {
@@ -154,7 +154,6 @@ final class TransformsCoordinator {
     /// Re-read `.transform` prompts from the repository and rebuild the
     /// registry's dispatch table. Call after any save/delete/import.
     func reloadBindings() {
-        guard let registry else { return }
         let prompts: [Prompt]
         do {
             prompts = try promptRepository.fetchVisible(category: .transform)
@@ -164,6 +163,8 @@ final class TransformsCoordinator {
         }
 
         promptIndex = Dictionary(uniqueKeysWithValues: prompts.map { ($0.id, $0) })
+
+        guard let registry else { return }
 
         let reservedHotkeys = reservedHotkeysProvider().filter { !$0.trigger.isDisabled }
         var bindings: [UUID: KeyboardShortcut] = [:]
@@ -199,12 +200,14 @@ final class TransformsCoordinator {
         guard AppFeatures.transformsEnabled else { return }
         rememberForeignFrontmostApplication()
         let preferred = lastForeignCaptureTarget
+        menuBarCaptureTask?.cancel()
         menuBarCaptureTask = Task { [menuBarCaptureService] in
             await menuBarCaptureService.captureAXSelection(preferring: preferred)
         }
     }
 
     func discardMenuBarCapture() {
+        menuBarCaptureTask?.cancel()
         menuBarCaptureTask = nil
     }
 

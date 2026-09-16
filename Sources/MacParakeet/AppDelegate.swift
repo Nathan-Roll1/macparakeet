@@ -682,9 +682,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menuBarCoordinator.onRunMenuBarTransform = { [weak transforms] id in
             transforms?.runFromMenuBar(promptID: id)
         }
-        menuBarCoordinator.onDiscardMenuBarTransformCapture = { [weak transforms] in
-            transforms?.discardMenuBarCapture()
-        }
         menuBarCoordinator.menuBarTransformsProvider = { [weak transforms] in
             transforms?.menuBarListings() ?? []
         }

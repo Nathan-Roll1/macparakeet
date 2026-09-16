@@ -36,6 +36,11 @@ final class TransformsViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.hasMissingBuiltInTransforms)
     }
 
+    func testLoadOrdersBySortOrder() {
+        let names = viewModel.transforms.map(\.name)
+        XCTAssertEqual(names, ["Polish", "Distill", "Decide"])
+    }
+
     func testMenuBarVisibilityDefaultsOnAndCanHide() {
         let suiteName = "test.menu-bar-transforms.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -46,6 +51,29 @@ final class TransformsViewModelTests: XCTestCase {
         XCTAssertFalse(UserDefaultsAppRuntimePreferences.isTransformVisibleInMenuBar(id, defaults: defaults))
         UserDefaultsAppRuntimePreferences.setTransformVisibleInMenuBar(id, visible: true, defaults: defaults)
         XCTAssertTrue(UserDefaultsAppRuntimePreferences.isTransformVisibleInMenuBar(id, defaults: defaults))
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+
+    func testSetVisibleInMenuBarUsesInjectedDefaults() async throws {
+        let suiteName = "test.vm-menu-bar-transforms.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        viewModel = TransformsViewModel()
+        viewModel.configure(
+            repo: repo,
+            historyRepo: historyRepo,
+            clipboardService: clipboardService,
+            hasLLMProvider: true,
+            defaults: defaults
+        )
+        await viewModel.load()
+        let id = try XCTUnwrap(viewModel.transforms.first?.id)
+        XCTAssertTrue(viewModel.isVisibleInMenuBar(id))
+        viewModel.setVisibleInMenuBar(id, visible: false)
+        XCTAssertFalse(viewModel.isVisibleInMenuBar(id))
+        XCTAssertFalse(
+            UserDefaultsAppRuntimePreferences.isTransformVisibleInMenuBar(id, defaults: defaults)
+        )
         defaults.removePersistentDomain(forName: suiteName)
     }
 

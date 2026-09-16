@@ -56,7 +56,6 @@ final class MenuBarCoordinator: NSObject, NSMenuDelegate {
     private let onShowAboutPanel: () -> Void
     var onPrepareMenuBarTransforms: (() -> Void)?
     var onRunMenuBarTransform: ((UUID) -> Void)?
-    var onDiscardMenuBarTransformCapture: (() -> Void)?
     var menuBarTransformsProvider: (() -> [MenuBarTransformListing])?
 
     private var statusItem: NSStatusItem?
@@ -847,13 +846,6 @@ final class MenuBarCoordinator: NSObject, NSMenuDelegate {
         onPrepareMenuBarTransforms?()
     }
 
-    func menuDidClose(_ menu: NSMenu) {
-        guard menu === statusItem?.menu else { return }
-        DispatchQueue.main.async { [weak self] in
-            self?.onDiscardMenuBarTransformCapture?()
-        }
-    }
-
     private func handleDroppedFiles(_ urls: [URL]) {
         onOpenMainWindow()
         // Route through the guarded batch entry point: it expands folders,
@@ -927,14 +919,19 @@ final class MenuBarCoordinator: NSObject, NSMenuDelegate {
             submenu.addItem(empty)
         } else {
             for listing in listings {
+                let title: String
+                if let shortcut = listing.shortcut {
+                    title = "\(listing.name)  \(shortcut.displayString)"
+                } else {
+                    title = listing.name
+                }
                 let item = NSMenuItem(
-                    title: listing.name,
+                    title: title,
                     action: #selector(runTransformFromMenu(_:)),
                     keyEquivalent: ""
                 )
                 item.target = self
                 item.representedObject = listing.id
-                applyTransformShortcut(listing.shortcut, to: item)
                 submenu.addItem(item)
             }
         }
@@ -952,25 +949,6 @@ final class MenuBarCoordinator: NSObject, NSMenuDelegate {
     @objc private func runTransformFromMenu(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? UUID else { return }
         onRunMenuBarTransform?(id)
-    }
-
-    private func applyTransformShortcut(_ shortcut: KeyboardShortcut?, to item: NSMenuItem) {
-        guard let shortcut else {
-            item.keyEquivalent = ""
-            item.keyEquivalentModifierMask = []
-            return
-        }
-        item.keyEquivalent = shortcut.keyLabel.lowercased()
-        var mask: NSEvent.ModifierFlags = []
-        for flag in KeyboardShortcut.ModifierFlag.allCases where (shortcut.modifiers & flag.rawValue) != 0 {
-            switch flag {
-            case .command: mask.insert(.command)
-            case .shift: mask.insert(.shift)
-            case .control: mask.insert(.control)
-            case .option: mask.insert(.option)
-            }
-        }
-        item.keyEquivalentModifierMask = mask
     }
 
     /// Apply a chord trigger's visual shortcut to a menu item. Non-chord or

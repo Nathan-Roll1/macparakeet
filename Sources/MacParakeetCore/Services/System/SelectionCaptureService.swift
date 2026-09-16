@@ -240,24 +240,24 @@ public actor SelectionCaptureService {
 
         let frontmost = await captureTargetOnMain()
         let ownBundle = Bundle.main.bundleIdentifier
-        let resolvedTarget: SelectionCaptureTarget?
-        if let frontmost, frontmost.bundleIdentifier != ownBundle {
-            resolvedTarget = frontmost
-        } else {
-            resolvedTarget = target
+        let frontmostIsForeign = frontmost.map { $0.bundleIdentifier != ownBundle } ?? false
+
+        // Only trust the system-wide focused element when a foreign app is
+        // actually frontmost. If we are frontmost, that element is ours and
+        // must not be labeled with a stale last-foreign target.
+        if frontmostIsForeign,
+            let element = backend.focusedElement(),
+            let text = backend.selectedText(of: element),
+            !text.isEmpty {
+            return .ax(text: text, element: AXFocusedElement(element), target: frontmost)
         }
 
-        if let element = backend.focusedElement(),
-           let text = backend.selectedText(of: element),
-           !text.isEmpty {
-            return .ax(text: text, element: AXFocusedElement(element), target: resolvedTarget)
-        }
-
-        if let resolvedTarget,
-           let element = backend.focusedElement(ofProcess: resolvedTarget.processIdentifier),
-           let text = backend.selectedText(of: element),
-           !text.isEmpty {
-            return .ax(text: text, element: AXFocusedElement(element), target: resolvedTarget)
+        let scopedTarget = frontmostIsForeign ? frontmost : target
+        if let scopedTarget,
+            let element = backend.focusedElement(ofProcess: scopedTarget.processIdentifier),
+            let text = backend.selectedText(of: element),
+            !text.isEmpty {
+            return .ax(text: text, element: AXFocusedElement(element), target: scopedTarget)
         }
 
         return .empty
