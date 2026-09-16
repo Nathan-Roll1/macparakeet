@@ -145,11 +145,15 @@ struct VocabularyImportPreviewSheet: View {
                 title: "Replace duplicates",
                 detail: "Overwrite matching entries. Leave everything else as-is."
             )
+            Text("Advanced")
+                .font(DesignSystem.Typography.micro)
+                .foregroundStyle(.secondary)
+                .padding(.top, 4)
             policyOption(
                 .replaceAll,
                 title: "Replace entire vocabulary",
                 detail:
-                    "Remove words and snippets that aren't in this file, then import. Learned recognition terms stay.",
+                    "Remove words and snippets that aren't in this file, then import. Words MacParakeet learned automatically from dictation stay unless this file also lists them.",
                 destructive: true
             )
         }
@@ -186,11 +190,16 @@ struct VocabularyImportPreviewSheet: View {
             if preview.learnedWordsPreserved > 0 {
                 Text(
                     preview.learnedWordsPreserved == 1
-                        ? "1 learned recognition term on this Mac stays."
-                        : "\(preview.learnedWordsPreserved) learned recognition terms on this Mac stay."
+                        ? "1 word MacParakeet learned automatically from dictation stays on this Mac."
+                        : "\(preview.learnedWordsPreserved) words MacParakeet learned automatically from dictation stay on this Mac."
                 )
                 .font(DesignSystem.Typography.caption)
                 .foregroundStyle(.secondary)
+            }
+            if isEmptyReplaceAll {
+                Text("This file is empty, so replace-all would only delete. Import a dictionary file instead.")
+                    .font(DesignSystem.Typography.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .padding(DesignSystem.Spacing.md)
@@ -241,8 +250,10 @@ struct VocabularyImportPreviewSheet: View {
     }
 
     private var replaceAllHeadline: String {
-        let removed = preview.wordsRemoved.count + preview.snippetsRemoved.count
-        if removed == 0 {
+        if isEmptyReplaceAll {
+            return "This file has no words or snippets."
+        }
+        if !preview.hasRemovals {
             if preview.hasConflicts {
                 return "Matching entries will be replaced. Nothing extra will be removed."
             }
@@ -318,11 +329,18 @@ struct VocabularyImportPreviewSheet: View {
             HStack(alignment: .top, spacing: DesignSystem.Spacing.sm) {
                 Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
                     .font(.system(size: 14))
-                    .foregroundStyle(isSelected ? accent : .secondary)
+                    .foregroundStyle(destructive ? accent : (isSelected ? accent : .secondary))
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(title)
-                        .font(DesignSystem.Typography.bodySmall.weight(.semibold))
-                        .foregroundStyle(.primary)
+                    HStack(spacing: 4) {
+                        Text(title)
+                            .font(DesignSystem.Typography.bodySmall.weight(.semibold))
+                            .foregroundStyle(destructive ? accent : .primary)
+                        if destructive {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(accent)
+                        }
+                    }
                     Text(detail)
                         .font(DesignSystem.Typography.caption)
                         .foregroundStyle(.secondary)
@@ -338,8 +356,10 @@ struct VocabularyImportPreviewSheet: View {
             .overlay(
                 RoundedRectangle(cornerRadius: DesignSystem.Layout.rowCornerRadius)
                     .strokeBorder(
-                        isSelected ? accent.opacity(0.45) : DesignSystem.Colors.border.opacity(0.6),
-                        lineWidth: isSelected ? 1.0 : 0.5
+                        destructive
+                            ? accent.opacity(isSelected ? 0.45 : 0.28)
+                            : (isSelected ? accent.opacity(0.45) : DesignSystem.Colors.border.opacity(0.6)),
+                        lineWidth: isSelected || destructive ? 1.0 : 0.5
                     )
             )
         }
@@ -358,21 +378,31 @@ struct VocabularyImportPreviewSheet: View {
             .parakeetAction(.secondary)
             .keyboardShortcut(.cancelAction)
 
-            Button(
-                importButtonTitle,
-                role: viewModel.conflictPolicy == .replaceAll ? .destructive : nil
-            ) {
-                Task {
-                    if await viewModel.applyImport() {
-                        dismiss()
-                    }
+            importConfirmButton
+        }
+    }
+
+    @ViewBuilder
+    private var importConfirmButton: some View {
+        let button = Button(
+            importButtonTitle,
+            role: viewModel.conflictPolicy == .replaceAll ? .destructive : nil
+        ) {
+            Task {
+                if await viewModel.applyImport() {
+                    dismiss()
                 }
             }
-            .parakeetAction(
-                viewModel.conflictPolicy == .replaceAll ? .destructiveProminent : .primaryProminent
-            )
-            .keyboardShortcut(.defaultAction)
-            .disabled(isImportDisabled)
+        }
+        .parakeetAction(
+            viewModel.conflictPolicy == .replaceAll ? .destructiveProminent : .primaryProminent
+        )
+        .disabled(isImportDisabled)
+
+        if viewModel.conflictPolicy == .replaceAll {
+            button
+        } else {
+            button.keyboardShortcut(.defaultAction)
         }
     }
 
@@ -383,16 +413,21 @@ struct VocabularyImportPreviewSheet: View {
         case .replace:
             return preview.hasConflicts ? "Import & Replace" : "Import"
         case .replaceAll:
+            if !preview.hasRemovals && !preview.hasConflicts {
+                return "Import"
+            }
             return "Replace Vocabulary"
         }
     }
 
+    private var isEmptyReplaceAll: Bool {
+        viewModel.conflictPolicy == .replaceAll
+            && preview.wordsTotal == 0
+            && preview.snippetsTotal == 0
+    }
+
     private var isImportDisabled: Bool {
-        let emptyFile = preview.wordsTotal == 0 && preview.snippetsTotal == 0
-        if viewModel.conflictPolicy == .replaceAll {
-            return false
-        }
-        return emptyFile
+        preview.wordsTotal == 0 && preview.snippetsTotal == 0
     }
 
     // MARK: - Helpers

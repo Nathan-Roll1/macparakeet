@@ -116,6 +116,7 @@ struct VocabImportCommand: AsyncParsableCommand {
             let preview = try service.decodePreview(from: data)
 
             if dryRun {
+                let reportingRemovals = policy == .replaceAll
                 let dryReport = DryRunReport(
                     ok: true,
                     wordsTotal: preview.wordsTotal,
@@ -124,9 +125,9 @@ struct VocabImportCommand: AsyncParsableCommand {
                     snippetConflicts: preview.snippetConflicts,
                     duplicateWords: preview.duplicateWords,
                     duplicateSnippets: preview.duplicateSnippets,
-                    wordsRemoved: preview.wordsRemoved,
-                    snippetsRemoved: preview.snippetsRemoved,
-                    learnedWordsPreserved: preview.learnedWordsPreserved,
+                    wordsRemoved: reportingRemovals ? preview.wordsRemoved : [],
+                    snippetsRemoved: reportingRemovals ? preview.snippetsRemoved : [],
+                    learnedWordsPreserved: reportingRemovals ? preview.learnedWordsPreserved : 0,
                     policy: policy.rawValue
                 )
                 if json {
@@ -180,8 +181,12 @@ struct VocabImportCommand: AsyncParsableCommand {
 
         if policy == .replaceAll {
             print("\nReplace-all would remove:")
-            print("  Words:     \(preview.wordsRemoved.count)")
-            print("  Snippets:  \(preview.snippetsRemoved.count)")
+            if preview.wordsRemoved.isEmpty && preview.snippetsRemoved.isEmpty {
+                print("  (none)")
+            } else {
+                printSampledList(label: "Words", items: preview.wordsRemoved)
+                printSampledList(label: "Snippets", items: preview.snippetsRemoved)
+            }
             if preview.learnedWordsPreserved > 0 {
                 print("  Learned terms kept: \(preview.learnedWordsPreserved)")
             }
@@ -194,36 +199,21 @@ struct VocabImportCommand: AsyncParsableCommand {
             case .replace, .replaceAll: fate = "REPLACED"
             }
             print("\nConflicts (would be \(fate)):")
-            if !preview.wordConflicts.isEmpty {
-                let sample = preview.wordConflicts.prefix(10).map { "\"\($0)\"" }.joined(separator: ", ")
-                let extra = preview.wordConflicts.count - min(10, preview.wordConflicts.count)
-                print("  Words (\(preview.wordConflicts.count)): \(sample)\(extra > 0 ? ", and \(extra) more" : "")")
-            }
-            if !preview.snippetConflicts.isEmpty {
-                let sample = preview.snippetConflicts.prefix(10).map { "\"\($0)\"" }.joined(separator: ", ")
-                let extra = preview.snippetConflicts.count - min(10, preview.snippetConflicts.count)
-                print(
-                    "  Snippets (\(preview.snippetConflicts.count)): \(sample)\(extra > 0 ? ", and \(extra) more" : "")"
-                )
-            }
-            if !preview.duplicateWords.isEmpty {
-                let sample = preview.duplicateWords.prefix(10).map { "\"\($0)\"" }.joined(separator: ", ")
-                let extra = preview.duplicateWords.count - min(10, preview.duplicateWords.count)
-                print(
-                    "  Duplicate words in file (\(preview.duplicateWords.count)): \(sample)\(extra > 0 ? ", and \(extra) more" : "")"
-                )
-            }
-            if !preview.duplicateSnippets.isEmpty {
-                let sample = preview.duplicateSnippets.prefix(10).map { "\"\($0)\"" }.joined(separator: ", ")
-                let extra = preview.duplicateSnippets.count - min(10, preview.duplicateSnippets.count)
-                print(
-                    "  Duplicate snippets in file (\(preview.duplicateSnippets.count)): \(sample)\(extra > 0 ? ", and \(extra) more" : "")"
-                )
-            }
+            printSampledList(label: "Words", items: preview.wordConflicts)
+            printSampledList(label: "Snippets", items: preview.snippetConflicts)
+            printSampledList(label: "Duplicate words in file", items: preview.duplicateWords)
+            printSampledList(label: "Duplicate snippets in file", items: preview.duplicateSnippets)
         } else {
             print("\nNo conflicts. All entries are new.")
         }
         print("\n(dry-run — nothing was written)")
+    }
+
+    private func printSampledList(label: String, items: [String]) {
+        guard !items.isEmpty else { return }
+        let sample = items.prefix(10).map { "\"\($0)\"" }.joined(separator: ", ")
+        let extra = items.count - min(10, items.count)
+        print("  \(label) (\(items.count)): \(sample)\(extra > 0 ? ", and \(extra) more" : "")")
     }
 
     private func printApplyHuman(_ r: VocabularyImportExportService.ImportResult) {

@@ -418,7 +418,7 @@ final class VocabCommandTests: XCTestCase {
     // MARK: - Import (dry-run JSON)
 
     func testImportDryRunJSONReportsConflicts() async throws {
-        try seedDatabase(words: [("kubernetes", "Kubernetes")], snippets: [])
+        try seedDatabase(words: [("kubernetes", "Kubernetes"), ("old-only", nil)], snippets: [])
 
         let bundlePath = tempDir.appendingPathComponent("bundle.json").path
         try writeBundle(
@@ -447,6 +447,10 @@ final class VocabCommandTests: XCTestCase {
         XCTAssertEqual(decoded["wordsTotal"] as? Int, 2)
         XCTAssertEqual(decoded["snippetsTotal"] as? Int, 0)
         XCTAssertEqual((decoded["wordConflicts"] as? [String])?.count, 1)
+        XCTAssertEqual(decoded["wordsRemoved"] as? [String], [])
+        XCTAssertEqual(decoded["snippetsRemoved"] as? [String], [])
+        XCTAssertEqual(decoded["learnedWordsPreserved"] as? Int, 0)
+        XCTAssertEqual(decoded["policy"] as? String, "skip")
     }
 
     func testImportApplyJSONReturnsCounts() async throws {

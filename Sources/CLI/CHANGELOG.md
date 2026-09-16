@@ -92,9 +92,11 @@ by checking exit code first: `2` = misuse, `1` = runtime, `0` = success.
 ### Added
 
 - `vocab import --policy replace-all` resets the manual vocabulary to the
-  bundle in one transaction. Dry-run and apply JSON add `wordsRemoved`,
-  `snippetsRemoved`, and (dry-run) `learnedWordsPreserved`. Skip and replace
-  stay the default; unmatched learned recognition terms are kept.
+  bundle in one transaction. Dry-run JSON reports `wordsRemoved`,
+  `snippetsRemoved`, and `learnedWordsPreserved` only for `replace-all`;
+  skip and replace keep those fields empty. Apply JSON adds `wordsRemoved`
+  and `snippetsRemoved` for the writes that actually ran. Skip remains the
+  default; unmatched learned recognition terms are kept.
 
 ## [4.2.0] — 2026-09-15
 
