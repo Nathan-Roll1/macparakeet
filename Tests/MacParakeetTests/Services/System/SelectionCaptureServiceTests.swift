@@ -212,6 +212,7 @@ final class FakeSelectionCaptureBackend: SelectionCaptureBackend, @unchecked Sen
 
     func isAccessibilityTrusted() -> Bool { trusted }
     func focusedElement() -> AXUIElement? { focused }
+    func focusedElement(ofProcess pid: pid_t) -> AXUIElement? { focused }
     func selectedText(of element: AXUIElement) -> String? { selectedTextValue }
 
     @MainActor

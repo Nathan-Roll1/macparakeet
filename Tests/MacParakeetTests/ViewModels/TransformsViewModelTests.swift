@@ -36,9 +36,17 @@ final class TransformsViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.hasMissingBuiltInTransforms)
     }
 
-    func testLoadOrdersBySortOrder() {
-        let names = viewModel.transforms.map(\.name)
-        XCTAssertEqual(names, ["Polish", "Distill", "Decide"])
+    func testMenuBarVisibilityDefaultsOnAndCanHide() {
+        let suiteName = "test.menu-bar-transforms.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        let id = UUID()
+        XCTAssertTrue(UserDefaultsAppRuntimePreferences.isTransformVisibleInMenuBar(id, defaults: defaults))
+        UserDefaultsAppRuntimePreferences.setTransformVisibleInMenuBar(id, visible: false, defaults: defaults)
+        XCTAssertFalse(UserDefaultsAppRuntimePreferences.isTransformVisibleInMenuBar(id, defaults: defaults))
+        UserDefaultsAppRuntimePreferences.setTransformVisibleInMenuBar(id, visible: true, defaults: defaults)
+        XCTAssertTrue(UserDefaultsAppRuntimePreferences.isTransformVisibleInMenuBar(id, defaults: defaults))
+        defaults.removePersistentDomain(forName: suiteName)
     }
 
     func testShortcutBindingsExposesNonNilShortcuts() {

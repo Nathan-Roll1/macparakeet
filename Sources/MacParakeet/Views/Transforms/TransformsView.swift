@@ -230,6 +230,7 @@ struct TransformsView: View {
             ForEach(viewModel.transforms) { transform in
                 TransformCard(
                     transform: transform,
+                    isVisibleInMenuBar: viewModel.isVisibleInMenuBar(transform.id),
                     onEdit: { onEdit(transform) },
                     onDelete: {
                         viewModel.pendingDeleteTransform = transform
@@ -240,6 +241,12 @@ struct TransformsView: View {
                                 onBindingsChanged()
                             }
                         }
+                    },
+                    onToggleMenuBar: {
+                        viewModel.setVisibleInMenuBar(
+                            transform.id,
+                            visible: !viewModel.isVisibleInMenuBar(transform.id)
+                        )
                     }
                 )
             }
@@ -870,9 +877,11 @@ private extension TransformHistoryEntry {
 
 private struct TransformCard: View {
     let transform: Prompt
+    let isVisibleInMenuBar: Bool
     let onEdit: () -> Void
     let onDelete: () -> Void
     let onReset: () -> Void
+    let onToggleMenuBar: () -> Void
 
     @State private var isHovered = false
 
@@ -967,6 +976,8 @@ private struct TransformCard: View {
             Button("Reset Transform", action: onReset)
             Divider()
         }
+        Button(isVisibleInMenuBar ? "Hide from Menu Bar" : "Show in Menu Bar", action: onToggleMenuBar)
+        Divider()
         Button("Delete Transform", role: .destructive, action: onDelete)
     }
 

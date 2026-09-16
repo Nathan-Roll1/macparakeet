@@ -137,6 +137,7 @@ public struct PasteboardSnapshot: @unchecked Sendable {
 protocol SelectionCaptureBackend: Sendable {
     func isAccessibilityTrusted() -> Bool
     func focusedElement() -> AXUIElement?
+    func focusedElement(ofProcess pid: pid_t) -> AXUIElement?
     func selectedText(of element: AXUIElement) -> String?
 
     @MainActor
@@ -226,6 +227,40 @@ public actor SelectionCaptureService {
 
         // Clipboard-hijack fallback.
         return await clipboardHijack(target: target)
+    }
+
+    /// AX-only capture for the menu-bar trigger. Must not post Cmd+C: the
+    /// user may dismiss the menu without running a Transform.
+    public func captureAXSelection(
+        preferring target: SelectionCaptureTarget? = nil
+    ) async -> SelectionCaptureResult {
+        guard backend.isAccessibilityTrusted() else {
+            return .failed(.accessibilityNotAuthorized)
+        }
+
+        let frontmost = await captureTargetOnMain()
+        let ownBundle = Bundle.main.bundleIdentifier
+        let resolvedTarget: SelectionCaptureTarget?
+        if let frontmost, frontmost.bundleIdentifier != ownBundle {
+            resolvedTarget = frontmost
+        } else {
+            resolvedTarget = target
+        }
+
+        if let element = backend.focusedElement(),
+           let text = backend.selectedText(of: element),
+           !text.isEmpty {
+            return .ax(text: text, element: AXFocusedElement(element), target: resolvedTarget)
+        }
+
+        if let resolvedTarget,
+           let element = backend.focusedElement(ofProcess: resolvedTarget.processIdentifier),
+           let text = backend.selectedText(of: element),
+           !text.isEmpty {
+            return .ax(text: text, element: AXFocusedElement(element), target: resolvedTarget)
+        }
+
+        return .empty
     }
 
     /// Restore a clipboard capture that is being abandoned before replacement.
@@ -345,10 +380,17 @@ struct SystemSelectionCaptureBackend: SelectionCaptureBackend, @unchecked Sendab
     }
 
     func focusedElement() -> AXUIElement? {
-        let systemElement = AXUIElementCreateSystemWide()
+        focusedElement(from: AXUIElementCreateSystemWide())
+    }
+
+    func focusedElement(ofProcess pid: pid_t) -> AXUIElement? {
+        focusedElement(from: AXUIElementCreateApplication(pid))
+    }
+
+    private func focusedElement(from root: AXUIElement) -> AXUIElement? {
         var raw: CFTypeRef?
         let status = AXUIElementCopyAttributeValue(
-            systemElement,
+            root,
             kAXFocusedUIElementAttribute as CFString,
             &raw
         )
