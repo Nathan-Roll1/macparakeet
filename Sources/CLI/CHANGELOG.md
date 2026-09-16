@@ -89,6 +89,11 @@ by checking exit code first: `2` = misuse, `1` = runtime, `0` = success.
 
 ## [Unreleased]
 
+### Added
+
+- Saved prompt-result JSON includes additive nullable `contentEditedAt`, the
+  timestamp of the last in-place user edit of result content.
+
 ## [4.2.0] — 2026-09-15
 
 ### Added
