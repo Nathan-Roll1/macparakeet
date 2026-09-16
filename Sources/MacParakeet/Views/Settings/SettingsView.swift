@@ -1143,7 +1143,7 @@ struct SettingsView: View {
                     HStack(alignment: .center) {
                         rowText(
                             title: "Preview text size",
-                            detail: "Text size for the live preview next to the dictation pill."
+                            detail: "Text size for the live preview above or below the dictation pill."
                         )
                         Spacer(minLength: DesignSystem.Spacing.md)
                         Picker("Preview text size", selection: $viewModel.dictationPreviewTextSize) {
