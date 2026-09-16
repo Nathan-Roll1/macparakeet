@@ -1090,6 +1090,15 @@ struct SettingsView: View {
                     }
                 }
 
+                Divider()
+
+                transcriptionHotkeyRow(
+                    title: "AI polish this dictation",
+                    detail: "Optional extra shortcut. Starts dictation and always runs AI cleanup for that utterance, even when Use for dictation is off.",
+                    surface: .dictationAIPolish,
+                    trigger: $viewModel.dictationAIPolishHotkeyTrigger
+                )
+
                 if !viewModel.hotkeyTrigger.isDisabled || !viewModel.pushToTalkHotkeyTrigger.isDisabled {
                     Divider()
 
@@ -1628,6 +1637,7 @@ struct SettingsView: View {
             meeting: viewModel.meetingHotkeyTrigger,
             fileTranscription: viewModel.fileTranscriptionHotkeyTrigger,
             youtubeTranscription: viewModel.youtubeTranscriptionHotkeyTrigger,
+            dictationAIPolish: viewModel.dictationAIPolishHotkeyTrigger,
             transformHotkeys: transformHotkeys,
             meetingRecordingEnabled: AppFeatures.meetingRecordingEnabled
         )

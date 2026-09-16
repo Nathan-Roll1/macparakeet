@@ -129,6 +129,7 @@ public actor DictationService: DictationServiceProtocol {
     private var cancelGeneration: Int = 0
     private var pendingCancelledAudioURL: URL?
     private var pendingCancelledDurationMs: Int?
+    private var pendingCancelledAIFormatterEnabled: Bool?
     private var currentTelemetryContext = DictationTelemetryContext()
     private var recordingStartedAt: Date?
     private var currentOperationID: String?
@@ -138,6 +139,9 @@ public actor DictationService: DictationServiceProtocol {
     private var currentObservabilityOperationContext: ObservabilityOperationContext?
     private var currentAIFormatterStartContext: AppPromptContext?
     private var currentAIFormatterFinishContext: AppPromptContext?
+    /// Captured at recording start so a Settings toggle mid-utterance cannot
+    /// change whether this session runs the AI Formatter.
+    private var currentSessionAIFormatterEnabled = false
     private var liveTranscriptionState: LiveDictationTranscriptionState?
     private var displayPreviewState: DictationDisplayPreviewState?
     private var liveTranscriptText: String = ""
@@ -273,7 +277,8 @@ public actor DictationService: DictationServiceProtocol {
 
     public func startRecording(
         context: DictationTelemetryContext = DictationTelemetryContext(),
-        sessionID: Int?
+        sessionID: Int?,
+        aiFormatterEnabled: Bool? = nil
     ) async throws {
         logger.debug("dictation_start_requested state=\(self.debugStateLabel(self._state), privacy: .public)")
         let operationContext = ObservabilityOperationContext()
@@ -334,6 +339,7 @@ public actor DictationService: DictationServiceProtocol {
         pendingCancelReason = nil
         currentAIFormatterStartContext = nil
         currentAIFormatterFinishContext = nil
+        currentSessionAIFormatterEnabled = aiFormatterEnabled ?? shouldUseAIFormatter()
         clearLiveTranscript()
         currentOperationID = operationContext.operationID
         currentOperationTerminalEmitted = false
@@ -644,6 +650,7 @@ public actor DictationService: DictationServiceProtocol {
         let device = await audioProcessor.recordingDeviceInfo
         pendingCancelledAudioURL = audioURL
         pendingCancelledDurationMs = capturedDurationMs
+        pendingCancelledAIFormatterEnabled = currentSessionAIFormatterEnabled
         _state = .cancelled
         Telemetry.send(
             .dictationCancelled(
@@ -713,6 +720,10 @@ public actor DictationService: DictationServiceProtocol {
         pendingCancelledAudioURL = nil
         let capturedDurationMs = pendingCancelledDurationMs
         pendingCancelledDurationMs = nil
+        if let cancelledFormatterEnabled = pendingCancelledAIFormatterEnabled {
+            currentSessionAIFormatterEnabled = cancelledFormatterEnabled
+        }
+        pendingCancelledAIFormatterEnabled = nil
 
         let currentSession = activeSessionID
         let formatterContext = currentAIFormatterFinishContext ?? currentAIFormatterStartContext
@@ -834,6 +845,7 @@ public actor DictationService: DictationServiceProtocol {
         }
         pendingCancelledAudioURL = nil
         pendingCancelledDurationMs = nil
+        pendingCancelledAIFormatterEnabled = nil
     }
 
     private func withCurrentObservabilityContextIfAny<T: Sendable>(
@@ -1363,9 +1375,10 @@ public actor DictationService: DictationServiceProtocol {
         let baseText = cleanTranscript ?? result.text
         let saveHistory = shouldSaveDictationHistory?() ?? true
         let dictationID = UUID()
+        let sessionFormatterEnabled = currentSessionAIFormatterEnabled
         let transcriptFormatter = TranscriptFormatter(
             llmService: llmService,
-            shouldUseAIFormatter: shouldUseAIFormatter,
+            shouldUseAIFormatter: { sessionFormatterEnabled },
             logger: logger
         )
         let promptResolver = aiFormatterPromptResolver
@@ -1575,6 +1588,7 @@ public actor DictationService: DictationServiceProtocol {
         currentObservabilityOperationContext = nil
         currentAIFormatterStartContext = nil
         currentAIFormatterFinishContext = nil
+        currentSessionAIFormatterEnabled = false
         clearLiveTranscript()
         pendingCancelReason = nil
     }

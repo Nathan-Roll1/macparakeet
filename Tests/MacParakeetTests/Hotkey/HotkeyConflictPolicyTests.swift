@@ -22,6 +22,7 @@ final class HotkeyConflictPolicyTests: XCTestCase {
         meeting: HotkeyTrigger = .disabled,
         fileTranscription: HotkeyTrigger = .disabled,
         youtubeTranscription: HotkeyTrigger = .disabled,
+        dictationAIPolish: HotkeyTrigger = .disabled,
         transformHotkeys: [Prompt] = [],
         meetingRecordingEnabled: Bool = true
     ) -> HotkeyConflictPolicy.SettingsSnapshot {
@@ -31,6 +32,7 @@ final class HotkeyConflictPolicyTests: XCTestCase {
             meeting: meeting,
             fileTranscription: fileTranscription,
             youtubeTranscription: youtubeTranscription,
+            dictationAIPolish: dictationAIPolish,
             transformHotkeys: transformHotkeys,
             meetingRecordingEnabled: meetingRecordingEnabled
         )
@@ -268,6 +270,16 @@ final class HotkeyConflictPolicyTests: XCTestCase {
         )
 
         XCTAssertEqual(result, .blocked("Conflicts with Transform Polish (⌥1)."))
+    }
+
+    func testSettingsPolicyBlocksAIPolishConflictWithHandsFree() {
+        let result = HotkeyConflictPolicy.settingsValidation(
+            candidate: .control,
+            surface: .dictationAIPolish,
+            snapshot: snapshot(handsFree: .control)
+        )
+
+        XCTAssertEqual(result, .blocked("Conflicts with hands-free mode (⌃ Control)."))
     }
 
     func testSettingsPolicyExistingDictationPeerMessagePreservesBlockedVsDisabled() {
