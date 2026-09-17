@@ -1,0 +1,49 @@
+name: Orukeet full app validation
+on:
+  push:
+    branches: [codex/orukeet-validation]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 60438b6e32e08e974638dac5fdf89dba32582ee5
+      - name: Record source and toolchain
+        run: |
+          mkdir -p evidence fixtures
+          git rev-parse HEAD | tee evidence/source-head.txt
+          xcodebuild -version | tee evidence/xcode-version.txt
+          swift --version | tee evidence/swift-version.txt
+          for name in en de fr silence; do
+            curl --fail --retry 3 --location "https://raw.githubusercontent.com/Nathan-Roll1/muesli/5f03f1e/.validation-fixtures/$name.wav" -o "fixtures/$name.wav"
+          done
+      - name: Focused model, lifecycle, CLI, and real scheduler tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          ORUKEET_AUDIO_DIR="$PWD/fixtures" MACPARAKEET_DEBUG_APP_STATE_DIR="$PWD/runtime-cache" swift test --filter 'OrukeetModelStoreTests|SpeechEnginePreferenceTests|SpeechEngineCapabilitiesTests|ModelDeletionTests|ModelLifecycleCommandTests|EngineSettingsViewModelTests' | tee evidence/focused-tests.log
+      - name: Full test suite final gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          swift test | tee evidence/full-tests.log
+      - name: Build actual development app with the repository script
+        shell: bash
+        run: |
+          set -euo pipefail
+          MACPARAKEET_DEBUG_APP_STATE_DIR="$PWD/gui-cache" scripts/dev/run_app.sh | tee evidence/xcode-build.log
+          cp "${TMPDIR:-/tmp}/macparakeet-dev-build.log" evidence/xcode-build-details.log
+          ditto -c -k --sequesterRsrc --keepParent .build/xcode-dev/Build/Products/Debug/MacParakeet-Dev.app evidence/MacParakeet-Dev.zip
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: MacParakeet-orukeet-validation
+          path: evidence/
+          retention-days: 14
