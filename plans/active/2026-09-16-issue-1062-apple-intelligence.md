@@ -51,9 +51,10 @@ audit `isLocal` / sentinel URL; exhaustive `LLMProviderID` switches; structured
 output uses `.promptEmbeddedJSONSchema` (the existing non-native path; this
 codebase has no "unsupported" capability case).
 
-Live probe on this Mac (26.6.2): `availability == .unavailable(.appleIntelligenceNotEnabled)`,
-`contextSize == 4096`. Implementation is testable without the model; a live A/B
-needs the user to enable Apple Intelligence in System Settings.
+Live probe on this Mac (26.6.2): after enable, `.available`. Path smoke (native
+`respond` / `streamResponse` / client) all returned `PING`. Quality/latency A/B
+vs Ollama `qwen3.5:4b` and `llama3.2:3b` on cleanup, summary, and grounded Ask:
+[`docs/research/2026-09-16-apple-intelligence-quality-ab.md`](../../docs/research/2026-09-16-apple-intelligence-quality-ab.md).
 
 ## Shape
 
