@@ -2168,7 +2168,7 @@ The existing completion handler reads the auto-open preference before presenting
 
 These are implemented in current source. Meeting import/split, timed
 corrections, DAPT, per-prompt settings, and the live-transcription toggle
-shipped in 0.8.0–0.8.4; local retrieval predates that train. Confirm each
+shipped in 0.8.0–0.8.5; local retrieval predates that train. Confirm each
 surface against the [canonical status table](README.md#release-channels-and-feature-flags).
 
 | Surface | Current behavior | Governing reference |

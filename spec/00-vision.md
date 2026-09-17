@@ -510,12 +510,13 @@ Ship-quality polish. Direct distribution via notarized DMG.
 
 ### v0.8: Library, meetings, and transcript workflow
 
-- Stable v0.8.4 is the current user-facing DMG. The train adds meeting import
+- Stable v0.8.5 is the current user-facing DMG. The train adds meeting import
   and split, timed transcript corrections, live transcription during recording,
   independent capture-source startup, per-event calendar skip, start-meetings-muted,
   Microsoft 365/Exchange calendar setup, Library labels/layouts, Seed of Life covers,
   Clean English “um” stripping, optional preserved discarded dictations, DAPT export,
-  and CLI 4.3.0.
+  and CLI 4.3.0. 0.8.5 also clears a stuck Wrapping up tile label after stop
+  (status only; recordings were already saved).
 - Voice profiles, encrypted share links, activity-based meeting detection,
   app-aware AI Formatter profiles, and in-process MLX remain gated.
 
