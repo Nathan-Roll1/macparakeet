@@ -270,7 +270,7 @@ Supported keys: `telemetry`, `processing-mode`, `remove-um-filler`, `speech-engi
 `parakeet-model`, `nemotron-model`, `nemotron-language`, `whisper-language`,
 `cohere-language`, `speaker-detection`, `meeting-speaker-detection`,
 `auto-meeting-titles`, `save-transcription-audio`, `meeting-audio-retention`,
-`meeting-audio-source`, `save-meeting-audio`, `youtube-audio-quality`,
+`meeting-audio-source`, `start-meetings-muted`, `save-meeting-audio`, `youtube-audio-quality`,
 `meeting-artifacts-folder`, `meeting-hook-enabled`, `meeting-hook-path`,
 `meeting-hook-timeout`, `voice-return-enabled`, `voice-return-triggers`,
 `preserve-discarded-dictations`.

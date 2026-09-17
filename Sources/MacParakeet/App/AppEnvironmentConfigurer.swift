@@ -369,6 +369,7 @@ final class AppEnvironmentConfigurer {
             sttManager: env.sttScheduler,
             speechEngineSelectionProvider: { SpeechEngineSelection.liveSpeech() },
             meetingAudioSourceModeProvider: { env.runtimePreferences.meetingAudioSourceMode },
+            startMeetingsMutedProvider: { env.runtimePreferences.startMeetingsMuted },
             meetingTypeIDProvider: { [weak meetingsWorkspaceViewModel] in
                 meetingsWorkspaceViewModel?.recordingMeetingTypeID
             },

@@ -405,6 +405,7 @@ final class MeetingRecordingFlowCoordinatorTests: XCTestCase {
         XCTAssertFalse(panel.canTogglePause)
         XCTAssertFalse(panel.canToggleMicrophoneMute)
         XCTAssertTrue(panel.canStop)
+        XCTAssertFalse(panel.isMicrophoneMuted)
         XCTAssertFalse(panel.showsAudioLevels)
         XCTAssertFalse(panel.showsElapsedTime)
         XCTAssertFalse(coordinator.isCapturingMeetingAudioForAutoStop)
@@ -429,6 +430,70 @@ final class MeetingRecordingFlowCoordinatorTests: XCTestCase {
         XCTAssertEqual(pauseCalls, 0)
         XCTAssertEqual(muteCalls, 0)
         await coordinator.discardRecordingAndWaitForCompletion()
+    }
+
+    func testStartMeetingsMutedShowsMutedDuringStarting() async throws {
+        let service = MeetingRecordingServiceSpy(output: makeRecordingOutput(), blocksStart: true)
+        let pill = MeetingRecordingPillViewModel()
+        let coordinator = MeetingRecordingFlowCoordinator(
+            meetingRecordingService: service,
+            transcriptionService: MockTranscriptionService(),
+            permissionService: MockPermissionService(),
+            transcriptionRepo: MockTranscriptionRepository(),
+            conversationRepo: MockChatConversationRepository(),
+            quickPromptRepo: NoOpQuickPromptRepository(),
+            configStore: NoOpLLMConfigStore(),
+            startMeetingsMutedProvider: { true },
+            shouldShowFloatingMeetingPill: { false },
+            llmService: nil,
+            pillViewModel: pill,
+            meetingRecordingSettlement: makeSettlement(),
+            onMenuBarIconUpdate: { _ in },
+            onTranscriptionReady: { _ in }
+        )
+
+        XCTAssertNotNil(coordinator.startRecording())
+        await service.waitUntilStartCalled()
+        let panel = try XCTUnwrap(coordinator.testHook_panelViewModel)
+        XCTAssertEqual(panel.state, .starting)
+        XCTAssertTrue(panel.isMicrophoneMuted)
+        XCTAssertFalse(panel.canToggleMicrophoneMute)
+        XCTAssertTrue(panel.showsMicrophoneMuteControl)
+
+        await coordinator.discardRecordingAndWaitForCompletion()
+        await service.releaseStart()
+    }
+
+    func testStartMeetingsMutedDoesNotShowMutedForSystemOnly() async throws {
+        let service = MeetingRecordingServiceSpy(output: makeRecordingOutput(), blocksStart: true)
+        let coordinator = MeetingRecordingFlowCoordinator(
+            meetingRecordingService: service,
+            transcriptionService: MockTranscriptionService(),
+            permissionService: MockPermissionService(),
+            transcriptionRepo: MockTranscriptionRepository(),
+            conversationRepo: MockChatConversationRepository(),
+            quickPromptRepo: NoOpQuickPromptRepository(),
+            configStore: NoOpLLMConfigStore(),
+            meetingAudioSourceModeProvider: { .systemOnly },
+            startMeetingsMutedProvider: { true },
+            shouldShowFloatingMeetingPill: { false },
+            llmService: nil,
+            pillViewModel: MeetingRecordingPillViewModel(),
+            meetingRecordingSettlement: makeSettlement(),
+            onMenuBarIconUpdate: { _ in },
+            onTranscriptionReady: { _ in }
+        )
+
+        XCTAssertNotNil(coordinator.startRecording())
+        await service.waitUntilStartCalled()
+        let panel = try XCTUnwrap(coordinator.testHook_panelViewModel)
+        XCTAssertEqual(panel.state, .starting)
+        XCTAssertFalse(panel.isMicrophoneMuted)
+        XCTAssertFalse(panel.canToggleMicrophoneMute)
+        XCTAssertFalse(panel.showsMicrophoneMuteControl)
+
+        await coordinator.discardRecordingAndWaitForCompletion()
+        await service.releaseStart()
     }
 
     func testStopDuringSuspendedStartSavesInsteadOfDiscarding() async throws {

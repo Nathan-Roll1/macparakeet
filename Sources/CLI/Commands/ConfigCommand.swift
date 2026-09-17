@@ -57,6 +57,7 @@ struct ConfigCommand: ParsableCommand {
           meeting-audio-source      microphone-and-system|          default: microphone-and-system
                                     microphone-only|
                                     system-only
+          start-meetings-muted      on|off                          default: off
           save-meeting-audio        on|off                          legacy alias
           youtube-audio-quality     m4a|best-available              default: m4a
           meeting-artifacts-folder  absolute path|default           default: app support
@@ -185,6 +186,12 @@ struct ConfigCommand: ParsableCommand {
             valueSyntax: "microphone-and-system|microphone-only|system-only",
             allowedValues: ["microphone-and-system", "microphone-only", "system-only"],
             summary: "Default meeting capture source mode."
+        ),
+        CLIConfigKeySpec(
+            key: "start-meetings-muted",
+            valueSyntax: "on|off",
+            allowedValues: ["on", "off"],
+            summary: "Start microphone-capturing meetings muted until this setting is turned off."
         ),
         CLIConfigKeySpec(
             key: "save-meeting-audio",
@@ -369,6 +376,8 @@ struct ConfigCommand: ParsableCommand {
             return UserDefaultsAppRuntimePreferences.meetingAudioRetention(defaults: store).configurationValue
         case "meeting-audio-source":
             return MeetingAudioSourceMode.current(defaults: store).configurationValue
+        case "start-meetings-muted":
+            return UserDefaultsAppRuntimePreferences.startMeetingsMuted(defaults: store) ? "on" : "off"
         case "save-meeting-audio":
             let on = UserDefaultsAppRuntimePreferences(defaults: store).shouldSaveMeetingAudio
             return on ? "on" : "off"
@@ -486,6 +495,10 @@ struct ConfigCommand: ParsableCommand {
             let mode = try parseMeetingAudioSourceMode(value)
             store.set(mode.rawValue, forKey: UserDefaultsAppRuntimePreferences.meetingAudioSourceModeKey)
             return mode.configurationValue
+        case "start-meetings-muted":
+            let parsed = try parseBool(value, key: key)
+            store.set(parsed, forKey: UserDefaultsAppRuntimePreferences.startMeetingsMutedKey)
+            return parsed ? "on" : "off"
         case "save-meeting-audio":
             let parsed = try parseBool(value, key: key)
             UserDefaultsAppRuntimePreferences.saveMeetingAudioRetention(

@@ -100,6 +100,10 @@ by checking exit code first: `2` = misuse, `1` = runtime, `0` = success.
   History JSON may now include `"status": "cancelled"`; the human-readable
   list marks those rows `[cancelled]`. Older CLI builds that decode
   `DictationStatus` strictly will fail on those rows until upgraded.
+- `config get|set|list` includes `start-meetings-muted` (`on`/`off`, default
+  off). While on, every microphone-capturing meeting starts muted until the
+  setting is turned off; unmute from the live meeting panel.
+  System-audio-only capture ignores it.
 
 ### Changed
 
