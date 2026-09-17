@@ -307,11 +307,7 @@ public enum PromptInferenceCapabilityResolver {
             requestedSettings: requested,
             effectiveSettings: effectiveSettings,
             validationError: validationError,
-            fieldCapabilities: fieldCapabilities(
-                for: effectiveConfig,
-                baseline: baseline,
-                thinkingMode: requested?.thinkingMode ?? .providerDefault
-            )
+            fieldCapabilities: fieldCapabilities(for: effectiveConfig, baseline: baseline)
         )
     }
 
@@ -321,10 +317,7 @@ public enum PromptInferenceCapabilityResolver {
         requested: PromptInferenceSettings?
     ) throws -> PromptInferenceResolution {
         let requested = try requested?.validated()
-        var supported = supportedFields(
-            for: config,
-            thinkingMode: requested?.thinkingMode ?? .providerDefault
-        )
+        var supported = supportedFields(for: config)
 
         var resolvedOptions = legacyBaseline(
             config: config,
@@ -368,15 +361,12 @@ public enum PromptInferenceCapabilityResolver {
     }
 
     public static func supportedFields(
-        for config: LLMProviderConfig,
-        thinkingMode: PromptInferenceSettings.ThinkingMode = .providerDefault
+        for config: LLMProviderConfig
     ) -> Set<PromptInferenceSettings.Field> {
         switch config.id {
         case .openai:
             var fields: Set<PromptInferenceSettings.Field> = [.maxTokens]
-            if !ChatCompletionsModelPolicy.shouldOmitSampling(
-                model: config.modelName, thinkingMode: thinkingMode)
-            {
+            if !ChatCompletionsModelPolicy.shouldOmitSampling(model: config.modelName) {
                 fields.formUnion([.temperature, .topP])
             }
             return fields
@@ -391,16 +381,12 @@ public enum PromptInferenceCapabilityResolver {
         case .openaiCompatible:
             if OpenAIModelPolicy.requiresMaxCompletionTokens(model: config.modelName) {
                 var fields: Set<PromptInferenceSettings.Field> = [.maxTokens]
-                if !ChatCompletionsModelPolicy.shouldOmitSampling(
-                    model: config.modelName, thinkingMode: thinkingMode)
-                {
+                if !ChatCompletionsModelPolicy.shouldOmitSampling(model: config.modelName) {
                     fields.formUnion([.temperature, .topP])
                 }
                 return fields
             }
-            if ChatCompletionsModelPolicy.shouldOmitSampling(
-                model: config.modelName, thinkingMode: thinkingMode)
-            {
+            if ChatCompletionsModelPolicy.shouldOmitSampling(model: config.modelName) {
                 var fields: Set<PromptInferenceSettings.Field> = [.maxTokens]
                 if ChatCompletionsModelPolicy.supportsThinkingToggle(model: config.modelName) {
                     fields.insert(.thinkingMode)
@@ -410,17 +396,13 @@ public enum PromptInferenceCapabilityResolver {
             return [.temperature, .topP, .topK, .maxTokens, .thinkingMode, .reasoningEffort]
         case .openrouter:
             var fields: Set<PromptInferenceSettings.Field> = [.maxTokens]
-            if !ChatCompletionsModelPolicy.shouldOmitSampling(
-                model: config.modelName, thinkingMode: thinkingMode)
-            {
+            if !ChatCompletionsModelPolicy.shouldOmitSampling(model: config.modelName) {
                 fields.insert(.temperature)
             }
             return fields
         case .moonshot, .deepseek, .qwen, .zai, .minimax:
             var fields: Set<PromptInferenceSettings.Field> = [.maxTokens]
-            if !ChatCompletionsModelPolicy.shouldOmitSampling(
-                model: config.modelName, thinkingMode: thinkingMode)
-            {
+            if !ChatCompletionsModelPolicy.shouldOmitSampling(model: config.modelName) {
                 fields.insert(.temperature)
             }
             if ChatCompletionsModelPolicy.supportsThinkingToggle(model: config.modelName) {
@@ -468,16 +450,11 @@ public enum PromptInferenceCapabilityResolver {
 
     private static func fieldCapabilities(
         for config: LLMProviderConfig,
-        baseline: ChatCompletionOptions,
-        thinkingMode: PromptInferenceSettings.ThinkingMode
+        baseline: ChatCompletionOptions
     ) -> [PromptInferenceSettings.Field: PromptInferenceFieldCapability] {
         Dictionary(
             uniqueKeysWithValues: PromptInferenceSettings.Field.allCases.map { field in
-                (
-                    field,
-                    fieldCapability(
-                        for: field, config: config, baseline: baseline, thinkingMode: thinkingMode)
-                )
+                (field, fieldCapability(for: field, config: config, baseline: baseline))
             }
         )
     }
@@ -485,10 +462,9 @@ public enum PromptInferenceCapabilityResolver {
     private static func fieldCapability(
         for field: PromptInferenceSettings.Field,
         config: LLMProviderConfig,
-        baseline: ChatCompletionOptions,
-        thinkingMode: PromptInferenceSettings.ThinkingMode
+        baseline: ChatCompletionOptions
     ) -> PromptInferenceFieldCapability {
-        let supported = supportedFields(for: config, thinkingMode: thinkingMode).contains(field)
+        let supported = supportedFields(for: config).contains(field)
         let availability: PromptInferenceFieldCapability.Availability
         if !supported {
             availability = .unsupported
