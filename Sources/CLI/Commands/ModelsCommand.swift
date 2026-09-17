@@ -829,7 +829,7 @@ func loadSelectableSpeechModels(
         let lifecycle = capabilities.modelLifecycle
         return SelectableSpeechModel(
             id: parakeetModelID(for: variant),
-            name: "\(lifecycle.modelName) (\(variant.displayName))",
+            name: variant == .orukeet ? variant.displayName : "\(lifecycle.modelName) (\(variant.displayName))",
             engine: SpeechEnginePreference.parakeet.rawValue,
             variant: lifecycle.variantID ?? variant.rawValue,
             size: lifecycle.approximateDownloadSize,
@@ -1062,7 +1062,7 @@ func resolveModelDeletionTarget(
         let lifecycle = speechModelLifecycle(for: .parakeet(parakeetVariant))
         return ModelDeletionTarget(
             kind: .parakeet(parakeetVariant),
-            displayName: "\(lifecycle.modelName) (\(parakeetVariant.displayName))"
+            displayName: parakeetVariant == .orukeet ? parakeetVariant.displayName : "\(lifecycle.modelName) (\(parakeetVariant.displayName))"
         )
     }
     if let nemotronVariant = selection.nemotronVariant {
