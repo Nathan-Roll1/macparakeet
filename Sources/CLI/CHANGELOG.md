@@ -89,6 +89,14 @@ by checking exit code first: `2` = misuse, `1` = runtime, `0` = success.
 
 ## [Unreleased]
 
+### Added
+
+- Inline `--provider` accepts `moonshot` (aliases `kimi`, `moonshotai`),
+  `deepseek`, `qwen` (aliases `alibaba`, `dashscope`), `zai` (aliases `zhipu`,
+  `z.ai`, `glm`), and `minimax`. Default env keys are `MOONSHOT_API_KEY` /
+  `KIMI_API_KEY`, `DEEPSEEK_API_KEY`, `DASHSCOPE_API_KEY` / `QWEN_API_KEY`,
+  `ZAI_API_KEY` / `ZHIPU_API_KEY`, and `MINIMAX_API_KEY`.
+
 ## [4.3.0] — 2026-09-16
 
 ### Added

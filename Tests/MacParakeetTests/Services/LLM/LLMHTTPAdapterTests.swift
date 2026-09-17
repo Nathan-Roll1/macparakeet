@@ -516,6 +516,7 @@ final class LLMHTTPAdapterTests: XCTestCase {
         let rejecting = [
             "o3", "o4-mini", "gpt-5.5", "gpt-5.4", "gpt-5.4-nano", "GPT-5.4-Mini", "gpt-10",
             "gpt-5.6-sol", "gpt-5.6-luna", "openai/gpt-5.6-sol", "openai/gpt-5.6-luna",
+            "kimi-k2.6", "moonshotai/kimi-k2.6", "kimi-k3", "kimi-k2.7-code", "deepseek-v4-flash",
         ]
         for model in rejecting {
             XCTAssertTrue(
@@ -526,6 +527,7 @@ final class LLMHTTPAdapterTests: XCTestCase {
         let accepting = [
             "gpt-5.3-chat-latest", "openai/gpt-5.3-chat-latest", "gpt-4.1", "gpt-4.1-mini",
             "gpt-4o", "chatgpt-4o-latest", "local-model", "gpt-oss-120b",
+            "qwen3.7-max", "glm-5.1", "MiniMax-M2.7",
         ]
         for model in accepting {
             XCTAssertFalse(
@@ -557,6 +559,89 @@ final class LLMHTTPAdapterTests: XCTestCase {
             stream: false
         )
         XCTAssertEqual(try jsonBody(from: historicalRequest)["temperature"] as? Double, 0.7)
+    }
+
+    func testKimiRequestsOmitIllegalTemperatureOnEveryCompatiblePath() throws {
+        let options = ChatCompletionOptions(temperature: 0.7, maxTokens: 256)
+        let configs: [LLMProviderConfig] = [
+            .moonshot(apiKey: "key", model: "kimi-k2.6"),
+            .openrouter(apiKey: "key", model: "moonshotai/kimi-k2.6"),
+            .openaiCompatible(
+                apiKey: "key",
+                model: "kimi-k2.6",
+                baseURL: URL(string: "https://api.moonshot.ai/v1")!
+            ),
+        ]
+        for config in configs {
+            let request = try openAIAdapter.buildRequest(
+                messages: goldenMessages,
+                config: config,
+                options: options,
+                stream: false
+            )
+            let body = try jsonBody(from: request)
+            XCTAssertNil(body["temperature"], "\(config.id.rawValue) \(config.modelName) must omit temperature")
+            XCTAssertNil(body["top_p"])
+            XCTAssertEqual(body["model"] as? String, config.modelName)
+        }
+    }
+
+    func testKimiCompatibleThinkingUsesMoonshotObjectNotLlamaCppKwargs() throws {
+        let request = try openAIAdapter.buildRequest(
+            messages: goldenMessages,
+            config: .openaiCompatible(
+                apiKey: "key",
+                model: "kimi-k2.6",
+                baseURL: URL(string: "https://api.moonshot.ai/v1")!
+            ),
+            options: ChatCompletionOptions(
+                temperature: 0.7,
+                thinkingMode: .disabled
+            ),
+            stream: false
+        )
+        let body = try jsonBody(from: request)
+        XCTAssertNil(body["temperature"])
+        XCTAssertNil(body["chat_template_kwargs"])
+        XCTAssertEqual((body["thinking"] as? [String: String])?["type"], "disabled")
+    }
+
+    func testQwenNativeThinkingUsesEnableThinkingFlag() throws {
+        let request = try openAIAdapter.buildRequest(
+            messages: goldenMessages,
+            config: .qwen(apiKey: "key"),
+            options: ChatCompletionOptions(temperature: 0.7, thinkingMode: .enabled),
+            stream: false
+        )
+        let body = try jsonBody(from: request)
+        XCTAssertEqual(body["temperature"] as? Double, 0.7)
+        XCTAssertEqual(body["enable_thinking"] as? Bool, true)
+        XCTAssertNil(body["thinking"])
+    }
+
+    func testMiniMaxEnabledThinkingUsesAdaptiveType() throws {
+        let request = try openAIAdapter.buildRequest(
+            messages: goldenMessages,
+            config: .minimax(apiKey: "key"),
+            options: ChatCompletionOptions(temperature: 0.7, thinkingMode: .enabled),
+            stream: false
+        )
+        let body = try jsonBody(from: request)
+        XCTAssertEqual(body["temperature"] as? Double, 0.7)
+        XCTAssertEqual((body["thinking"] as? [String: String])?["type"], "adaptive")
+    }
+
+    func testOpenRouterDoesNotForwardLabThinkingObjects() throws {
+        let request = try openAIAdapter.buildRequest(
+            messages: goldenMessages,
+            config: .openrouter(apiKey: "key", model: "moonshotai/kimi-k2.6"),
+            options: ChatCompletionOptions(temperature: 0.7, thinkingMode: .disabled),
+            stream: false
+        )
+        let body = try jsonBody(from: request)
+        XCTAssertNil(body["temperature"])
+        XCTAssertNil(body["thinking"])
+        XCTAssertNil(body["enable_thinking"])
     }
 
     func testOpenAICompatibleGatewayGPT56UsesNativeOpenAIParameterPolicy() async throws {

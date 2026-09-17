@@ -81,9 +81,9 @@ sitting at a keyboard, it lives in the .app.
   mode, speaker detection, audio retention, YouTube audio quality, and
   telemetry without driving the GUI.
 - **Prompt library + LLM-backed summarization** -- bring your own provider
-  (OpenAI, Anthropic, Ollama, LM Studio, OpenAI-compatible local, or a
-  configured CLI subprocess), or skip the LLM entirely and consume raw
-  transcripts.
+  (OpenAI, Anthropic, Gemini, OpenRouter, Moonshot/Kimi, DeepSeek, Qwen, Z.AI,
+  MiniMax, Ollama, LM Studio, OpenAI-compatible, or a configured CLI
+  subprocess), or skip the LLM entirely and consume raw transcripts.
 - **Machine-readable output** -- read-only query commands use `--json`,
   format-selecting commands use `--format json`, and LLM/prompt commands use
   `--json` for structured envelopes (see

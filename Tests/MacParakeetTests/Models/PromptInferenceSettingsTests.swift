@@ -183,6 +183,19 @@ final class PromptInferenceSettingsTests: XCTestCase {
             ),
             requested: nil)
         XCTAssertNil(gatewayLuna.effectiveSettings)
+
+        let kimi = try PromptInferenceCapabilityResolver.resolve(
+            config: .moonshot(apiKey: "key"),
+            requested: nil)
+        XCTAssertNil(kimi.options.temperature)
+        XCTAssertNil(kimi.effectiveSettings)
+
+        let openRouterKimi = try PromptInferenceCapabilityResolver.resolve(
+            config: .openrouter(apiKey: "key", model: "moonshotai/kimi-k2.6"),
+            requested: PromptInferenceSettings(temperature: 0.7)
+        )
+        XCTAssertNil(openRouterKimi.options.temperature)
+        XCTAssertEqual(openRouterKimi.unsupportedSettings, [.temperature])
     }
 
     func testGemini3AutomaticSamplingOmitsOnlyTheInheritedApplicationBaseline() throws {
