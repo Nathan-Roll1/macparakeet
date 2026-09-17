@@ -74,5 +74,7 @@ Implemented on `feat/cli-gui-parity`. The kept slice is in source:
 - `plans/README.md` meeting-split row corrected to implemented
 
 Focused CLITests for those commands, plus `SpecCommandTests` and
-`ConfigCommandTests`, passed. Follow-ups from the rejected list stay out of
-this PR.
+`ConfigCommandTests`, passed (`swift test --filter CLITests`: 582 tests, 0
+failures). A subsequent full `swift test` hung in unrelated
+`MeetingRecordingLockFileStoreTests` and was stopped; this PR does not touch
+that code. Follow-ups from the rejected list stay out of this PR.
