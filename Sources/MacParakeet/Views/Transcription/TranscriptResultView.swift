@@ -5926,6 +5926,9 @@ private struct EngineOptionCard: View {
 
     private var accessibilityLabel: String {
         var parts = [selection.engine.displayName]
+        if selection.engine == .parakeet {
+            parts.append(parakeetVariant.displayName)
+        }
         if isPrimary {
             parts.append(primaryReflectsTranscriptEngine ? "engine used for this transcript" : "current engine")
         }
