@@ -52,9 +52,9 @@ workflows; [`cli-json-v1`](../spec/contracts/cli-json-v1.md) defines the stable
 automation contract. The examples below are focused verification scenarios, not
 an exhaustive option list.
 
-`flow` is a deprecated compatibility alias for `vocab` and remains accepted in
-CLI 3.x. Use `vocab` in new scripts; removal requires a future major-version
-contract change and a matching changelog entry.
+`flow` is a deprecated compatibility alias for `vocab` and remains accepted
+until the next major CLI version. Use `vocab` in new scripts; removal requires
+a major-version contract change and a matching changelog entry.
 
 > **JSON output convention**: any query command marked `[--json]` emits a single
 > JSON document on stdout (ISO-8601 dates, sorted keys, pretty-printed). Pipe to
@@ -435,8 +435,9 @@ Pass `--json` to get a machine-readable success object with the affected ID(s) i
 
 ```bash
 swift run macparakeet-cli history favorites
-swift run macparakeet-cli history favorite <ID>
-swift run macparakeet-cli history unfavorite <ID>
+swift run macparakeet-cli history favorite <ID> --json
+swift run macparakeet-cli history unfavorite <ID> --json
+swift run macparakeet-cli history rename <ID> --title "New title" --json
 ```
 
 ## Health Check

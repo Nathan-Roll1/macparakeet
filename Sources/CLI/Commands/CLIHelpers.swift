@@ -19,6 +19,18 @@ func macParakeetAppDefaults(
     AppPaths.appDefaults(bundleIdentifier: bundleIdentifier)
 }
 
+/// LLM service that reads the same preference suite and Keychain items the GUI
+/// uses. Bare `LLMService()` would bind `LLMConfigStore` to `.standard`, which
+/// misses GUI-saved provider metadata on the standalone Homebrew CLI.
+func makeSharedLLMService(
+    defaults: UserDefaults = macParakeetAppDefaults()
+) -> LLMService {
+    LLMService(
+        configStore: LLMConfigStore(defaults: defaults),
+        cliConfigStore: LocalCLIConfigStore(defaults: defaults)
+    )
+}
+
 func validateCLISpeechEngineMemoryRequirement(
     for engine: SpeechEnginePreference,
     physicalMemoryBytes: UInt64 = ProcessInfo.processInfo.physicalMemory

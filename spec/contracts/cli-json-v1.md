@@ -237,10 +237,13 @@ with human progress/status kept off stdout.
   whole-text edits. The same payload's `wordTimestamps` retain the
   automatic recognized text and timing as immutable evidence, so consumers
   must not substitute them for corrected-word timing.
-- `meetings corrections edit-line|merge-lines|undo|redo|reset` mutates the
+- `meetings corrections edit-line|merge-lines|rename|assign|merge-speakers|undo|redo|reset`
+  mutates the
   same reversible correction journal as the app. Every command requires
-  `--expected-revision` from the last transcript read; edit/merge target current
-  segment UUIDs from `meetings transcript --format json`. A stale revision or
+  `--expected-revision` from the last transcript read; edit/merge/assign
+  target current
+  segment UUIDs from `meetings transcript --format json`. Speaker rename and
+  merge-speakers use speaker ids from that same JSON. A stale revision or
   segment is rejected without advancing history. JSON success output is the
   updated `MeetingTranscriptRecord`, including the new revision and effective
   projection. JSON failures use `conflict` for a stale expected revision,
