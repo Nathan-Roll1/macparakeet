@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: f6c0e279a0b576d05d30a3198b16805c4111dcf1
+          ref: 2d172f1aa1e9ace95aff934ec2f60a326495e024
       - name: Record source and toolchain
         run: |
           mkdir -p evidence fixtures
@@ -24,6 +24,11 @@ jobs:
           done
       - name: Lint the new model files
         run: xcrun swift-format lint --configuration .swift-format Sources/MacParakeetCore/STT/OrukeetModelStore.swift Tests/MacParakeetTests/STT/OrukeetModelStoreTests.swift
+      - name: Focused installer and real scheduler regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          ORUKEET_AUDIO_DIR="$PWD/fixtures" MACPARAKEET_DEBUG_APP_STATE_DIR="$PWD/runtime-cache" swift test --filter OrukeetModelStoreTests | tee evidence/focused-tests.log
       - name: Build actual development app with the repository script
         shell: bash
         run: |
