@@ -281,6 +281,7 @@ final class SpecCommandTests: XCTestCase {
             ["vocab", "snippets", "edit"],
             ["vocab", "import"],
             ["history", "favorite"],
+            ["history", "rename"],
             ["history", "delete-meeting-audio"],
             ["retranscribe"],
             ["search"],
@@ -290,6 +291,9 @@ final class SpecCommandTests: XCTestCase {
             ["export"],
             ["calendar", "upcoming"],
             ["feedback"],
+            ["meetings", "corrections", "rename"],
+            ["meetings", "corrections", "assign"],
+            ["meetings", "corrections", "merge-speakers"],
         ] {
             XCTAssertTrue(paths.contains(path), "\(path.joined(separator: " ")) missing from spec catalog")
         }
@@ -377,6 +381,10 @@ final class SpecCommandTests: XCTestCase {
             configKeys.first { ($0["key"] as? String) == "meeting-speaker-detection" })
         XCTAssertEqual(meetingSpeakerDetection["allowedValues"] as? [String], ["on", "off"])
 
+        let customVocabularyBoosting = try XCTUnwrap(
+            configKeys.first { ($0["key"] as? String) == "custom-vocabulary-boosting" })
+        XCTAssertEqual(customVocabularyBoosting["allowedValues"] as? [String], ["on", "off"])
+
         let timeout = try XCTUnwrap(configKeys.first { ($0["key"] as? String) == "meeting-hook-timeout" })
         XCTAssertEqual(timeout["valueSyntax"] as? String, "seconds 1-300")
     }
@@ -416,6 +424,7 @@ final class SpecCommandTests: XCTestCase {
         XCTAssertTrue(optionNames.contains("--speaker-min"))
         XCTAssertTrue(optionNames.contains("--speaker-max"))
         XCTAssertTrue(optionNames.contains("--media-audio-quality"))
+        XCTAssertTrue(optionNames.contains("--no-diarize"))
         XCTAssertTrue(optionNames.contains("--database"))
 
         let engine = try XCTUnwrap(options.first { ($0["name"] as? String) == "--engine" })
