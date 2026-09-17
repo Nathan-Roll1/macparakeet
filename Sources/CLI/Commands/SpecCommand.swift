@@ -222,7 +222,7 @@ private extension CLISpecCommand {
                 CLISpecParameter.option(
                     "--parakeet-model", valueName: "app-default|v3|v2|unified|orukeet",
                     summary:
-                        "Parakeet build: v3 supported languages, v2 English timestamps, or Unified readable English timestamps."
+                        "Parakeet build: v3 supported languages, v2 English timestamps, Unified readable English timestamps, or orukeet (multilingual preview)."
                 ),
                 CLISpecParameter.option(
                     "--nemotron-model", valueName: "app-default|multilingual-1120ms|english-1120ms",
@@ -279,7 +279,7 @@ private extension CLISpecCommand {
                 CLISpecParameter.option(
                     "--parakeet-model", valueName: "app-default|v3|v2|unified|orukeet",
                     summary:
-                        "Parakeet build: v3 supported languages, v2 English timestamps, or Unified readable English timestamps."
+                        "Parakeet build: v3 supported languages, v2 English timestamps, Unified readable English timestamps, or orukeet (multilingual preview)."
                 ),
                 CLISpecParameter.option(
                     "--nemotron-model", valueName: "app-default|multilingual-1120ms|english-1120ms",
