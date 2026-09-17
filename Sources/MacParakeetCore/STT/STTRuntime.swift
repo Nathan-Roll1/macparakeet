@@ -2349,13 +2349,15 @@ public actor STTRuntime: STTRuntimeProtocol {
             let downloadedModels = try await AsrModels.downloadAndLoad(
                 to: AppPaths.fluidAudioModelDirectory(forASRVersion: version),
                 version: version,
+                encoderComputeUnits: ParakeetTDTASRConfig.encoderComputeUnits(),
                 progressHandler: progressHandler
             )
             do {
                 // FluidAudio progress is manager-scoped, so each slot keeps its
                 // own manager while the read-only model bundle stays shared.
                 // `ParakeetTDTASRConfig` drops long-file chunk concurrency to 1
-                // on macOS 14 (issue #997); 15+ keeps FluidAudio's default of 4.
+                // on macOS 14 (issue #997) and loads the encoder on GPU instead
+                // of ANE; 15+ keeps FluidAudio's default of 4 / ANE.
                 let asrConfig = ParakeetTDTASRConfig.make()
                 let loadedInteractiveManager = AsrManager(config: asrConfig)
                 let loadedBackgroundManager = AsrManager(config: asrConfig)

@@ -220,10 +220,16 @@ runs four Core ML `prediction()` calls on the same compiled models. That inner
 pool is what crashed Sonoma file / YouTube / meeting jobs with Apple's
 "asynchronous prediction using ML Program" error. `ParakeetTDTASRConfig.make()`
 sets `parallelChunkConcurrency: 1` when the ANE gate requires serialization
-(macOS 14) and keeps FluidAudio's default of 4 on macOS 15+. Dictation is
-unaffected (single window). Do not construct TDT `AsrManager(config: .default)`
-from a new site — go through `ParakeetTDTASRConfig`. Diagnosis:
-`docs/research/2026-09-09-issue-997-coreml-long-file-stt/`.
+(macOS 14) and keeps FluidAudio's default of 4 on macOS 15+. Serial chunks were
+not enough: Cluster A still SIGBUS/SIGSEGV minutes into Sonoma long-file TDT
+after 0.8.1. `ParakeetTDTASRConfig.encoderComputeUnits()` therefore moves the
+v3 conformer encoder to `.cpuAndGPU` on 14 (FluidAudio's documented override;
+preprocessor is already CPU). 15+ passes `nil` and stays on ANE. One shared
+model bundle, so Sonoma dictation uses the same encoder units. Do not construct
+TDT `AsrManager(config: .default)` from a new site — go through
+`ParakeetTDTASRConfig`. Diagnosis:
+`docs/research/2026-09-09-issue-997-coreml-long-file-stt/` and
+`docs/research/2026-09-17-085-cluster-a-residual.md`.
 
 **Engine routing is per-job.** Parakeet stays default. Settings persists Live
 Speech plus an optional Final Transcription override. Missing override state
