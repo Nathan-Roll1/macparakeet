@@ -129,7 +129,7 @@ States, all bound to the long-lived `MeetingRecordingPillViewModel` shared with 
 - **Idle**: green rosette + stem (subtle 4s glow breathing), "Record Meeting" + subtitle, red "Start" capsule on the right.
 - **Starting**: capture is requested; pause/elapsed stay inactive until the first usable buffer is accepted. Mute stays non-toggleable until the microphone is ready. When **Start meetings muted** is on and the source captures a microphone, the live panel shows the muted mic control disabled during this state. Stop remains available and saves any audio already written. A selected source may still be pending.
 - **Recording**: rosette rotates (12s/turn — matches the floating pill exactly), audio halo grows with mic level, breathing red dot + monospaced MM:SS timer, white-on-red Stop button. Border picks up `recordingRed` opacity.
-- **Completing / Transcribing**: spinner replaces rosette; "Wrapping up..." then "Transcribing..." labels.
+- **Completing / Transcribing**: spinner replaces rosette; "Wrapping up..." then "Transcribing..." labels. Completing is the floating pill's ~1 s collapse flourish. If that pill is hidden (Settings, quit-time dismiss, or no window), the shared view model skips completing so the tile cannot stick on "Wrapping up...". Transcribing then completed still run for the saved-celebration and auto-revert to idle.
 - **Completed**: green checkmark + "Saved to Library"; auto-reverts to idle.
 - **Error**: amber triangle + recovery message; auto-dismisses through the recording flow coordinator.
 
