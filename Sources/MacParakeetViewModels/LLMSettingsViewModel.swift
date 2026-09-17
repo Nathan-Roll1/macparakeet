@@ -219,6 +219,16 @@ public final class LLMSettingsViewModel {
             return "Optional API key"
         case .openai:
             return "sk-..."
+        case .moonshot:
+            return "Moonshot API key"
+        case .deepseek:
+            return "DeepSeek API key"
+        case .qwen:
+            return "DashScope API key"
+        case .zai:
+            return "Z.AI API key"
+        case .minimax:
+            return "MiniMax API key"
         case .ollama, .localCLI, .inProcessLocal, nil:
             return ""
         }
@@ -649,7 +659,8 @@ public final class LLMSettingsViewModel {
         }
         do {
             guard let config = try buildConfig(from: draft) else { return }
-            let cliConfig = draft.providerID == .localCLI
+            let cliConfig =
+                draft.providerID == .localCLI
                 ? LocalCLIConfig(
                     commandTemplate: draft.trimmedCommandTemplate,
                     timeoutSeconds: draft.cliTimeoutSeconds
