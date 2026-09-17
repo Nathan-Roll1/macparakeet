@@ -89,6 +89,8 @@ by checking exit code first: `2` = misuse, `1` = runtime, `0` = success.
 
 ## [Unreleased]
 
+## [4.3.0] — 2026-09-16
+
 ### Added
 
 - `config` key `remove-um-filler` (`on|off`, default `on`). Clean processing
