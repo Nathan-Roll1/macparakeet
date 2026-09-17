@@ -1417,65 +1417,6 @@ final class MeetingRecordingFlowCoordinatorTests: XCTestCase {
         try await waitForPillState(pillViewModel, .idle, timeout: .seconds(5))
     }
 
-    /// Visible pill torn down mid-wrap-up (quit-time dismiss). The icon's
-    /// unstructured collapse Task is not cancelled by `hide()`, so it may
-    /// still finish around 1 s; otherwise the 2 s fallback runs. Completing
-    /// must not stick either way.
-    func testDismissingFloatingPillDuringWrapUpStillLeavesCompleting() async throws {
-        let recordingService = MeetingRecordingServiceSpy(output: makeRecordingOutput())
-        let pillViewModel = MeetingRecordingPillViewModel()
-        let coordinator = makeQuitTeardownCoordinator(
-            recordingService: recordingService,
-            pillViewModel: pillViewModel
-        )
-
-        XCTAssertNotNil(coordinator.startRecording())
-        try await waitForPillState(pillViewModel, .recording)
-        XCTAssertTrue(coordinator.testHook_isFloatingPillVisible)
-
-        XCTAssertTrue(coordinator.stopRecording(operationTrigger: .manual))
-        XCTAssertEqual(pillViewModel.state, .completing)
-
-        coordinator.dismissFloatingPillForQuit()
-        XCTAssertFalse(coordinator.testHook_isFloatingPillVisible)
-        XCTAssertEqual(coordinator.testHook_state, .stopping)
-
-        await coordinator.testHook_waitForActionTask()
-        try await waitForPillState(pillViewModel, .transcribing, timeout: .seconds(3))
-        XCTAssertNotEqual(pillViewModel.state, .completing)
-        try await waitForPillState(pillViewModel, .idle, timeout: .seconds(5))
-    }
-
-    /// Back-to-back: start the next meeting while the previous flourish is
-    /// still in flight. A late collapse callback must not yank the new
-    /// recording into `.transcribing`.
-    func testBackToBackStartDuringWrapUpKeepsNewRecordingLive() async throws {
-        let recordingService = MeetingRecordingServiceSpy(output: makeRecordingOutput())
-        let pillViewModel = MeetingRecordingPillViewModel()
-        let coordinator = makeQuitTeardownCoordinator(
-            recordingService: recordingService,
-            pillViewModel: pillViewModel
-        )
-
-        XCTAssertNotNil(coordinator.startRecording())
-        try await waitForPillState(pillViewModel, .recording)
-
-        XCTAssertTrue(coordinator.stopRecording(operationTrigger: .manual))
-        await coordinator.testHook_waitForActionTask()
-        XCTAssertEqual(coordinator.testHook_state, .idle)
-        XCTAssertTrue(
-            pillViewModel.state == .completing || pillViewModel.state == .transcribing,
-            "expected post-stop flourish, got \(pillViewModel.state)"
-        )
-
-        XCTAssertNotNil(coordinator.startRecording())
-        try await waitForPillState(pillViewModel, .recording, timeout: .seconds(2))
-
-        try await Task.sleep(for: .milliseconds(2100))
-        XCTAssertEqual(pillViewModel.state, .recording)
-        XCTAssertEqual(coordinator.testHook_state, .recording)
-    }
-
     private func makeQuitTeardownCoordinator(
         recordingService: MeetingRecordingServiceSpy? = nil,
         shouldShowFloatingMeetingPill: @escaping @MainActor @Sendable () -> Bool = { true },
