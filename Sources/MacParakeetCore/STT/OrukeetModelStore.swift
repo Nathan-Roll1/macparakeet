@@ -251,7 +251,7 @@ public enum OrukeetModelStore {
         let configuration = MLModelConfiguration()
         configuration.computeUnits = .cpuAndNeuralEngine
         return try AsrModels(
-            encoder: component("Encoder", .cpuAndNeuralEngine),
+            encoder: component("Encoder", ParakeetTDTASRConfig.encoderComputeUnits() ?? .cpuAndNeuralEngine),
             preprocessor: component("Preprocessor", .cpuOnly),
             decoder: component("Decoder", .cpuAndNeuralEngine),
             joint: component("JointDecisionv3", .cpuAndNeuralEngine),
