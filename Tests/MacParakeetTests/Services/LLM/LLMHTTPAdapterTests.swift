@@ -516,7 +516,7 @@ final class LLMHTTPAdapterTests: XCTestCase {
         let rejecting = [
             "o3", "o4-mini", "gpt-5.5", "gpt-5.4", "gpt-5.4-nano", "GPT-5.4-Mini", "gpt-10",
             "gpt-5.6-sol", "gpt-5.6-luna", "openai/gpt-5.6-sol", "openai/gpt-5.6-luna",
-            "kimi-k2.6", "moonshotai/kimi-k2.6", "kimi-k3", "kimi-k2.7-code", "deepseek-v4-flash",
+            "kimi-k2.6", "moonshotai/kimi-k2.6", "kimi-k3", "kimi-k2.7-code",
         ]
         for model in rejecting {
             XCTAssertTrue(
@@ -527,7 +527,7 @@ final class LLMHTTPAdapterTests: XCTestCase {
         let accepting = [
             "gpt-5.3-chat-latest", "openai/gpt-5.3-chat-latest", "gpt-4.1", "gpt-4.1-mini",
             "gpt-4o", "chatgpt-4o-latest", "local-model", "gpt-oss-120b",
-            "qwen3.7-max", "glm-5.1", "MiniMax-M2.7",
+            "qwen3.7-max", "glm-5.1", "MiniMax-M2.7", "deepseek-v4-flash",
         ]
         for model in accepting {
             XCTAssertFalse(
@@ -586,24 +586,29 @@ final class LLMHTTPAdapterTests: XCTestCase {
         }
     }
 
-    func testKimiCompatibleThinkingUsesMoonshotObjectNotLlamaCppKwargs() throws {
+    func testCustomOpenAICompatibleKimiOmitsTemperatureAndUsesLlamaCppKwargs() throws {
+        let config = LLMProviderConfig.openaiCompatible(
+            apiKey: "key",
+            model: "kimi-k2.6",
+            baseURL: URL(string: "https://api.moonshot.ai/v1")!
+        )
+        let resolution = try PromptInferenceCapabilityResolver.resolve(
+            config: config,
+            requested: PromptInferenceSettings(temperature: 0.7, thinkingMode: .disabled)
+        )
         let request = try openAIAdapter.buildRequest(
             messages: goldenMessages,
-            config: .openaiCompatible(
-                apiKey: "key",
-                model: "kimi-k2.6",
-                baseURL: URL(string: "https://api.moonshot.ai/v1")!
-            ),
-            options: ChatCompletionOptions(
-                temperature: 0.7,
-                thinkingMode: .disabled
-            ),
+            config: config,
+            options: resolution.options,
             stream: false
         )
         let body = try jsonBody(from: request)
         XCTAssertNil(body["temperature"])
-        XCTAssertNil(body["chat_template_kwargs"])
-        XCTAssertEqual((body["thinking"] as? [String: String])?["type"], "disabled")
+        XCTAssertNil(body["thinking"])
+        XCTAssertEqual(
+            (body["chat_template_kwargs"] as? [String: Any])?["enable_thinking"] as? Bool,
+            false
+        )
     }
 
     func testQwenNativeThinkingUsesEnableThinkingFlag() throws {
@@ -644,10 +649,10 @@ final class LLMHTTPAdapterTests: XCTestCase {
         XCTAssertNil(body["enable_thinking"])
     }
 
-    func testDeepSeekDisabledThinkingKeepsTemperatureOnTheWire() throws {
+    func testDeepSeekKeepsTemperatureWithThinkingOn() throws {
         let resolution = try PromptInferenceCapabilityResolver.resolve(
             config: .deepseek(apiKey: "key"),
-            requested: PromptInferenceSettings(temperature: 0.4, thinkingMode: .disabled)
+            requested: PromptInferenceSettings(temperature: 0.4, thinkingMode: .enabled)
         )
         let request = try openAIAdapter.buildRequest(
             messages: goldenMessages,
@@ -657,7 +662,7 @@ final class LLMHTTPAdapterTests: XCTestCase {
         )
         let body = try jsonBody(from: request)
         XCTAssertEqual(body["temperature"] as? Double, 0.4)
-        XCTAssertEqual((body["thinking"] as? [String: String])?["type"], "disabled")
+        XCTAssertEqual((body["thinking"] as? [String: String])?["type"], "enabled")
     }
 
     func testLocalOpenAICompatibleQwenKeepsLlamaCppKwargs() throws {

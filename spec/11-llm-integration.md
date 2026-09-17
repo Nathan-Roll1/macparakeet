@@ -104,15 +104,13 @@ The service boundary stays stable even though the transport is mixed.
 OpenAI-family model IDs (`gpt-5.x`, `o3`, and prefixed forms such as
 `openai/gpt-5.6-luna`) use the native OpenAI chat-completions parameter policy
 on that path: omit sampling the model rejects, send `max_completion_tokens`,
-and do not attach llama.cpp `chat_template_kwargs`. Known China-lab model IDs
-(`kimi-k2.6`, `deepseek-v4-flash`, `qwen3.7-max`, `glm-5.1`, `MiniMax-M2.7`,
-and OpenRouter prefixes such as `moonshotai/kimi-k2.6`) share
-`ChatCompletionsModelPolicy`: Kimi K2.5+ / K3 omit temperature and `top_p`
-because those values are fixed; DeepSeek omits temperature while thinking is
-on (the default); Qwen, GLM, and MiniMax keep the app temperature. Generic
-local model IDs keep the broader compatible mapping. OpenRouter and the
-first-class lab providers share this adapter, so the same model-ID policy
-applies there.
+and do not attach llama.cpp `chat_template_kwargs`. Kimi K2.5+ / K3 IDs
+(`kimi-k2.6`, OpenRouter `moonshotai/kimi-k2.6`, and the same IDs on a custom
+OpenAI-compatible URL) omit temperature and `top_p` because those values are
+fixed and any other value 400s. Lab thinking objects (`thinking.type` / Qwen
+`enable_thinking`) are sent only on the first-class Moonshot, DeepSeek, Qwen,
+Z.AI, and MiniMax providers. Generic local model IDs keep the broader
+compatible mapping, including llama.cpp `chat_template_kwargs`.
 
 Mainland China regional endpoints (`api.moonshot.cn`, `dashscope.aliyuncs.com`,
 `open.bigmodel.cn`, `api.minimaxi.com`) are reachable by overriding the base
@@ -307,7 +305,7 @@ capability contract is:
 | Native Anthropic | `temperature` in `0...1` or `topP` in `0...1` when model-compatible (Top P wins); `maxTokens` |
 | Native Ollama | Temperature, top-p, top-k, output tokens, and thinking; numeric values use Ollama `options`, thinking uses top-level `think`; reasoning effort is unsupported |
 | Custom OpenAI-compatible | All six settings for generic local IDs; thinking uses `chat_template_kwargs.enable_thinking`, and optional effort uses `chat_template_kwargs.reasoning_effort` only while thinking is enabled. OpenAI-family IDs follow the native OpenAI token-key and sampling policy instead of the llama.cpp mapping |
-| OpenRouter | `maxTokens` through the existing token-key policy; `temperature` when model policy permits it. Prefixed Kimi / DeepSeek IDs follow `ChatCompletionsModelPolicy` (omit illegal or ineffective sampling). |
+| OpenRouter | `maxTokens` through the existing token-key policy; `temperature` when model policy permits it. Prefixed Kimi IDs omit illegal sampling. |
 | Moonshot, DeepSeek, Qwen, Z.AI, MiniMax | `maxTokens`; `temperature` when the model accepts sampling; `thinkingMode` when the model accepts an explicit thinking toggle (`thinking.type` or Qwen `enable_thinking`) |
 | Gemini, LM Studio | `temperature` and `maxTokens` initially |
 | In-process local | `temperature` and `maxTokens` |

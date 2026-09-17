@@ -315,13 +315,10 @@ struct OpenAICompatibleLLMHTTPAdapter: LLMHTTPAdapter {
         // require max_completion_tokens instead of max_tokens. LM Studio's
         // documented chat-completions contract still uses max_tokens and
         // temperature even when a loaded model ID happens to look like GPT-5.
+        // Kimi K2.5+ / K3 also omit sampling: those models fix temperature.
         let appliesLabWirePolicy = config.id != .lmstudio
         let shouldOmitSampling =
-            appliesLabWirePolicy
-            && ChatCompletionsModelPolicy.shouldOmitSampling(
-                model: config.modelName,
-                thinkingMode: options.thinkingMode
-            )
+            appliesLabWirePolicy && ChatCompletionsModelPolicy.shouldOmitSampling(model: config.modelName)
         let needsNewTokenParam =
             appliesLabWirePolicy && Self.openAIRequiresMaxCompletionTokens(config.modelName)
         let temperature = shouldOmitSampling ? nil : options.temperature
@@ -336,20 +333,14 @@ struct OpenAICompatibleLLMHTTPAdapter: LLMHTTPAdapter {
         let thinkingEncoding = ChatCompletionsModelPolicy.thinkingEncoding(
             provider: config.id,
             model: config.modelName,
-            baseURL: config.baseURL,
             thinkingMode: options.thinkingMode,
             reasoningEffort: options.reasoningEffort,
             usesPromptInferenceSettings: options.usesPromptInferenceSettings
-        )
-        let usesLabThinking = ChatCompletionsModelPolicy.usesLabThinkingEncoding(
-            provider: config.id,
-            baseURL: config.baseURL
         )
         let supportsCustomOpenAICompatibleOptions =
             config.id == .openaiCompatible
             && options.usesPromptInferenceSettings
             && !needsNewTokenParam
-            && !usesLabThinking
         let maxTokens = needsNewTokenParam ? nil : options.maxTokens
         let maxCompletionTokens = needsNewTokenParam ? options.maxTokens : nil
 
@@ -411,10 +402,10 @@ struct OpenAICompatibleLLMHTTPAdapter: LLMHTTPAdapter {
     }
 
     /// OpenAI models for which MacParakeet omits explicit `temperature`: the
-    /// o-series and GPT-5.x+ reasoning tier, plus lab families that fix or
-    /// ignore sampling. Chat-tier variants (gpt-5.3-chat-latest) and pre-5.x
-    /// models keep the caller's value. Provider prefixes (`openai/gpt-5.6-luna`,
-    /// `moonshotai/kimi-k2.6`) are stripped first.
+    /// o-series and GPT-5.x+ reasoning tier, plus Kimi K2.5+ / K3. Chat-tier
+    /// variants (gpt-5.3-chat-latest) and pre-5.x models keep the caller's
+    /// value. Provider prefixes (`openai/gpt-5.6-luna`, `moonshotai/kimi-k2.6`)
+    /// are stripped first.
     static func openAIShouldOmitTemperature(_ model: String) -> Bool {
         ChatCompletionsModelPolicy.shouldOmitSampling(model: model)
     }

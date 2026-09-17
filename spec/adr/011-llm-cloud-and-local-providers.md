@@ -58,7 +58,7 @@ The current implementation supports these provider/runtime types through one sha
 
 **Implementation note (2026-04-04):** Anthropic now uses the native Messages API and Ollama uses its native `/api/chat` endpoint. OpenAI, Gemini, OpenRouter, and LM Studio use OpenAI-compatible chat completions. The shared abstraction is the service/client interface, not a single wire protocol.
 
-**Amendment (2026-09-17): China-lab first-class providers.** Moonshot (Kimi), DeepSeek, Qwen, Z.AI, and MiniMax are first-class cloud providers that reuse the OpenAI-compatible adapter. Sampling and thinking request shape is owned by `ChatCompletionsModelPolicy`, keyed by canonical model ID, so OpenRouter prefixes and custom OpenAI-compatible endpoints get the same Kimi temperature omit as the native Moonshot provider. International base URLs are the defaults; regional China endpoints remain a base-URL override. Doubao and Hunyuan stay custom OpenAI-Compatible. This does not add a hosted proxy or change the BYO-key privacy posture.
+**Amendment (2026-09-17): China-lab first-class providers.** Moonshot (Kimi), DeepSeek, Qwen, Z.AI, and MiniMax are first-class cloud providers that reuse the OpenAI-compatible adapter. Kimi temperature omit is keyed by canonical model ID, so OpenRouter prefixes and custom OpenAI-compatible endpoints get the same omit as native Moonshot. Lab thinking objects stay on the first-class lab providers. International base URLs are the defaults; regional China endpoints remain a base-URL override. Doubao and Hunyuan stay custom OpenAI-Compatible. This does not add a hosted proxy or change the BYO-key privacy posture.
 
 ### Locked Decisions
 

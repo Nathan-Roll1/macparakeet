@@ -1,14 +1,11 @@
 import Foundation
 
 /// Chat Completions families whose sampling or thinking wire shape differs
-/// from generic OpenAI. Detection is by canonical model ID so native lab
-/// providers, OpenRouter prefixes (`moonshotai/kimi-k2.6`), and custom
-/// OpenAI-compatible endpoints share one policy.
+/// from generic OpenAI. Detection is by canonical model ID so native labs,
+/// OpenRouter prefixes (`moonshotai/kimi-k2.6`), and custom endpoints share
+/// one sampling omit. Thinking objects stay on first-class lab providers.
 enum ChatCompletionsModelFamily: Equatable, Sendable {
-    case kimiK3
-    case kimiK27
-    case kimiK26
-    case kimiK25
+    case kimi
     case deepseek
     case qwen
     case glm
@@ -26,8 +23,7 @@ enum ChatCompletionsThinkingEncoding: Equatable, Sendable {
     case llamaCpp(enableThinking: Bool, reasoningEffort: String?)
 }
 
-/// Shared Chat Completions request policy. Callers pass a model ID; they do
-/// not need to know which provider or gateway served it.
+/// Shared Chat Completions request policy.
 enum ChatCompletionsModelPolicy {
     static func canonicalModelID(_ model: String) -> String {
         OpenAIModelPolicy.canonicalModelID(model)
@@ -35,78 +31,36 @@ enum ChatCompletionsModelPolicy {
 
     static func family(for model: String) -> ChatCompletionsModelFamily {
         let id = canonicalModelID(model)
-        if id.hasPrefix("kimi-k3") { return .kimiK3 }
-        if id.hasPrefix("kimi-k2.7") { return .kimiK27 }
-        if id.hasPrefix("kimi-k2.6") { return .kimiK26 }
-        if id.hasPrefix("kimi-k2.5") { return .kimiK25 }
-        if isDeepSeekFamily(id) { return .deepseek }
-        if isGLMFamily(id) { return .glm }
-        if isMiniMaxFamily(id) { return .minimax }
-        if isQwenFamily(id) { return .qwen }
+        if isKimi(id) { return .kimi }
+        if id.hasPrefix("deepseek-") { return .deepseek }
+        if id.hasPrefix("glm-") { return .glm }
+        if id.hasPrefix("minimax-") { return .minimax }
+        if id.hasPrefix("qwen") { return .qwen }
         return .generic
     }
 
-    /// Kimi K2.5+ and K3 fix temperature/`top_p`; any other value 400s.
-    /// DeepSeek V4 thinking (the default) ignores temperature, so sending the
-    /// app baseline would lie on the receipt. GPT-5 / o-series omission stays
-    /// in `OpenAIModelPolicy`.
-    static func shouldOmitSampling(
-        model: String,
-        thinkingMode: PromptInferenceSettings.ThinkingMode = .providerDefault
-    ) -> Bool {
-        if OpenAIModelPolicy.shouldOmitSampling(model: model) { return true }
-        switch family(for: model) {
-        case .kimiK3, .kimiK27, .kimiK26, .kimiK25:
-            return true
-        case .deepseek:
-            // V4 thinking (the default) ignores temperature. Older chat IDs
-            // still sample, including OpenRouter `deepseek/deepseek-chat`.
-            if thinkingMode == .disabled { return false }
-            return canonicalModelID(model).hasPrefix("deepseek-v4")
-        case .qwen, .glm, .minimax, .generic:
-            return false
-        }
+    /// Kimi K2.5+ / K3 fix temperature and `top_p`; any other value 400s.
+    /// GPT-5 / o-series omission stays in `OpenAIModelPolicy`.
+    static func shouldOmitSampling(model: String) -> Bool {
+        OpenAIModelPolicy.shouldOmitSampling(model: model) || isKimi(canonicalModelID(model))
     }
 
-    /// Whether the prompt-settings UI should offer a thinking toggle.
+    /// Prompt-settings thinking toggle. K2.7-code and K3 always think;
+    /// an explicit `disabled` 400s.
     static func supportsThinkingToggle(model: String) -> Bool {
+        let id = canonicalModelID(model)
+        if kimiOmitsThinkingField(id) { return false }
         switch family(for: model) {
-        case .kimiK3, .kimiK27:
-            return false
-        case .minimax:
-            return !canonicalModelID(model).hasPrefix("minimax-m2")
-        case .kimiK26, .kimiK25, .deepseek, .qwen, .glm:
+        case .kimi, .deepseek, .qwen, .glm, .minimax:
             return true
         case .generic:
             return false
         }
     }
 
-    /// Hosted lab Chat Completions endpoints. Custom OpenAI-compatible
-    /// URLs that match these hosts get the same thinking wire as the
-    /// first-class provider; localhost llama.cpp / vLLM do not.
-    static func isKnownChinaLabHost(_ url: URL) -> Bool {
-        switch url.host?.lowercased() {
-        case "api.moonshot.ai", "api.moonshot.cn",
-            "api.deepseek.com",
-            "dashscope-intl.aliyuncs.com", "dashscope.aliyuncs.com",
-            "api.z.ai", "open.bigmodel.cn",
-            "api.minimax.io", "api.minimaxi.com":
-            return true
-        default:
-            return false
-        }
-    }
-
-    static func usesLabThinkingEncoding(provider: LLMProviderID, baseURL: URL) -> Bool {
-        if provider.isChinaLabCloud { return true }
-        return provider == .openaiCompatible && isKnownChinaLabHost(baseURL)
-    }
-
     static func thinkingEncoding(
         provider: LLMProviderID,
         model: String,
-        baseURL: URL,
         thinkingMode: PromptInferenceSettings.ThinkingMode,
         reasoningEffort: PromptInferenceSettings.ReasoningEffort?,
         usesPromptInferenceSettings: Bool
@@ -114,10 +68,8 @@ enum ChatCompletionsModelPolicy {
         if provider == .lmstudio || provider == .openrouter {
             return .omit
         }
-
-        if usesLabThinkingEncoding(provider: provider, baseURL: baseURL) {
-            return labThinkingEncoding(
-                family: family(for: model), model: model, thinkingMode: thinkingMode)
+        if provider.isChinaLabCloud {
+            return labThinkingEncoding(model: model, thinkingMode: thinkingMode)
         }
 
         let usesLlamaCppKwargs =
@@ -136,16 +88,16 @@ enum ChatCompletionsModelPolicy {
     }
 
     private static func labThinkingEncoding(
-        family: ChatCompletionsModelFamily,
         model: String,
         thinkingMode: PromptInferenceSettings.ThinkingMode
     ) -> ChatCompletionsThinkingEncoding {
-        switch family {
-        case .kimiK3, .kimiK27, .generic:
-            // K3 has no thinking field. K2.7-code always thinks; an explicit
-            // `disabled` 400s, and `enabled` is only legal with keep=all.
+        let id = canonicalModelID(model)
+        if kimiOmitsThinkingField(id) { return .omit }
+
+        switch family(for: model) {
+        case .generic:
             return .omit
-        case .kimiK26, .kimiK25, .deepseek, .glm:
+        case .kimi, .deepseek, .glm:
             switch thinkingMode {
             case .providerDefault:
                 return .omit
@@ -155,10 +107,6 @@ enum ChatCompletionsModelPolicy {
                 return .thinkingType("disabled")
             }
         case .minimax:
-            // M2.x accepts `disabled` but keeps thinking on. Only M3 honors it.
-            if canonicalModelID(model).hasPrefix("minimax-m2") {
-                return .omit
-            }
             switch thinkingMode {
             case .providerDefault:
                 return .omit
@@ -179,19 +127,12 @@ enum ChatCompletionsModelPolicy {
         }
     }
 
-    private static func isDeepSeekFamily(_ id: String) -> Bool {
-        id.hasPrefix("deepseek-")
+    private static func isKimi(_ id: String) -> Bool {
+        id.hasPrefix("kimi-k2.5") || id.hasPrefix("kimi-k2.6") || id.hasPrefix("kimi-k2.7")
+            || id.hasPrefix("kimi-k3")
     }
 
-    private static func isGLMFamily(_ id: String) -> Bool {
-        id.hasPrefix("glm-")
-    }
-
-    private static func isMiniMaxFamily(_ id: String) -> Bool {
-        id.hasPrefix("minimax-")
-    }
-
-    private static func isQwenFamily(_ id: String) -> Bool {
-        id.hasPrefix("qwen")
+    private static func kimiOmitsThinkingField(_ id: String) -> Bool {
+        id.hasPrefix("kimi-k2.7") || id.hasPrefix("kimi-k3")
     }
 }
