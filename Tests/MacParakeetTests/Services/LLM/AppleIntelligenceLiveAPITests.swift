@@ -92,8 +92,14 @@ final class AppleIntelligenceLiveAPITests: XCTestCase {
         var previous = ""
         for try await snapshot in streamSession.streamResponse(to: prompt, options: options) {
             let current = snapshot.content
-            if current.hasPrefix(previous) {
-                streamed += String(current.dropFirst(previous.count))
+            let delta = AppleIntelligencePromptBuilder.delta(
+                fromCumulative: current,
+                previous: previous
+            )
+            if !delta.isEmpty {
+                streamed += delta
+            }
+            if AppleIntelligencePromptBuilder.isCumulativeContinuation(current, of: previous) {
                 previous = current
             }
         }
@@ -113,6 +119,11 @@ final class AppleIntelligenceLiveAPITests: XCTestCase {
         XCTAssertEqual(previous, streamed)
         XCTAssertFalse(clientResponse.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         XCTAssertEqual(clientResponse.model, "apple-intelligence")
+
+        print("LIVE_AB availability=available")
+        print("LIVE_AB respond=\(respondText)")
+        print("LIVE_AB stream=\(previous)")
+        print("LIVE_AB client=\(clientResponse.content)")
 
         let normalizedRespond = respondText.lowercased()
         let normalizedStream = previous.lowercased()
