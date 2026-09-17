@@ -2531,7 +2531,7 @@ struct SettingsView: View {
     }
 
     /// Parakeet build picker (multilingual `v3`, English-only `v2`, and the
-    /// English-only Unified build). Only shown when Parakeet is the active
+    /// English-only Unified build, plus the optional Orukeet preview). Only shown when Parakeet is the active
     /// engine — symmetric to the Whisper Language card. English-only builds fix
     /// the v3 auto-detect mis-firing English as another language (issues #311,
     /// #398); Unified is the punctuated English streaming build (issue #520).
@@ -2552,6 +2552,8 @@ struct SettingsView: View {
                     parakeetModelOptionRow(.v2)
                     Divider()
                     parakeetModelOptionRow(.unified)
+                    Divider()
+                    parakeetModelOptionRow(.orukeet)
                 }
             }
             .transition(.opacity)
