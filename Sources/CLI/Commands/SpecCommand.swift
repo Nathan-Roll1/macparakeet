@@ -240,6 +240,7 @@ private extension CLISpecCommand {
                     "--speaker-min", valueName: "N", summary: "Minimum speaker count bound for diarization."),
                 CLISpecParameter.option(
                     "--speaker-max", valueName: "N", summary: "Maximum speaker count bound for diarization."),
+                CLISpecParameter.flag("--no-diarize", summary: "Compatibility alias for --speaker-detection off."),
                 CLISpecParameter.option(
                     "--media-audio-quality", valueName: "app-default|m4a|best-available",
                     summary: "Downloaded media audio quality."),
@@ -548,19 +549,28 @@ private extension CLISpecCommand {
             ["history", "favorite"],
             summary: "Mark a transcription as favorite.",
             readOnly: false,
-            jsonMode: "none",
             arguments: [.argument("id", summary: "Transcription UUID or UUID prefix.")],
             options: [databaseOption],
-            output: "Human-readable favorite confirmation."
+            output: "Favorite result with id and isFavorite for --json; human-readable confirmation otherwise."
         ),
         CLISpecCommand(
             ["history", "unfavorite"],
             summary: "Remove a transcription from favorites.",
             readOnly: false,
-            jsonMode: "none",
             arguments: [.argument("id", summary: "Transcription UUID or UUID prefix.")],
             options: [databaseOption],
-            output: "Human-readable unfavorite confirmation."
+            output: "Favorite result with id and isFavorite for --json; human-readable confirmation otherwise."
+        ),
+        CLISpecCommand(
+            ["history", "rename"],
+            summary: "Rename a meeting title or a local file transcription display title.",
+            readOnly: false,
+            arguments: [.argument("id", summary: "Transcription UUID or UUID prefix.")],
+            options: [
+                CLISpecParameter.option("--title", valueName: "TITLE", required: true, summary: "New display title."),
+                databaseOption,
+            ],
+            output: "Rename result with kind, id, and title for --json; human-readable confirmation otherwise."
         ),
         CLISpecCommand(
             ["prompts", "list"],
@@ -1034,7 +1044,6 @@ private extension CLISpecCommand {
             ["vocab", "words", "add"],
             summary: "Add a custom word or correction.",
             readOnly: false,
-            jsonMode: "none",
             arguments: [
                 .argument("word", summary: "Word or phrase to match."),
                 .argument(
@@ -1044,7 +1053,7 @@ private extension CLISpecCommand {
                 ),
             ],
             options: [databaseOption],
-            output: "Human-readable add confirmation."
+            output: "Write result with the saved CustomWord, including id, when --json is used."
         ),
         CLISpecCommand(
             ["vocab", "words", "set"],
@@ -1076,13 +1085,12 @@ private extension CLISpecCommand {
             ["vocab", "snippets", "add"],
             summary: "Add a text snippet.",
             readOnly: false,
-            jsonMode: "none",
             arguments: [
                 .argument("trigger", summary: "Natural-language trigger phrase."),
                 .argument("expansion", summary: "Expansion text."),
             ],
             options: [databaseOption],
-            output: "Human-readable add confirmation."
+            output: "Write result with the saved TextSnippet, including id, when --json is used."
         ),
         CLISpecCommand(
             ["vocab", "snippets", "edit"],
@@ -1341,6 +1349,66 @@ private extension CLISpecCommand {
                 CLISpecParameter.option(
                     "--segment", valueName: "UUID", required: true,
                     summary: "Current segment ID; repeat in transcript order at least twice."),
+                CLISpecParameter.option(
+                    "--expected-revision", valueName: "N", required: true,
+                    summary: "Optimistic speakerCorrectionRevision from the last transcript read."),
+                CLISpecParameter.flag(
+                    "--envelope", summary: "Wrap JSON output in an ok/data/meta success envelope."),
+                databaseOption,
+            ],
+            output: "Updated MeetingTranscriptRecord object when --json or --envelope is used."
+        ),
+        CLISpecCommand(
+            ["meetings", "corrections", "rename"],
+            summary: "Rename one speaker in the reversible correction journal.",
+            readOnly: false,
+            arguments: [.argument("meeting", summary: "Meeting UUID, UUID prefix, or exact title.")],
+            options: [
+                CLISpecParameter.option(
+                    "--speaker", valueName: "ID", required: true,
+                    summary: "Speaker id from meetings transcript --format json."),
+                CLISpecParameter.option("--label", valueName: "TEXT", required: true, summary: "New display label."),
+                CLISpecParameter.option(
+                    "--expected-revision", valueName: "N", required: true,
+                    summary: "Optimistic speakerCorrectionRevision from the last transcript read."),
+                CLISpecParameter.flag(
+                    "--envelope", summary: "Wrap JSON output in an ok/data/meta success envelope."),
+                databaseOption,
+            ],
+            output: "Updated MeetingTranscriptRecord object when --json or --envelope is used."
+        ),
+        CLISpecCommand(
+            ["meetings", "corrections", "assign"],
+            summary: "Assign one or more timed lines to a speaker or unassigned.",
+            readOnly: false,
+            arguments: [.argument("meeting", summary: "Meeting UUID, UUID prefix, or exact title.")],
+            options: [
+                CLISpecParameter.option(
+                    "--segment", valueName: "UUID", required: true,
+                    summary: "Current segment ID from meetings transcript --format json; repeatable."),
+                CLISpecParameter.option(
+                    "--to-speaker", valueName: "ID",
+                    summary: "Existing speaker id to assign the lines to."),
+                CLISpecParameter.flag("--unassigned", summary: "Clear speaker assignment on the selected lines."),
+                CLISpecParameter.option(
+                    "--expected-revision", valueName: "N", required: true,
+                    summary: "Optimistic speakerCorrectionRevision from the last transcript read."),
+                CLISpecParameter.flag(
+                    "--envelope", summary: "Wrap JSON output in an ok/data/meta success envelope."),
+                databaseOption,
+            ],
+            output: "Updated MeetingTranscriptRecord object when --json or --envelope is used."
+        ),
+        CLISpecCommand(
+            ["meetings", "corrections", "merge-speakers"],
+            summary: "Merge one speaker into another.",
+            readOnly: false,
+            arguments: [.argument("meeting", summary: "Meeting UUID, UUID prefix, or exact title.")],
+            options: [
+                CLISpecParameter.option(
+                    "--from", valueName: "ID", required: true, summary: "Speaker id whose lines should move."),
+                CLISpecParameter.option(
+                    "--into", valueName: "ID", required: true, summary: "Speaker id that should remain."),
                 CLISpecParameter.option(
                     "--expected-revision", valueName: "N", required: true,
                     summary: "Optimistic speakerCorrectionRevision from the last transcript read."),

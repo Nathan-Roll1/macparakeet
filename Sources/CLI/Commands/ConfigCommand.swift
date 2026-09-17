@@ -45,6 +45,7 @@ struct ConfigCommand: ParsableCommand {
           cohere-language           <Cohere language code>          default: en (no auto)
           speaker-detection         on|off                          default: on
           meeting-speaker-detection on|off                          default: on
+          custom-vocabulary-boosting on|off                         default: off
           auto-meeting-titles       on|off                          default: on
           voice-return-enabled      on|off                          default: off
           voice-return-triggers     phrase[|phrase...]              default: press return
@@ -144,6 +145,12 @@ struct ConfigCommand: ParsableCommand {
             valueSyntax: "on|off",
             allowedValues: ["on", "off"],
             summary: "Default meeting recording speaker detection."
+        ),
+        CLIConfigKeySpec(
+            key: "custom-vocabulary-boosting",
+            valueSyntax: "on|off",
+            allowedValues: ["on", "off"],
+            summary: "Enable Parakeet TDT recognition-time boosting for enabled custom words without replacement text. Default off; Settings shows status but has no toggle."
         ),
         CLIConfigKeySpec(
             key: "auto-meeting-titles",
@@ -357,6 +364,9 @@ struct ConfigCommand: ParsableCommand {
         case "meeting-speaker-detection":
             let on = UserDefaultsAppRuntimePreferences.meetingSpeakerDiarizationEnabled(defaults: store)
             return on ? "on" : "off"
+        case "custom-vocabulary-boosting":
+            return UserDefaultsAppRuntimePreferences(defaults: store)
+                .customVocabularyRecognitionBoostingEnabled ? "on" : "off"
         case "auto-meeting-titles":
             let on = store.object(forKey: UserDefaultsAppRuntimePreferences.autoGenerateMeetingTitlesKey) as? Bool ?? true
             return on ? "on" : "off"
@@ -465,6 +475,13 @@ struct ConfigCommand: ParsableCommand {
         case "meeting-speaker-detection":
             let parsed = try parseBool(value, key: key)
             store.set(parsed, forKey: UserDefaultsAppRuntimePreferences.meetingSpeakerDiarizationKey)
+            return parsed ? "on" : "off"
+        case "custom-vocabulary-boosting":
+            let parsed = try parseBool(value, key: key)
+            store.set(
+                parsed,
+                forKey: UserDefaultsAppRuntimePreferences.customVocabularyRecognitionBoostingEnabledKey
+            )
             return parsed ? "on" : "off"
         case "auto-meeting-titles":
             let parsed = try parseBool(value, key: key)

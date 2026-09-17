@@ -89,6 +89,31 @@ by checking exit code first: `2` = misuse, `1` = runtime, `0` = success.
 
 ## [Unreleased]
 
+### Added
+
+- `meetings corrections rename|assign|merge-speakers` wrap the existing speaker
+  identity journal (same `--expected-revision` and JSON transcript payload as
+  timed-text corrections).
+- `history rename --title` matches the GUI gates: meetings update `fileName`
+  (and refresh artifacts best-effort); local files update `titleOverride`.
+  YouTube/podcast rows are rejected.
+- `history favorite` / `history unfavorite` accept `--json`.
+- `vocab words add` and `vocab snippets add` accept `--json` and return the
+  saved row, including its id.
+- `config get|set|list` includes `custom-vocabulary-boosting` (`on`/`off`,
+  default off). It writes the existing Parakeet TDT recognition-boosting
+  preference. Settings shows boosting status but has no toggle; the runtime
+  stays off unless this key (or a direct defaults write) turns it on.
+
+### Changed
+
+- Homebrew/standalone `cards generate` and meeting import/split auto-prompts
+  now read the shared app preference suite for LLM provider config, matching
+  the GUI.
+- `spec --json` documents `transcribe --no-diarize`.
+- Identical `history rename --title` values succeed without writing. Identical
+  `meetings corrections rename` labels succeed without inserting a journal row.
+
 ## [4.3.0] — 2026-09-16
 
 ### Added

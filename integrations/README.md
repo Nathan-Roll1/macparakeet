@@ -361,6 +361,7 @@ macparakeet-cli config set processing-mode raw
 macparakeet-cli config set remove-um-filler off
 macparakeet-cli config set speaker-detection off
 macparakeet-cli config set meeting-speaker-detection off
+macparakeet-cli config set custom-vocabulary-boosting on
 macparakeet-cli config set start-meetings-muted on
 macparakeet-cli config set save-transcription-audio off
 macparakeet-cli config set youtube-audio-quality m4a
@@ -389,7 +390,13 @@ macparakeet-cli transcribe --podcast "Lex Fridman episode 400" --format json
 ```bash
 macparakeet-cli history transcriptions --json
 macparakeet-cli history search-transcriptions "design review" --json
+macparakeet-cli history rename <id> --title "Q3 vendor notes" --json
+macparakeet-cli history favorite <id> --json
 ```
+
+`history rename` matches the GUI: meeting rows change the meeting title;
+local file rows set a display `titleOverride` without renaming the source
+file. URL/podcast rows are rejected.
 
 ### Search the transcript knowledge layer
 
@@ -620,7 +627,13 @@ macparakeet-cli meetings corrections edit-line <id> \
   --segment <segment-uuid> --text "Corrected line." --expected-revision 0 --json
 macparakeet-cli meetings corrections merge-lines <id> \
   --segment <first-uuid> --segment <second-uuid> --expected-revision 1 --json
-macparakeet-cli meetings corrections undo <id> --expected-revision 2 --json
+macparakeet-cli meetings corrections rename <id> \
+  --speaker S1 --label "Alice" --expected-revision 2 --json
+macparakeet-cli meetings corrections assign <id> \
+  --segment <segment-uuid> --to-speaker S2 --expected-revision 3 --json
+macparakeet-cli meetings corrections merge-speakers <id> \
+  --from S2 --into S1 --expected-revision 4 --json
+macparakeet-cli meetings corrections undo <id> --expected-revision 5 --json
 ```
 
 The two meeting transcript JSON views expose the effective corrected text and
