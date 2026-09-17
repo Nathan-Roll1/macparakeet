@@ -349,6 +349,7 @@ Shipped across 0.8.0–0.8.4. Feature detail lives in [spec/02-features.md](02-f
 - [x] Library labels, grid/list layouts, and Seed of Life covers when a recording has no thumbnail
 - [x] DAPT export, rich Markdown results/chat, and per-prompt inference settings
 - [x] Capture/recovery hardening from 0.8.0–0.8.2 (Bluetooth/route changes, stuck-mic source isolation)
+- [x] Start meetings muted (default off), Clean English “um” stripping with a Portuguese/German opt-out, and optional preserved discarded dictations
 
 Voice profiles, encrypted share links, activity-based meeting detection, app-aware AI Formatter profiles, and in-process MLX remain gated as in the flag table above.
 
