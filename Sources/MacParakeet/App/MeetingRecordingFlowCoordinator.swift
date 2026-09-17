@@ -129,6 +129,7 @@ final class MeetingRecordingFlowCoordinator {
     // these drive the pill's self-contained, interruptible visual epilogue.
     private var metatronMinDurationTask: Task<Void, Never>?
     private var savedCompletionDismissTask: Task<Void, Never>?
+    private var completingFlourishTask: Task<Void, Never>?
     private var meetingDurablySaved = false
     private var metatronBloomSettled = false
     /// Minimum on-screen time for the Metatron "saving" bloom before it may
@@ -138,6 +139,10 @@ final class MeetingRecordingFlowCoordinator {
     private let metatronMinimumDisplay: Duration = .milliseconds(1500)
     /// How long the "saved" checkmark holds before the pill self-dismisses.
     private let savedCheckmarkHold: Duration = .milliseconds(1700)
+    /// Collapse animation is 1.0 s (`MerkabaPillIcon.playCompletion`). A 2 s
+    /// fallback covers a missed CA callback or a pill that is torn down mid
+    /// collapse (quit-time dismiss) without racing the flourish (#1079).
+    private let completingFlourishFallback: Duration = .milliseconds(2000)
     private var activeFlowSettlementWaiters: [CheckedContinuation<Void, Never>] = []
     private var currentMeetingOperationContext: ObservabilityOperationContext?
     private var currentMeetingTrigger: TelemetryMeetingOperationTrigger?
@@ -852,16 +857,7 @@ final class MeetingRecordingFlowCoordinator {
             pillViewModel.micLevel = 0
             pillViewModel.systemLevel = 0
             pillViewModel.captureHealth = .notRecording
-            pillViewModel.state = .completing
-            pillController?.refreshState()
-            pillViewModel.onCompletionAnimationFinished = { [weak self] in
-                guard let self, self.pillViewModel.state == .completing else { return }
-                // Flower collapsed → the Metatron "saving" bloom takes over and
-                // holds until the recording is durably queued (`.showSavedCompletion`).
-                self.pillViewModel.state = .transcribing
-                self.pillController?.refreshState()
-                self.startMetatronMinimumDisplay()
-            }
+            beginPostStopPillCelebration()
             panelViewModel?.state = .transcribing
             panelViewModel?.canToggleMicrophoneMute = false
             panelViewModel?.micLevel = 0
@@ -1154,6 +1150,52 @@ final class MeetingRecordingFlowCoordinator {
 
     // MARK: - Saved-completion celebration
 
+    /// Advance the shared pill/tile VM out of live capture. The ~1 s flower
+    /// collapse only exists when the floating pill is on screen; its callback
+    /// is a no-op if that window is hidden (#723). The Transcribe tile still
+    /// shows "Wrapping up…" for `.completing`, so a missed callback deadlocks
+    /// it on that label (#1079). Skip the flourish when the pill is hidden,
+    /// and keep a fallback if the visible collapse never reports finished.
+    private func beginPostStopPillCelebration() {
+        pillViewModel.onCompletionAnimationFinished = { [weak self] in
+            self?.finishCompletingFlourish(reason: "animation")
+        }
+        // Always enter `.completing` first so finishCompletingFlourish can keep
+        // a tight guard. A late collapse callback must not yank a later live
+        // recording into `.transcribing`. Hidden pills never render the
+        // intermediate label: both writes happen on the same main-actor turn.
+        pillViewModel.state = .completing
+        guard pillController?.isVisible == true else {
+            finishCompletingFlourish(reason: "hidden_pill")
+            return
+        }
+        pillController?.refreshState()
+        startCompletingFlourishFallback()
+    }
+
+    private func startCompletingFlourishFallback() {
+        completingFlourishTask?.cancel()
+        let duration = completingFlourishFallback
+        completingFlourishTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: duration)
+            guard !Task.isCancelled, let self else { return }
+            self.finishCompletingFlourish(reason: "fallback")
+        }
+    }
+
+    private func finishCompletingFlourish(reason: String) {
+        // Drop the handle without cancelling the caller: the fallback task
+        // invokes this after its own sleep, and cancelling the running task
+        // would poison a later `await` added to this method.
+        completingFlourishTask = nil
+        guard pillViewModel.state == .completing else { return }
+        pillViewModel.onCompletionAnimationFinished = nil
+        AudioCaptureDiagnostics.append("meeting_completing_flourish outcome=\(reason)")
+        pillViewModel.state = .transcribing
+        pillController?.refreshState()
+        startMetatronMinimumDisplay()
+    }
+
     /// Hold the Metatron bloom for a minimum on-screen time before it may resolve
     /// to the checkmark, so the celebration reads even when queueing is instant.
     private func startMetatronMinimumDisplay() {
@@ -1195,6 +1237,8 @@ final class MeetingRecordingFlowCoordinator {
     }
 
     private func cancelSavedCompletion() {
+        completingFlourishTask?.cancel()
+        completingFlourishTask = nil
         metatronMinDurationTask?.cancel()
         metatronMinDurationTask = nil
         savedCompletionDismissTask?.cancel()
@@ -1217,6 +1261,8 @@ final class MeetingRecordingFlowCoordinator {
         pauseToggleTask = nil
         microphoneMuteToggleTask?.cancel()
         microphoneMuteToggleTask = nil
+        completingFlourishTask?.cancel()
+        completingFlourishTask = nil
         pillController?.hide()
         pillController = nil
         pillViewModel.onStop = nil
