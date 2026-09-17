@@ -1,7 +1,5 @@
 name: Orukeet full app validation
 on:
-  push:
-    branches: [codex/orukeet-validation]
   workflow_dispatch:
 permissions:
   contents: read

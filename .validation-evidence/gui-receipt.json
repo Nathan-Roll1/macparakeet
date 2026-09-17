@@ -1,0 +1,21 @@
+{
+  "source_head": "f6c0e279a0b576d05d30a3198b16805c4111dcf1",
+  "xcode_run": "https://github.com/Nathan-Roll1/macparakeet/actions/runs/35282990530",
+  "app": "Actual production development app built by scripts/dev/run_app.sh; no fixture host or production debug hooks",
+  "artifact_sha256": "821b822247cbc272dcd6ce6c7b37aef93590e3cf54d466dce33b7e2944f45856",
+  "local_packaging": "Bundle ID changed to com.macparakeet.orukeet-validation and ad-hoc signed with original entitlements. Executable source unchanged. Signature verification passed.",
+  "isolation": "MACPARAKEET_DEBUG_APP_STATE_DIR points to a campaign-only directory; telemetry disabled via existing environment flag. No microphone, accessibility, or input-monitoring permissions granted.",
+  "observations": [
+    "Settings Engine exposes the optional Orukeet row, 445 MiB / 25 languages / CC BY-SA 4.0.",
+    "Initial click during existing stock-model startup initialization returned the existing engine-busy message. Retry after startup succeeded.",
+    "Actual Hugging Face model acquisition showed incremental progress at 0%,46%,50%,58%,74%, then Core ML loading. Other model actions were disabled during installation.",
+    "Final Orukeet row selected and Downloaded; Local Models Ready with Orukeet loaded locally with Core ML.",
+    "App closed after capture."
+  ],
+  "limits": "GUI validates catalog, acquisition, and ready-state selection. Inference evidence comes from 24 real-model scheduler jobs in the linked test run; microphone recording was not exercised.",
+  "screenshots": [
+    "model-catalog.png",
+    "model-install-progress.png",
+    "model-ready.png"
+  ]
+}
