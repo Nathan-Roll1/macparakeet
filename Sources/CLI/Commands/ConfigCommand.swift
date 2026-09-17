@@ -34,7 +34,7 @@ struct ConfigCommand: ParsableCommand {
                                     (Clean processing; off keeps
                                     Portuguese/German um)
           speech-engine             parakeet|nemotron|whisper|cohere default: parakeet
-          parakeet-model            v3|v2|unified                   default: v3
+          parakeet-model            v3|v2|unified|orukeet                   default: v3
                                     (v3=supported languages, v2=English
                                     timestamps, unified=readable English timestamps)
           nemotron-model            multilingual-1120ms|            default: multilingual-1120ms
@@ -106,8 +106,8 @@ struct ConfigCommand: ParsableCommand {
         ),
         CLIConfigKeySpec(
             key: "parakeet-model",
-            valueSyntax: "v3|v2|unified",
-            allowedValues: ["v3", "v2", "unified"],
+            valueSyntax: "v3|v2|unified|orukeet",
+            allowedValues: ["v3", "v2", "unified", "orukeet"],
             summary: "Default Parakeet build: v3 supported languages, v2 English timestamps, or Unified readable English timestamps."
         ),
         CLIConfigKeySpec(
@@ -614,8 +614,10 @@ struct ConfigCommand: ParsableCommand {
             return .v2
         case "unified", "english-unified", "unified-offline":
             return .unified
+        case "orukeet":
+            return .orukeet
         default:
-            throw ValidationError("Invalid value for parakeet-model: '\(value)'. Use v3 (multilingual), v2 (English-only), or unified (English-only with punctuation/capitalization).")
+            throw ValidationError("Invalid value for parakeet-model: '\(value)'. Use v3 (multilingual), v2 (English-only), unified (English-only with punctuation/capitalization), or orukeet (multilingual preview).")
         }
     }
 

@@ -690,7 +690,7 @@ public actor STTRuntime: STTRuntimeProtocol {
                         words: STTWordTimingBuilder.words(from: boostedResult.tokenTimings),
                         language: "en",
                         engine: .parakeet,
-                        engineVariant: ParakeetModelVariant(asrModelVersion: modelVersion).rawValue
+                        engineVariant: currentParakeetVariant.rawValue
                     )
                 } catch {
                     throw try Self.mapTranscriptionError(error)
@@ -754,7 +754,7 @@ public actor STTRuntime: STTRuntimeProtocol {
                 words: words,
                 language: "en",
                 engine: .parakeet,
-                engineVariant: ParakeetModelVariant(asrModelVersion: modelVersion).rawValue
+                engineVariant: currentParakeetVariant.rawValue
             )
         } catch {
             throw try Self.mapTranscriptionError(error)
@@ -1256,7 +1256,7 @@ public actor STTRuntime: STTRuntimeProtocol {
                 // Mirrors batch Parakeet attribution: the build variant carries v2/v3.
                 language: "en",
                 engine: .parakeet,
-                engineVariant: ParakeetModelVariant(asrModelVersion: modelVersion).rawValue
+                engineVariant: currentParakeetVariant.rawValue
             )
         } catch {
             throw try Self.mapTranscriptionError(error)
@@ -1548,6 +1548,8 @@ public actor STTRuntime: STTRuntimeProtocol {
             try? FileManager.default.removeItem(at: AppPaths.resolvedFluidAudioModelsDir(environment: environment))
             return
         }
+        try? FileManager.default.removeItem(at: AppPaths.resolvedFluidAudioModelsDir(environment: environment)
+            .appendingPathComponent("orukeet-coreml-43142dd1", isDirectory: true))
         ModelHub.clearAllCaches()
     }
 
@@ -1731,6 +1733,8 @@ public actor STTRuntime: STTRuntimeProtocol {
             // until the fetch completes. Unified and TDT live in different repos.
             if variant.usesUnifiedEngine {
                 try await ParakeetUnifiedEngine.downloadModel(onProgress: onProgress)
+            } else if variant == .orukeet {
+                try await OrukeetModelStore.download(onProgress: onProgress)
             } else if let targetVersion = variant.asrModelVersion {
                 try await downloadParakeetModels(version: targetVersion, onProgress: onProgress)
             }
@@ -2341,17 +2345,25 @@ public actor STTRuntime: STTRuntimeProtocol {
 
         let generation = nextInitializationGeneration()
         let version = modelVersion
+        let isOrukeet = currentParakeetVariant == .orukeet
         let task = Task {
             var interactiveManager: AsrManager?
             var backgroundManager: AsrManager?
             let progressHandler = Self.makeDownloadProgressHandler(onProgress)
 
-            let downloadedModels = try await AsrModels.downloadAndLoad(
-                to: AppPaths.fluidAudioModelDirectory(forASRVersion: version),
-                version: version,
-                encoderComputeUnits: ParakeetTDTASRConfig.encoderComputeUnits(),
-                progressHandler: progressHandler
-            )
+            let downloadedModels: AsrModels
+            if isOrukeet {
+                downloadedModels = try await OrukeetModelStore.prepare { fraction in
+                    onProgress?("Preparing Orukeet: \(Int(fraction * 100))%")
+                }
+            } else {
+                downloadedModels = try await AsrModels.downloadAndLoad(
+                    to: AppPaths.fluidAudioModelDirectory(forASRVersion: version),
+                    version: version,
+                    encoderComputeUnits: ParakeetTDTASRConfig.encoderComputeUnits(),
+                    progressHandler: progressHandler
+                )
+            }
             do {
                 // FluidAudio progress is manager-scoped, so each slot keeps its
                 // own manager while the read-only model bundle stays shared.
