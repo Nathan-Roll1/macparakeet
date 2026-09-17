@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 2d172f1aa1e9ace95aff934ec2f60a326495e024
+          ref: f1fafde1f22a01adefd72608ddc352ffc2d44406
       - name: Record source and toolchain
         run: |
           mkdir -p evidence fixtures
@@ -28,7 +28,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ORUKEET_AUDIO_DIR="$PWD/fixtures" MACPARAKEET_DEBUG_APP_STATE_DIR="$PWD/runtime-cache" swift test --filter OrukeetModelStoreTests | tee evidence/focused-tests.log
+          ORUKEET_AUDIO_DIR="$PWD/fixtures" MACPARAKEET_DEBUG_APP_STATE_DIR="$PWD/runtime-cache" swift test --filter 'OrukeetModelStoreTests|ParakeetTDTASRConfigTests' | tee evidence/focused-tests.log
       - name: Build actual development app with the repository script
         shell: bash
         run: |
