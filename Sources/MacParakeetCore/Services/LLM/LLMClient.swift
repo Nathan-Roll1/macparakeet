@@ -44,6 +44,9 @@ public extension LLMClientProtocol {
     func structuredOutputCapability(
         context: LLMExecutionContext
     ) -> LLMStructuredOutputCapability {
+        if context.providerConfig.id.isChinaLabCloud {
+            return .promptEmbeddedJSONSchema
+        }
         if context.providerConfig.id.usesOpenAICompatibleChatCompletions {
             return .nativeJSONSchema
         }
@@ -157,7 +160,10 @@ public final class LLMClient: LLMClientProtocol, Sendable {
     public func structuredOutputCapability(
         context: LLMExecutionContext
     ) -> LLMStructuredOutputCapability {
-        (try? adapter(for: context.providerConfig.id).structuredOutputCapability)
+        if context.providerConfig.id.isChinaLabCloud {
+            return .promptEmbeddedJSONSchema
+        }
+        return (try? adapter(for: context.providerConfig.id).structuredOutputCapability)
             ?? .promptEmbeddedJSONSchema
     }
 

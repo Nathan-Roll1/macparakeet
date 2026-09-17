@@ -63,6 +63,9 @@ final class ChatCompletionsModelPolicyTests: XCTestCase {
                 thinkingMode: .disabled
             )
         )
+        XCTAssertFalse(
+            ChatCompletionsModelPolicy.shouldOmitSampling(model: "deepseek/deepseek-chat")
+        )
     }
 
     func testQwenGLMAndMiniMaxKeepSampling() {
@@ -81,6 +84,8 @@ final class ChatCompletionsModelPolicyTests: XCTestCase {
         XCTAssertFalse(ChatCompletionsModelPolicy.supportsThinkingToggle(model: "kimi-k3"))
         XCTAssertFalse(ChatCompletionsModelPolicy.supportsThinkingToggle(model: "kimi-k2.7-code"))
         XCTAssertTrue(ChatCompletionsModelPolicy.supportsThinkingToggle(model: "kimi-k2.6"))
+        XCTAssertFalse(ChatCompletionsModelPolicy.supportsThinkingToggle(model: "MiniMax-M2.7"))
+        XCTAssertTrue(ChatCompletionsModelPolicy.supportsThinkingToggle(model: "MiniMax-M3"))
         XCTAssertFalse(ChatCompletionsModelPolicy.supportsThinkingToggle(model: "gpt-4.1"))
     }
 
@@ -89,6 +94,7 @@ final class ChatCompletionsModelPolicyTests: XCTestCase {
             ChatCompletionsModelPolicy.thinkingEncoding(
                 provider: .moonshot,
                 model: "kimi-k2.6",
+                baseURL: moonshotURL,
                 thinkingMode: .disabled,
                 reasoningEffort: nil,
                 usesPromptInferenceSettings: false
@@ -98,7 +104,8 @@ final class ChatCompletionsModelPolicyTests: XCTestCase {
         XCTAssertEqual(
             ChatCompletionsModelPolicy.thinkingEncoding(
                 provider: .minimax,
-                model: "MiniMax-M2.7",
+                model: "MiniMax-M3",
+                baseURL: URL(string: LLMProviderID.minimax.defaultBaseURL)!,
                 thinkingMode: .enabled,
                 reasoningEffort: nil,
                 usesPromptInferenceSettings: false
@@ -107,8 +114,20 @@ final class ChatCompletionsModelPolicyTests: XCTestCase {
         )
         XCTAssertEqual(
             ChatCompletionsModelPolicy.thinkingEncoding(
+                provider: .minimax,
+                model: "MiniMax-M2.7",
+                baseURL: URL(string: LLMProviderID.minimax.defaultBaseURL)!,
+                thinkingMode: .disabled,
+                reasoningEffort: nil,
+                usesPromptInferenceSettings: false
+            ),
+            .omit
+        )
+        XCTAssertEqual(
+            ChatCompletionsModelPolicy.thinkingEncoding(
                 provider: .qwen,
                 model: "qwen3.7-max",
+                baseURL: URL(string: LLMProviderID.qwen.defaultBaseURL)!,
                 thinkingMode: .enabled,
                 reasoningEffort: nil,
                 usesPromptInferenceSettings: false
@@ -119,6 +138,7 @@ final class ChatCompletionsModelPolicyTests: XCTestCase {
             ChatCompletionsModelPolicy.thinkingEncoding(
                 provider: .moonshot,
                 model: "kimi-k3",
+                baseURL: moonshotURL,
                 thinkingMode: .enabled,
                 reasoningEffort: nil,
                 usesPromptInferenceSettings: false
@@ -129,6 +149,7 @@ final class ChatCompletionsModelPolicyTests: XCTestCase {
             ChatCompletionsModelPolicy.thinkingEncoding(
                 provider: .moonshot,
                 model: "kimi-k2.7-code",
+                baseURL: moonshotURL,
                 thinkingMode: .disabled,
                 reasoningEffort: nil,
                 usesPromptInferenceSettings: false
@@ -139,6 +160,7 @@ final class ChatCompletionsModelPolicyTests: XCTestCase {
             ChatCompletionsModelPolicy.thinkingEncoding(
                 provider: .openrouter,
                 model: "moonshotai/kimi-k2.6",
+                baseURL: URL(string: LLMProviderID.openrouter.defaultBaseURL)!,
                 thinkingMode: .disabled,
                 reasoningEffort: nil,
                 usesPromptInferenceSettings: false
@@ -152,6 +174,18 @@ final class ChatCompletionsModelPolicyTests: XCTestCase {
             ChatCompletionsModelPolicy.thinkingEncoding(
                 provider: .openaiCompatible,
                 model: "llama-3.1-8b",
+                baseURL: localLlamaURL,
+                thinkingMode: .disabled,
+                reasoningEffort: nil,
+                usesPromptInferenceSettings: true
+            ),
+            .llamaCpp(enableThinking: false, reasoningEffort: nil)
+        )
+        XCTAssertEqual(
+            ChatCompletionsModelPolicy.thinkingEncoding(
+                provider: .openaiCompatible,
+                model: "qwen2.5-32b-instruct",
+                baseURL: localLlamaURL,
                 thinkingMode: .disabled,
                 reasoningEffort: nil,
                 usesPromptInferenceSettings: true
@@ -162,6 +196,7 @@ final class ChatCompletionsModelPolicyTests: XCTestCase {
             ChatCompletionsModelPolicy.thinkingEncoding(
                 provider: .openaiCompatible,
                 model: "kimi-k2.6",
+                baseURL: moonshotURL,
                 thinkingMode: .disabled,
                 reasoningEffort: nil,
                 usesPromptInferenceSettings: true
@@ -169,4 +204,7 @@ final class ChatCompletionsModelPolicyTests: XCTestCase {
             .thinkingType("disabled")
         )
     }
+
+    private var moonshotURL: URL { URL(string: LLMProviderID.moonshot.defaultBaseURL)! }
+    private var localLlamaURL: URL { URL(string: "http://127.0.0.1:8080/v1")! }
 }

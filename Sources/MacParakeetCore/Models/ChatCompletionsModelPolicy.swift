@@ -59,7 +59,10 @@ enum ChatCompletionsModelPolicy {
         case .kimiK3, .kimiK27, .kimiK26, .kimiK25:
             return true
         case .deepseek:
-            return thinkingMode != .disabled
+            // V4 thinking (the default) ignores temperature. Older chat IDs
+            // still sample, including OpenRouter `deepseek/deepseek-chat`.
+            if thinkingMode == .disabled { return false }
+            return canonicalModelID(model).hasPrefix("deepseek-v4")
         case .qwen, .glm, .minimax, .generic:
             return false
         }
@@ -70,16 +73,40 @@ enum ChatCompletionsModelPolicy {
         switch family(for: model) {
         case .kimiK3, .kimiK27:
             return false
-        case .kimiK26, .kimiK25, .deepseek, .qwen, .glm, .minimax:
+        case .minimax:
+            return !canonicalModelID(model).hasPrefix("minimax-m2")
+        case .kimiK26, .kimiK25, .deepseek, .qwen, .glm:
             return true
         case .generic:
             return false
         }
     }
 
+    /// Hosted lab Chat Completions endpoints. Custom OpenAI-compatible
+    /// URLs that match these hosts get the same thinking wire as the
+    /// first-class provider; localhost llama.cpp / vLLM do not.
+    static func isKnownChinaLabHost(_ url: URL) -> Bool {
+        switch url.host?.lowercased() {
+        case "api.moonshot.ai", "api.moonshot.cn",
+            "api.deepseek.com",
+            "dashscope-intl.aliyuncs.com", "dashscope.aliyuncs.com",
+            "api.z.ai", "open.bigmodel.cn",
+            "api.minimax.io", "api.minimaxi.com":
+            return true
+        default:
+            return false
+        }
+    }
+
+    static func usesLabThinkingEncoding(provider: LLMProviderID, baseURL: URL) -> Bool {
+        if provider.isChinaLabCloud { return true }
+        return provider == .openaiCompatible && isKnownChinaLabHost(baseURL)
+    }
+
     static func thinkingEncoding(
         provider: LLMProviderID,
         model: String,
+        baseURL: URL,
         thinkingMode: PromptInferenceSettings.ThinkingMode,
         reasoningEffort: PromptInferenceSettings.ReasoningEffort?,
         usesPromptInferenceSettings: Bool
@@ -88,9 +115,9 @@ enum ChatCompletionsModelPolicy {
             return .omit
         }
 
-        let family = family(for: model)
-        if family != .generic {
-            return labThinkingEncoding(family: family, thinkingMode: thinkingMode)
+        if usesLabThinkingEncoding(provider: provider, baseURL: baseURL) {
+            return labThinkingEncoding(
+                family: family(for: model), model: model, thinkingMode: thinkingMode)
         }
 
         let usesLlamaCppKwargs =
@@ -110,6 +137,7 @@ enum ChatCompletionsModelPolicy {
 
     private static func labThinkingEncoding(
         family: ChatCompletionsModelFamily,
+        model: String,
         thinkingMode: PromptInferenceSettings.ThinkingMode
     ) -> ChatCompletionsThinkingEncoding {
         switch family {
@@ -127,6 +155,10 @@ enum ChatCompletionsModelPolicy {
                 return .thinkingType("disabled")
             }
         case .minimax:
+            // M2.x accepts `disabled` but keeps thinking on. Only M3 honors it.
+            if canonicalModelID(model).hasPrefix("minimax-m2") {
+                return .omit
+            }
             switch thinkingMode {
             case .providerDefault:
                 return .omit

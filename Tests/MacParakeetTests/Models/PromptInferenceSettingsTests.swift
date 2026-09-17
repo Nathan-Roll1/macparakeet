@@ -196,6 +196,19 @@ final class PromptInferenceSettingsTests: XCTestCase {
         )
         XCTAssertNil(openRouterKimi.options.temperature)
         XCTAssertEqual(openRouterKimi.unsupportedSettings, [.temperature])
+
+        let deepSeekThinkingOff = try PromptInferenceCapabilityResolver.resolve(
+            config: .deepseek(apiKey: "key"),
+            requested: PromptInferenceSettings(temperature: 0.4, thinkingMode: .disabled)
+        )
+        XCTAssertEqual(deepSeekThinkingOff.options.temperature, 0.4)
+        XCTAssertEqual(deepSeekThinkingOff.options.thinkingMode, .disabled)
+        XCTAssertTrue(deepSeekThinkingOff.unsupportedSettings.isEmpty)
+
+        let deepSeekDefault = try PromptInferenceCapabilityResolver.resolve(
+            config: .deepseek(apiKey: "key"),
+            requested: nil)
+        XCTAssertNil(deepSeekDefault.options.temperature)
     }
 
     func testGemini3AutomaticSamplingOmitsOnlyTheInheritedApplicationBaseline() throws {

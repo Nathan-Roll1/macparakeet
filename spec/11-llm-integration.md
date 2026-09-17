@@ -736,7 +736,8 @@ routes summary/transform prompting through the Prompt Library architecture in
 All CLI LLM commands require `--provider`; `--api-key` is required only for
 cloud providers that need one. Supported providers: `anthropic`, `openai`,
 `openaiCompatible`/`openai-compatible`, `gemini`, `openrouter`, `moonshot`
-(`kimi`), `deepseek`, `qwen`, `zai`, `minimax`, `ollama`, `lmstudio`, and
+(`kimi`, `moonshotai`), `deepseek`, `qwen` (`alibaba`, `dashscope`), `zai`
+(`zhipu`, `z.ai`, `glm`), `minimax`, `ollama`, `lmstudio`, and
 `cli`.
 
 ```bash

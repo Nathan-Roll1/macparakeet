@@ -250,16 +250,18 @@ enum LLMHTTPStreamCompletionPolicy {
     /// produce false positives:
     ///
     /// - **Strict**: OpenAI (`[DONE]`), OpenRouter (`[DONE]`, OpenAI-compat
-    ///   aggregator), Anthropic (`message_stop` event).
+    ///   aggregator), Anthropic (`message_stop` event), DeepSeek and Qwen
+    ///   DashScope Chat Completions (documented `data: [DONE]`).
     /// - **Lenient**: Gemini (no `[DONE]` per spec), OpenAI-Compatible
-    ///   (Together/Fireworks/Groq vary), LM Studio (varies), Ollama (uses
+    ///   (Together/Fireworks/Groq vary), Moonshot / Z.AI / MiniMax (not
+    ///   pinned without live evidence), LM Studio (varies), Ollama (uses
     ///   `done:true` field detected separately, not the SSE `[DONE]` line),
     ///   localCLI (subprocess output, not HTTP SSE).
     static func providerEnforcesStreamSentinel(_ id: LLMProviderID) -> Bool {
         switch id {
-        case .openai, .openrouter, .anthropic:
+        case .openai, .openrouter, .anthropic, .deepseek, .qwen:
             return true
-        case .openaiCompatible, .gemini, .moonshot, .deepseek, .qwen, .zai, .minimax, .ollama, .lmstudio, .localCLI,
+        case .openaiCompatible, .gemini, .moonshot, .zai, .minimax, .ollama, .lmstudio, .localCLI,
             .inProcessLocal:
             return false
         }

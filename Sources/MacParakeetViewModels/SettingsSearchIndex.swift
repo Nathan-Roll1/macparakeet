@@ -460,7 +460,7 @@ public enum SettingsSearchIndex {
                 "ai", "llm", "openai", "anthropic", "claude", "gpt", "lm studio", "ollama",
                 "openai compatible", "summary", "summaries", "chat", "ask", "api key",
                 "provider", "local ai", "local app", "command line", "cli",
-                "kimi", "moonshot", "deepseek", "qwen", "dashscope", "z.ai", "glm", "minimax",
+                "kimi", "moonshot", "deepseek", "qwen", "dashscope", "z.ai", "zai", "z ai", "glm", "minimax",
                 "openrouter",
             ],
             cardAnchor: "ai.provider"

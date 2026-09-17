@@ -336,15 +336,20 @@ struct OpenAICompatibleLLMHTTPAdapter: LLMHTTPAdapter {
         let thinkingEncoding = ChatCompletionsModelPolicy.thinkingEncoding(
             provider: config.id,
             model: config.modelName,
+            baseURL: config.baseURL,
             thinkingMode: options.thinkingMode,
             reasoningEffort: options.reasoningEffort,
             usesPromptInferenceSettings: options.usesPromptInferenceSettings
+        )
+        let usesLabThinking = ChatCompletionsModelPolicy.usesLabThinkingEncoding(
+            provider: config.id,
+            baseURL: config.baseURL
         )
         let supportsCustomOpenAICompatibleOptions =
             config.id == .openaiCompatible
             && options.usesPromptInferenceSettings
             && !needsNewTokenParam
-            && ChatCompletionsModelPolicy.family(for: config.modelName) == .generic
+            && !usesLabThinking
         let maxTokens = needsNewTokenParam ? nil : options.maxTokens
         let maxCompletionTokens = needsNewTokenParam ? options.maxTokens : nil
 

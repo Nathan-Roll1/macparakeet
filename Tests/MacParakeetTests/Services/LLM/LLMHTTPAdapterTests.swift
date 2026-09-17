@@ -622,7 +622,7 @@ final class LLMHTTPAdapterTests: XCTestCase {
     func testMiniMaxEnabledThinkingUsesAdaptiveType() throws {
         let request = try openAIAdapter.buildRequest(
             messages: goldenMessages,
-            config: .minimax(apiKey: "key"),
+            config: .minimax(apiKey: "key", model: "MiniMax-M3"),
             options: ChatCompletionOptions(temperature: 0.7, thinkingMode: .enabled),
             stream: false
         )
@@ -642,6 +642,61 @@ final class LLMHTTPAdapterTests: XCTestCase {
         XCTAssertNil(body["temperature"])
         XCTAssertNil(body["thinking"])
         XCTAssertNil(body["enable_thinking"])
+    }
+
+    func testDeepSeekDisabledThinkingKeepsTemperatureOnTheWire() throws {
+        let resolution = try PromptInferenceCapabilityResolver.resolve(
+            config: .deepseek(apiKey: "key"),
+            requested: PromptInferenceSettings(temperature: 0.4, thinkingMode: .disabled)
+        )
+        let request = try openAIAdapter.buildRequest(
+            messages: goldenMessages,
+            config: .deepseek(apiKey: "key"),
+            options: resolution.options,
+            stream: false
+        )
+        let body = try jsonBody(from: request)
+        XCTAssertEqual(body["temperature"] as? Double, 0.4)
+        XCTAssertEqual((body["thinking"] as? [String: String])?["type"], "disabled")
+    }
+
+    func testLocalOpenAICompatibleQwenKeepsLlamaCppKwargs() throws {
+        let config = LLMProviderConfig.openaiCompatible(
+            apiKey: "key",
+            model: "qwen2.5-32b-instruct",
+            baseURL: URL(string: "http://127.0.0.1:8080/v1")!
+        )
+        let resolution = try PromptInferenceCapabilityResolver.resolve(
+            config: config,
+            requested: PromptInferenceSettings(temperature: 0.4, thinkingMode: .disabled)
+        )
+        let request = try openAIAdapter.buildRequest(
+            messages: goldenMessages,
+            config: config,
+            options: resolution.options,
+            stream: false
+        )
+        let body = try jsonBody(from: request)
+        XCTAssertEqual(body["temperature"] as? Double, 0.4)
+        XCTAssertNil(body["enable_thinking"])
+        XCTAssertEqual((body["chat_template_kwargs"] as? [String: Any])?["enable_thinking"] as? Bool, false)
+    }
+
+    func testChinaLabStructuredOutputUsesPromptEmbeddedSchema() {
+        let client = LLMClient()
+        XCTAssertEqual(
+            client.structuredOutputCapability(context: LLMExecutionContext(providerConfig: .deepseek(apiKey: "key"))),
+            .promptEmbeddedJSONSchema
+        )
+        XCTAssertEqual(
+            client.structuredOutputCapability(context: LLMExecutionContext(providerConfig: .qwen(apiKey: "key"))),
+            .promptEmbeddedJSONSchema
+        )
+        XCTAssertEqual(
+            client.structuredOutputCapability(
+                context: LLMExecutionContext(providerConfig: .openai(apiKey: "sk", model: "gpt-4o"))),
+            .nativeJSONSchema
+        )
     }
 
     func testOpenAICompatibleGatewayGPT56UsesNativeOpenAIParameterPolicy() async throws {
