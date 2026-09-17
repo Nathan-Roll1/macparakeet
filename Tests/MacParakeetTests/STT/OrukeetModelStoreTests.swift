@@ -9,12 +9,18 @@ final class OrukeetModelStoreTests: XCTestCase {
         return url
     }
 
-    private func manifest(filename: String = "orukeet-r3-coreml-baseline.zip",
-                          bytes: Int = OrukeetModelStore.archiveBytes,
-                          sha256: String = OrukeetModelStore.archiveSHA256) throws -> Data {
-        try JSONSerialization.data(withJSONObject: ["archives": ["baseline": [
-            "filename": filename, "bytes": bytes, "sha256": sha256,
-        ]]])
+    private func manifest(
+        filename: String = "orukeet-r3-coreml-baseline.zip",
+        bytes: Int = OrukeetModelStore.archiveBytes,
+        sha256: String = OrukeetModelStore.archiveSHA256
+    ) throws -> Data {
+        try JSONSerialization.data(withJSONObject: [
+            "archives": [
+                "baseline": [
+                    "filename": filename, "bytes": bytes, "sha256": sha256,
+                ]
+            ]
+        ])
     }
 
     func testManifestRejectsChangedArtifactMetadata() throws {
@@ -27,8 +33,9 @@ final class OrukeetModelStoreTests: XCTestCase {
 
     func testIncompleteCacheIsNotInstalled() throws {
         let directory = try temporaryDirectory()
-        try OrukeetModelStore.revision.write(to: directory.appendingPathComponent(".revision"),
-                                            atomically: true, encoding: .utf8)
+        try OrukeetModelStore.revision.write(
+            to: directory.appendingPathComponent(".revision"),
+            atomically: true, encoding: .utf8)
         XCTAssertFalse(OrukeetModelStore.installed(at: directory))
         XCTAssertThrowsError(try OrukeetModelStore.load(from: directory))
     }
@@ -51,8 +58,9 @@ final class OrukeetModelStoreTests: XCTestCase {
         try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
         let marker = destination.appendingPathComponent("previous")
         try Data("previous".utf8).write(to: marker)
-        XCTAssertThrowsError(try OrukeetModelStore.commitInstallation(
-            from: directory.appendingPathComponent("missing"), to: destination))
+        XCTAssertThrowsError(
+            try OrukeetModelStore.commitInstallation(
+                from: directory.appendingPathComponent("missing"), to: destination))
         XCTAssertEqual(try Data(contentsOf: marker), Data("previous".utf8))
     }
 
@@ -95,8 +103,9 @@ final class OrukeetModelStoreTests: XCTestCase {
             for name in ["en", "de", "fr", "silence"] {
                 for job: STTJobKind in [.fileTranscription, .dictation, .meetingLiveChunk] {
                     let start = Date()
-                    let result = try await client.transcribe(audioPath: audio.appendingPathComponent(name + ".wav").path,
-                                                             job: job, onProgress: nil)
+                    let result = try await client.transcribe(
+                        audioPath: audio.appendingPathComponent(name + ".wav").path,
+                        job: job, onProgress: nil)
                     XCTAssertEqual(result.engineVariant, "orukeet")
                     let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
                     if name == "silence" { XCTAssertTrue(text.isEmpty) } else { XCTAssertFalse(text.isEmpty) }
@@ -104,7 +113,9 @@ final class OrukeetModelStoreTests: XCTestCase {
                     if let expected = previous[key] { XCTAssertEqual(text, expected) }
                     previous[key] = text
                     XCTAssertTrue(result.words.allSatisfy { $0.startMs >= 0 && $0.endMs >= $0.startMs })
-                    print("ORUKEET_SMOKE round=\(round) clip=\(name) job=\(job) seconds=\(Date().timeIntervalSince(start)) text=\(text)")
+                    print(
+                        "ORUKEET_SMOKE round=\(round) clip=\(name) job=\(job) seconds=\(Date().timeIntervalSince(start)) text=\(text)"
+                    )
                 }
             }
             await client.shutdown()

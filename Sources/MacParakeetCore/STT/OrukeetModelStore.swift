@@ -93,8 +93,9 @@ public enum OrukeetModelStore {
     static func validateManifest(_ data: Data) throws -> Manifest.Archive {
         let manifest = try JSONDecoder().decode(Manifest.self, from: data)
         guard let archive = manifest.archives["baseline"],
-              archive.filename == "orukeet-r3-coreml-baseline.zip",
-              archive.bytes == archiveBytes, archive.sha256 == archiveSHA256 else {
+            archive.filename == "orukeet-r3-coreml-baseline.zip",
+            archive.bytes == archiveBytes, archive.sha256 == archiveSHA256
+        else {
             throw CocoaError(.fileReadCorruptFile)
         }
         return archive
@@ -157,15 +158,19 @@ public enum OrukeetModelStore {
             }
         }
 
-        func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
-                        didWriteData bytesWritten: Int64, totalBytesWritten: Int64,
-                        totalBytesExpectedToWrite: Int64) {
+        func urlSession(
+            _ session: URLSession, downloadTask: URLSessionDownloadTask,
+            didWriteData bytesWritten: Int64, totalBytesWritten: Int64,
+            totalBytesExpectedToWrite: Int64
+        ) {
             // The pinned manifest supplies a length even when an HF redirect does not.
             progress(min(0.9, max(0, Double(totalBytesWritten) / Double(expectedBytes) * 0.9)))
         }
 
-        func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
-                        didFinishDownloadingTo location: URL) {
+        func urlSession(
+            _ session: URLSession, downloadTask: URLSessionDownloadTask,
+            didFinishDownloadingTo location: URL
+        ) {
             result = Result {
                 guard let response = downloadTask.response else { throw URLError(.badServerResponse) }
                 let retained = FileManager.default.temporaryDirectory
