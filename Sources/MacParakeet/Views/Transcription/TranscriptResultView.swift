@@ -5784,6 +5784,7 @@ private struct EngineOptionCard: View {
             case .v3: "Fast local default • word timestamps"
             case .v2: "English stability • word timestamps"
             case .unified: "Readable English • word timestamps"
+            case .orukeet: "Orukeet preview • 25 languages"
             }
         case .nemotron:
             nemotronVariant.isEnglishOnly

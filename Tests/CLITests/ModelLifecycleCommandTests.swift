@@ -6,6 +6,12 @@ import XCTest
 @testable import CLI
 
 final class ModelLifecycleCommandTests: XCTestCase {
+    func testOrukeetSelectorsResolveWithoutStockVersionFallback() throws {
+        XCTAssertEqual(parakeetDownloadVariant(from: "parakeet-orukeet"), .orukeet)
+        XCTAssertEqual(try ConfigCommand.parseParakeetModelVariant("orukeet"), .orukeet)
+        XCTAssertEqual(TranscribeCommand.resolveParakeetModelVariant(.orukeet, storedVariant: .v2), .orukeet)
+    }
+
     func testValidatedAttemptsRejectsZero() {
         XCTAssertThrowsError(try validatedAttempts(0)) { error in
             XCTAssertTrue(error is ValidationError)
