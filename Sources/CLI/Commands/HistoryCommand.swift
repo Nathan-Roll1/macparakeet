@@ -630,23 +630,31 @@ struct RenameSubcommand: AsyncParsableCommand {
             let kind: String
             switch transcription.sourceType {
             case .meeting:
-                guard let persisted = try repo.updateFileName(id: transcription.id, fileName: trimmed) else {
-                    throw CLILookupError.notFound("No transcription matching '\(id)'")
+                if transcription.fileName == trimmed {
+                    updated = transcription
+                } else {
+                    guard let persisted = try repo.updateFileName(id: transcription.id, fileName: trimmed) else {
+                        throw CLILookupError.notFound("No transcription matching '\(id)'")
+                    }
+                    await refreshMeetingArtifacts(
+                        transcriptionID: persisted.id,
+                        attributionReader: SpeakerAttributionReadService(dbQueue: dbManager.dbQueue),
+                        resultRepo: PromptResultRepository(dbQueue: dbManager.dbQueue),
+                        db: dbManager
+                    )
+                    updated = persisted
                 }
-                await refreshMeetingArtifacts(
-                    transcriptionID: persisted.id,
-                    attributionReader: SpeakerAttributionReadService(dbQueue: dbManager.dbQueue),
-                    resultRepo: PromptResultRepository(dbQueue: dbManager.dbQueue),
-                    db: dbManager
-                )
-                updated = persisted
                 kind = "meeting"
             case .file:
-                try repo.updateTitleOverride(id: transcription.id, titleOverride: trimmed)
-                guard let persisted = try repo.fetch(id: transcription.id) else {
-                    throw CLILookupError.notFound("No transcription matching '\(id)'")
+                if transcription.effectiveDisplayTitle == trimmed {
+                    updated = transcription
+                } else {
+                    try repo.updateTitleOverride(id: transcription.id, titleOverride: trimmed)
+                    guard let persisted = try repo.fetch(id: transcription.id) else {
+                        throw CLILookupError.notFound("No transcription matching '\(id)'")
+                    }
+                    updated = persisted
                 }
-                updated = persisted
                 kind = "file"
             case .youtube, .podcast:
                 throw ValidationError(

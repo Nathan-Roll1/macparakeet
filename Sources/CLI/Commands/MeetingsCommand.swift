@@ -385,11 +385,18 @@ struct MeetingsCommand: AsyncParsableCommand {
                         json: json,
                         envelope: envelope,
                         commandName: "meetings corrections rename"
-                    ) { _ in
-                        .rename(
-                            speakerID: speaker.trimmingCharacters(in: .whitespacesAndNewlines),
-                            label: label.trimmingCharacters(in: .whitespacesAndNewlines)
-                        )
+                    ) { projection in
+                        let speakerID = speaker.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let trimmedLabel = label.trimmingCharacters(in: .whitespacesAndNewlines)
+                        // An unchanged label is not a rename. Applying it would
+                        // still insert a journal row and advance revision, then
+                        // break callers holding `--expected-revision`.
+                        if let current = projection.attribution.speakers.first(where: { $0.id == speakerID }),
+                            current.label == trimmedLabel
+                        {
+                            return nil
+                        }
+                        return .rename(speakerID: speakerID, label: trimmedLabel)
                     }
                 }
             }
@@ -1422,7 +1429,7 @@ private func runMeetingCorrection(
     json: Bool,
     envelope: Bool,
     commandName: String,
-    command: (SpeakerAttributionProjection) throws -> SpeakerCorrectionCommand
+    command: (SpeakerAttributionProjection) throws -> SpeakerCorrectionCommand?
 ) async throws {
     let repositories = try makeMeetingResultRepositories(database: database)
     let transcription = try findMeeting(idOrName: meeting, repo: repositories.transcriptions)
@@ -1430,12 +1437,14 @@ private func runMeetingCorrection(
     guard projection.correctionRevision == expectedRevision else {
         throw SpeakerCorrectionServiceError.conflict
     }
-    _ = try await SpeakerCorrectionService(dbQueue: repositories.database.dbQueue).apply(
-        transcriptionId: transcription.id,
-        command: try command(projection),
-        expectedFingerprint: projection.attribution.fingerprint,
-        expectedRevision: expectedRevision
-    )
+    if let correction = try command(projection) {
+        _ = try await SpeakerCorrectionService(dbQueue: repositories.database.dbQueue).apply(
+            transcriptionId: transcription.id,
+            command: correction,
+            expectedFingerprint: projection.attribution.fingerprint,
+            expectedRevision: expectedRevision
+        )
+    }
     try await emitMeetingCorrectionResult(
         transcription: transcription,
         repositories: repositories,

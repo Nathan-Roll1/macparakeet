@@ -244,12 +244,22 @@ with human progress/status kept off stdout.
   target current
   segment UUIDs from `meetings transcript --format json`. Speaker rename and
   merge-speakers use speaker ids from that same JSON. A stale revision or
-  segment is rejected without advancing history. JSON success output is the
+  segment is rejected without advancing history. An identical speaker rename
+  (trimmed label already on that speaker) succeeds without inserting a journal
+  row or advancing revision. JSON success output is the
   updated `MeetingTranscriptRecord`, including the new revision and effective
   projection. JSON failures use `conflict` for a stale expected revision,
   `validation` for stale/unsupported segment targets and correction commands,
   and `input_empty` for blank replacement text. Conflict exits `1`; validation
   and empty-input misuse exit `2`.
+- `history favorite|unfavorite --json` returns `ok`, `id`, and `isFavorite`.
+- `history rename --title --json` returns `ok`, `kind` (`meeting` or `file`),
+  `id`, and `title` (the effective display title). An identical title still
+  succeeds without writing. YouTube and podcast rows are rejected before JSON
+  success.
+- `vocab words add --json` returns `ok` plus the stored `word` object,
+  including `id`. `vocab snippets add --json` returns `ok` plus the stored
+  `snippet` object, including `id`.
 - `meetings show --json` meeting objects can include optional `startContext`
   for meeting rows. When present it contains `triggerKind`, `sourceMode`, and
   optional `frontmostApplication` (`bundleIdentifier`, `localizedName`).

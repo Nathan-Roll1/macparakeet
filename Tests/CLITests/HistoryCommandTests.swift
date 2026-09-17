@@ -695,6 +695,63 @@ final class HistoryCommandTests: XCTestCase {
         }
     }
 
+    func testRenameCommandNoOpsIdenticalTitles() async throws {
+        let dbURL = temporaryDatabaseURL()
+        defer { try? FileManager.default.removeItem(at: dbURL) }
+        let db = try DatabaseManager(path: dbURL.path)
+        let repo = TranscriptionRepository(dbQueue: db.dbQueue)
+        let meeting = Transcription(
+            fileName: "Standup",
+            rawTranscript: "hello",
+            status: .completed,
+            sourceType: .meeting
+        )
+        let file = Transcription(
+            fileName: "notes.mp3",
+            rawTranscript: "vendor notes",
+            status: .completed,
+            sourceType: .file,
+            titleOverride: "Q3 vendor notes"
+        )
+        try repo.save(meeting)
+        try repo.save(file)
+        let meetingUpdatedAt = try XCTUnwrap(try repo.fetch(id: meeting.id)?.updatedAt)
+        let fileUpdatedAt = try XCTUnwrap(try repo.fetch(id: file.id)?.updatedAt)
+
+        let meetingRename = try RenameSubcommand.parse([
+            meeting.id.uuidString,
+            "--title", "  Standup  ",
+            "--json",
+            "--database", dbURL.path,
+        ])
+        let meetingOutput = try await captureStandardOutput { try await meetingRename.run() }
+        let meetingJSON = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(meetingOutput.utf8)) as? [String: Any]
+        )
+        XCTAssertEqual(meetingJSON["kind"] as? String, "meeting")
+        XCTAssertEqual(meetingJSON["title"] as? String, "Standup")
+        let unchangedMeeting = try XCTUnwrap(try repo.fetch(id: meeting.id))
+        XCTAssertEqual(unchangedMeeting.fileName, "Standup")
+        XCTAssertEqual(unchangedMeeting.updatedAt, meetingUpdatedAt)
+
+        let fileRename = try RenameSubcommand.parse([
+            file.id.uuidString,
+            "--title", "Q3 vendor notes",
+            "--json",
+            "--database", dbURL.path,
+        ])
+        let fileOutput = try await captureStandardOutput { try await fileRename.run() }
+        let fileJSON = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(fileOutput.utf8)) as? [String: Any]
+        )
+        XCTAssertEqual(fileJSON["kind"] as? String, "file")
+        XCTAssertEqual(fileJSON["title"] as? String, "Q3 vendor notes")
+        let unchangedFile = try XCTUnwrap(try repo.fetch(id: file.id))
+        XCTAssertEqual(unchangedFile.fileName, "notes.mp3")
+        XCTAssertEqual(unchangedFile.titleOverride, "Q3 vendor notes")
+        XCTAssertEqual(unchangedFile.updatedAt, fileUpdatedAt)
+    }
+
     func testRenameRejectsEmptyTitle() {
         XCTAssertThrowsError(try RenameSubcommand.parse(["abcd", "--title", "   "]))
     }

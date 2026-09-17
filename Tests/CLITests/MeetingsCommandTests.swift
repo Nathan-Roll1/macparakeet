@@ -294,6 +294,66 @@ final class MeetingsCommandTests: XCTestCase {
         XCTAssertTrue(mergedSegments.allSatisfy { ($0["speakerId"] as? String) == "S1" })
     }
 
+    func testSpeakerRenameWithIdenticalLabelDoesNotAdvanceRevision() async throws {
+        let dbURL = temporaryDatabaseURL()
+        defer { try? FileManager.default.removeItem(at: dbURL) }
+        let db = try DatabaseManager(path: dbURL.path)
+        let repository = TranscriptionRepository(dbQueue: db.dbQueue)
+        let segmentID = UUID()
+        let meeting = Transcription(
+            fileName: "CLI identical speaker rename",
+            rawTranscript: "hello there.",
+            cleanTranscript: "hello there.",
+            wordTimestamps: [
+                WordTimestamp(word: "hello", startMs: 0, endMs: 100, confidence: 1, speakerId: "S1"),
+                WordTimestamp(word: "there.", startMs: 120, endMs: 220, confidence: 1, speakerId: "S1"),
+            ],
+            speakers: [.init(id: "S1", label: "Alice")],
+            transcriptSegments: [
+                .init(
+                    id: segmentID, startMs: 0, endMs: 220, speakerId: "S1",
+                    speakerLabel: "Alice", text: "hello there.",
+                    wordRange: .init(startIndex: 0, endIndexExclusive: 2)
+                ),
+            ],
+            status: .completed,
+            sourceType: .meeting
+        )
+        try repository.save(meeting)
+
+        let identical = try MeetingsCommand.CorrectionsSubcommand.Rename.parse([
+            meeting.id.uuidString,
+            "--speaker", "S1",
+            "--label", "  Alice  ",
+            "--expected-revision", "0",
+            "--json",
+            "--database", dbURL.path,
+        ])
+        let identicalJSON = try await correctionJSON { try await identical.run() }
+        XCTAssertEqual(identicalJSON["speakerCorrectionRevision"] as? Int, 0)
+        let identicalSpeakers = try XCTUnwrap(identicalJSON["speakers"] as? [[String: Any]])
+        XCTAssertEqual(
+            identicalSpeakers.first { $0["id"] as? String == "S1" }?["label"] as? String,
+            "Alice"
+        )
+
+        let changed = try MeetingsCommand.CorrectionsSubcommand.Rename.parse([
+            meeting.id.uuidString,
+            "--speaker", "S1",
+            "--label", "Alicia",
+            "--expected-revision", "0",
+            "--json",
+            "--database", dbURL.path,
+        ])
+        let changedJSON = try await correctionJSON { try await changed.run() }
+        XCTAssertEqual(changedJSON["speakerCorrectionRevision"] as? Int, 1)
+        let changedSpeakers = try XCTUnwrap(changedJSON["speakers"] as? [[String: Any]])
+        XCTAssertEqual(
+            changedSpeakers.first { $0["id"] as? String == "S1" }?["label"] as? String,
+            "Alicia"
+        )
+    }
+
     func testAssignRejectsContradictorySpeakerFlags() {
         XCTAssertThrowsError(
             try MeetingsCommand.CorrectionsSubcommand.Assign.parse([

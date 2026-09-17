@@ -150,7 +150,7 @@ struct ConfigCommand: ParsableCommand {
             key: "custom-vocabulary-boosting",
             valueSyntax: "on|off",
             allowedValues: ["on", "off"],
-            summary: "Enable Parakeet TDT recognition-time boosting for enabled custom words without replacement text."
+            summary: "Enable Parakeet TDT recognition-time boosting for enabled custom words without replacement text. Default off; Settings shows status but has no toggle."
         ),
         CLIConfigKeySpec(
             key: "auto-meeting-titles",

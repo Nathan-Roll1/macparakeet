@@ -38,7 +38,7 @@ split, not a wiring bug. Skip.
 | `spec --json` omits `transcribe --no-diarize` | `05` | **Yes** |
 | `plans/README.md` still says meeting split has no implementation | `04` | **Yes** — docs |
 | Library FTS / cards GUI browser | `06` | **No** — by design |
-| Config: ~19 extra GUI prefs | `02` | **One key only** — `custom-vocabulary-boosting` (CLI can add words that never boost) |
+| Config: ~19 extra GUI prefs | `02` | **One key only** — `custom-vocabulary-boosting` (hidden runtime pref; Settings has status, no toggle) |
 
 ## Rejected as overengineering for this PR
 
