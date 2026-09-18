@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 610c18f45cc2b9b5b81ee3cc09c28fac1e23b4b9
+          ref: d1e86be909f54cba8b3d21c1d05f824d519ca731
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}

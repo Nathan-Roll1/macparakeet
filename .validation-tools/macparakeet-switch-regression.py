@@ -46,15 +46,22 @@ actor Gate {
  }
 }
 let cleanupGate = Gate()
+let downloadGate = Gate()
+actor DownloadControl {
+ var enabled = false
+ func setEnabled(_ value: Bool) { enabled = value }
+ func prepare() async { if enabled { await downloadGate.suspendCleanup() } }
+}
+let downloads = DownloadControl()
 struct Manager: Sendable { let variant: ParakeetModelVariant }
 actor Unified {
  func unload() {}
 }
 enum ParakeetUnifiedEngine {
- static func downloadModel(onProgress: (@Sendable (String) -> Void)?) async throws {}
+ static func downloadModel(onProgress: (@Sendable (String) -> Void)?) async throws { await downloads.prepare() }
 }
 enum OrukeetModelStore {
- static func download(onProgress: (@Sendable (String) -> Void)?) async throws {}
+ static func download(onProgress: (@Sendable (String) -> Void)?) async throws { await downloads.prepare() }
 }
 actor STTRuntime {
  var currentParakeetVariant: ParakeetModelVariant
@@ -72,9 +79,10 @@ actor STTRuntime {
   if variant == .unified { parakeetUnifiedEngine = Unified() }
   else { interactiveManager = Manager(variant: variant); backgroundManager = interactiveManager }
  }
+ func markBusy() { speechEngineActivity.isIdle = false }
  func invalidateBackgroundWarmUp() {}
  func setBackgroundWarmUpState(_ state: Warmup) {}
- func downloadParakeetModels(version: Version, onProgress: (@Sendable (String) -> Void)?) async throws {}
+ func downloadParakeetModels(version: Version, onProgress: (@Sendable (String) -> Void)?) async throws { await downloads.prepare() }
  func cancelInitialization() -> Task<Void, any Error>? { let t = initializationTask; initializationTask = nil; return t }
  static func cleanupManagers(interactiveManager: Manager?, backgroundManager: Manager?) async {
   await cleanupGate.suspendCleanup()
@@ -114,6 +122,23 @@ suffix=r'''
     print("\(ok ? "PASS" : "FAIL") \(original.rawValue)->\(target.rawValue) during=\(during.rawValue) after=\(after.rawValue) loads=\(loads)")
    }
   }
+  await cleanupGate.reset()
+  await cleanupGate.release()
+  await downloadGate.reset()
+  await downloads.setEnabled(true)
+  let busyRuntime = STTRuntime(.v3)
+  let pending = Task { try await busyRuntime.setParakeetModelVariant(.orukeet, onProgress: nil) }
+  try await downloadGate.awaitEntry()
+  await busyRuntime.markBusy()
+  await downloadGate.release()
+  var busyWasRejected = false
+  do { try await pending.value } catch STTError.engineBusy { busyWasRejected = true }
+  let afterBusy = try await busyRuntime.transcribedVariant()
+  let unloadedBusy = await cleanupGate.entered
+  let busyOK = busyWasRejected && afterBusy == .v3 && !unloadedBusy
+  if !busyOK { failures += 1 }
+  cases += 1
+  print("\(busyOK ? "PASS" : "FAIL") active speech during download preserves v3 and returns engineBusy")
   print("CASES=\(cases) FAILURES=\(failures)")
   if failures != 0 { exit(1) }
  }
