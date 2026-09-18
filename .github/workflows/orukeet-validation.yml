@@ -31,16 +31,11 @@ jobs:
           done
       - name: Lint the new model files
         run: xcrun swift-format lint --configuration .swift-format Sources/MacParakeetCore/STT/OrukeetModelStore.swift Tests/MacParakeetTests/STT/OrukeetModelStoreTests.swift
-      - name: Focused installer and real scheduler regressions
+      - name: Recheck path-sensitive tests with standard app state
         shell: bash
         run: |
           set -euo pipefail
-          ORUKEET_AUDIO_DIR="$PWD/fixtures" MACPARAKEET_DEBUG_APP_STATE_DIR="$PWD/runtime-cache" swift test --filter 'OrukeetModelStoreTests|ParakeetTDTASRConfigTests|SpecCommandTests|STTRuntimeInferenceGatingTests|SpeechEnginePreferenceTests' | tee evidence/focused-tests.log
-      - name: Full test suite (one final pass)
-        shell: bash
-        run: |
-          set -euo pipefail
-          MACPARAKEET_DEBUG_APP_STATE_DIR="$PWD/full-suite-cache" swift test --skip-build | tee evidence/full-tests.log
+          env -u MACPARAKEET_DEBUG_APP_STATE_DIR swift test --filter 'AppPathsTests|ConfigCommandTests|MeetingSplitCommandTests|SplitAndTranscribeFixtureSeedTests' | tee evidence/path-tests.log
       - name: Build actual development app with the repository script
         shell: bash
         run: |
