@@ -12,7 +12,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: f1fafde1f22a01adefd72608ddc352ffc2d44406
+          ref: 610c18f45cc2b9b5b81ee3cc09c28fac1e23b4b9
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: validation-tools
+          sparse-checkout: .validation-tools
+      - name: Reproduce model-switch interleaving before and after the fix
+        run: python3 validation-tools/.validation-tools/macparakeet-switch-regression.py "$PWD" "$PWD/evidence"
       - name: Record source and toolchain
         run: |
           mkdir -p evidence fixtures
@@ -28,7 +35,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ORUKEET_AUDIO_DIR="$PWD/fixtures" MACPARAKEET_DEBUG_APP_STATE_DIR="$PWD/runtime-cache" swift test --filter 'OrukeetModelStoreTests|ParakeetTDTASRConfigTests' | tee evidence/focused-tests.log
+          ORUKEET_AUDIO_DIR="$PWD/fixtures" MACPARAKEET_DEBUG_APP_STATE_DIR="$PWD/runtime-cache" swift test --filter 'OrukeetModelStoreTests|ParakeetTDTASRConfigTests|SpecCommandTests|STTRuntimeInferenceGatingTests|SpeechEnginePreferenceTests' | tee evidence/focused-tests.log
+      - name: Full test suite (one final pass)
+        shell: bash
+        run: |
+          set -euo pipefail
+          MACPARAKEET_DEBUG_APP_STATE_DIR="$PWD/full-suite-cache" swift test --skip-build | tee evidence/full-tests.log
       - name: Build actual development app with the repository script
         shell: bash
         run: |
