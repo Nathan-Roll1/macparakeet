@@ -1739,6 +1739,12 @@ public actor STTRuntime: STTRuntimeProtocol {
                 try await downloadParakeetModels(version: targetVersion, onProgress: onProgress)
             }
 
+            // Work may have started while the download suspended. Keep the
+            // serving model intact until that transcription or load completes.
+            try Task.checkCancellation()
+            guard initializationTask == nil, speechEngineActivity.isIdle else {
+                throw STTError.engineBusy
+            }
             onProgress?("Loading \(variant.modelName) with Core ML...")
             // Unloading suspends for cleanup. Reentrant initialization must
             // observe the target selection once the old managers are detached.
