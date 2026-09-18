@@ -1740,11 +1740,13 @@ public actor STTRuntime: STTRuntimeProtocol {
             }
 
             onProgress?("Loading \(variant.modelName) with Core ML...")
-            await unloadParakeet()
+            // Unloading suspends for cleanup. Reentrant initialization must
+            // observe the target selection once the old managers are detached.
             currentParakeetVariant = variant
             if let targetVersion = variant.asrModelVersion {
                 modelVersion = targetVersion
             }
+            await unloadParakeet()
             try await ensureInitialized()
 
             onProgress?("\(variant.modelName) is ready")
@@ -2174,7 +2176,6 @@ public actor STTRuntime: STTRuntimeProtocol {
     private func unloadParakeet() async {
         let inFlightInitialization = cancelInitialization()
         inFlightInitialization?.cancel()
-        _ = try? await inFlightInitialization?.value
 
         let interactiveManager = self.interactiveManager
         let backgroundManager = self.backgroundManager
@@ -2182,15 +2183,17 @@ public actor STTRuntime: STTRuntimeProtocol {
         self.backgroundManager = nil
         self.models = nil
         self.decoderLayerCount = nil
+        let unifiedEngine = self.parakeetUnifiedEngine
+        self.parakeetUnifiedEngine = nil
+
+        // Detach every old runtime before the first suspension. Otherwise a
+        // reentrant load can reuse old managers or have its new Unified engine
+        // cleared after the TDT cleanup returns.
+        _ = try? await inFlightInitialization?.value
         await Self.cleanupManagers(
             interactiveManager: interactiveManager,
             backgroundManager: backgroundManager
         )
-
-        // The Unified engine is the other half of "Parakeet" — tear it down here
-        // too so engine swaps and shutdown release its CoreML models.
-        let unifiedEngine = self.parakeetUnifiedEngine
-        self.parakeetUnifiedEngine = nil
         await unifiedEngine?.unload()
     }
 
